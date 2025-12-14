@@ -6,7 +6,12 @@ import { chatRequestSchema, type Message } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured. Please add your API key.");
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -143,6 +148,7 @@ export async function registerRoutes(
       let fullContent = "";
 
       try {
+        const openai = getOpenAIClient();
         const stream = await openai.chat.completions.create({
           model: model === "gpt-5" ? "gpt-5" : model,
           messages: openaiMessages,
