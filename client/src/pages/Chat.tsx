@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { Connection } from "@shared/schema";
 
 interface ConversationData extends Conversation {
   messages: Message[];
@@ -23,25 +24,33 @@ function ChatContent({
   activeConversation,
   isLoading,
   streamingContent,
+  selectedModel,
+  selectedConnectionId,
+  selectedProjectId,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
   onSendMessage,
   onClearChat,
-  selectedModel,
   onModelChange,
+  onConnectionChange,
+  onProjectChange,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
   isLoading: boolean;
   streamingContent: string;
+  selectedModel: string;
+  selectedConnectionId: string | null;
+  selectedProjectId: string | null;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onSendMessage: (message: string) => void;
   onClearChat: () => void;
-  selectedModel: string;
   onModelChange: (modelId: string) => void;
+  onConnectionChange: (connectionId: string) => void;
+  onProjectChange: (projectId: string | null) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useSidebar();
@@ -68,10 +77,14 @@ function ChatContent({
         conversations={conversations}
         activeConversationId={activeConversation?.id || null}
         selectedModel={selectedModel}
+        selectedConnectionId={selectedConnectionId}
+        selectedProjectId={selectedProjectId}
         onNewChat={onNewChat}
         onSelectConversation={onSelectConversation}
         onDeleteConversation={onDeleteConversation}
         onModelChange={onModelChange}
+        onConnectionChange={onConnectionChange}
+        onProjectChange={onProjectChange}
       />
 
       <div className="flex flex-col flex-1 h-screen">
@@ -137,12 +150,26 @@ export default function Chat() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [selectedModel, setSelectedModel] = useState("gpt-4o");
+  const [selectedModel, setSelectedModel] = useState("llama3.2");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: conversations = [], isLoading: isLoadingConversations } = useQuery<ConversationData[]>({
     queryKey: ["/api/conversations"],
   });
+
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ["/api/connections"],
+  });
+
+  useEffect(() => {
+    if (connections.length > 0 && !selectedConnectionId) {
+      const defaultConnection = connections.find((c) => c.isDefault) || connections[0];
+      setSelectedConnectionId(defaultConnection.id);
+      setSelectedModel(defaultConnection.defaultModel);
+    }
+  }, [connections, selectedConnectionId]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
 
@@ -169,6 +196,14 @@ export default function Chat() {
     setStreamingContent("");
   };
 
+  const handleConnectionChange = (connectionId: string) => {
+    setSelectedConnectionId(connectionId);
+    const connection = connections.find((c) => c.id === connectionId);
+    if (connection) {
+      setSelectedModel(connection.defaultModel);
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
     setIsLoading(true);
     setStreamingContent("");
@@ -179,6 +214,8 @@ export default function Chat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeConversationId,
+          projectId: selectedProjectId,
+          connectionId: selectedConnectionId,
           message: content,
           model: selectedModel,
         }),
@@ -261,13 +298,17 @@ export default function Chat() {
           activeConversation={activeConversation}
           isLoading={isLoading}
           streamingContent={streamingContent}
+          selectedModel={selectedModel}
+          selectedConnectionId={selectedConnectionId}
+          selectedProjectId={selectedProjectId}
           onNewChat={createNewChat}
           onSelectConversation={setActiveConversationId}
           onDeleteConversation={handleDeleteConversation}
           onSendMessage={handleSendMessage}
           onClearChat={handleClearChat}
-          selectedModel={selectedModel}
           onModelChange={setSelectedModel}
+          onConnectionChange={handleConnectionChange}
+          onProjectChange={setSelectedProjectId}
         />
       </div>
     </SidebarProvider>

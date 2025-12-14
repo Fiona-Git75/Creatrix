@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 export interface Conversation {
   id: string;
   title: string;
+  projectId?: string;
+  connectionId?: string;
 }
 
 interface ConversationItemProps {
