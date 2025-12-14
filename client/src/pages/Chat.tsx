@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Menu, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,15 +10,19 @@ import { ChatInput } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { type Conversation } from "@/components/ConversationItem";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface ConversationData extends Conversation {
   messages: Message[];
+  model: string;
 }
 
 function ChatContent({
   conversations,
   activeConversation,
   isLoading,
+  streamingContent,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
@@ -29,6 +34,7 @@ function ChatContent({
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
   isLoading: boolean;
+  streamingContent: string;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -42,10 +48,19 @@ function ChatContent({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConversation?.messages]);
+  }, [activeConversation?.messages, streamingContent]);
 
   const messages = activeConversation?.messages || [];
-  const hasMessages = messages.length > 0;
+  const hasMessages = messages.length > 0 || streamingContent;
+
+  const displayMessages = [...messages];
+  if (streamingContent) {
+    displayMessages.push({
+      id: "streaming",
+      role: "assistant",
+      content: streamingContent,
+    });
+  }
 
   return (
     <>
@@ -92,11 +107,11 @@ function ChatContent({
             <>
               <ScrollArea className="flex-1">
                 <div className="py-4">
-                  {messages.map((message, index) => (
+                  {displayMessages.map((message, index) => (
                     <ChatMessage
                       key={message.id}
                       message={message}
-                      isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
+                      isStreaming={message.id === "streaming"}
                     />
                   ))}
                   <div ref={messagesEndRef} />
@@ -119,87 +134,109 @@ function ChatContent({
 }
 
 export default function Chat() {
-  const [conversations, setConversations] = useState<ConversationData[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
   const [selectedModel, setSelectedModel] = useState("gpt-4o");
+  const { toast } = useToast();
+
+  const { data: conversations = [], isLoading: isLoadingConversations } = useQuery<ConversationData[]>({
+    queryKey: ["/api/conversations"],
+  });
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/conversations/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("PATCH", `/api/conversations/${id}`, { messages: [] });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+    },
+  });
+
   const createNewChat = () => {
-    const newConversation: ConversationData = {
-      id: crypto.randomUUID(),
-      title: "New Chat",
-      messages: [],
-    };
-    setConversations((prev) => [newConversation, ...prev]);
-    setActiveConversationId(newConversation.id);
+    setActiveConversationId(null);
+    setStreamingContent("");
   };
 
   const handleSendMessage = async (content: string) => {
-    let currentConversationId = activeConversationId;
-
-    if (!currentConversationId) {
-      const newConversation: ConversationData = {
-        id: crypto.randomUUID(),
-        title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
-        messages: [],
-      };
-      setConversations((prev) => [newConversation, ...prev]);
-      currentConversationId = newConversation.id;
-      setActiveConversationId(currentConversationId);
-    }
-
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content,
-    };
-
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === currentConversationId) {
-          const updatedTitle = c.messages.length === 0
-            ? content.slice(0, 50) + (content.length > 50 ? "..." : "")
-            : c.title;
-          return {
-            ...c,
-            title: updatedTitle,
-            messages: [...c.messages, userMessage],
-          };
-        }
-        return c;
-      })
-    );
-
     setIsLoading(true);
+    setStreamingContent("");
 
-    // todo: remove mock functionality - replace with actual API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: activeConversationId,
+          message: content,
+          model: selectedModel,
+        }),
+      });
 
-    const assistantMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content: `This is a simulated response to: "${content}"\n\nIn the full implementation, this would connect to OpenAI's API using the ${selectedModel} model to generate intelligent responses.`,
-    };
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to send message");
+      }
 
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === currentConversationId) {
-          return {
-            ...c,
-            messages: [...c.messages, assistantMessage],
-          };
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === "conversation_id" && !activeConversationId) {
+                setActiveConversationId(data.id);
+              } else if (data.type === "content") {
+                accumulated += data.content;
+                setStreamingContent(accumulated);
+              } else if (data.type === "done") {
+                setStreamingContent("");
+                queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+              } else if (data.type === "error") {
+                throw new Error(data.message);
+              }
+            } catch (parseError) {
+              // Skip invalid JSON
+            }
+          }
         }
-        return c;
-      })
-    );
-
-    setIsLoading(false);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteConversation = (id: string) => {
-    setConversations((prev) => prev.filter((c) => c.id !== id));
+    deleteMutation.mutate(id);
     if (activeConversationId === id) {
       setActiveConversationId(null);
     }
@@ -207,14 +244,7 @@ export default function Chat() {
 
   const handleClearChat = () => {
     if (activeConversationId) {
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id === activeConversationId) {
-            return { ...c, messages: [] };
-          }
-          return c;
-        })
-      );
+      clearMutation.mutate(activeConversationId);
     }
   };
 
@@ -230,6 +260,7 @@ export default function Chat() {
           conversations={conversations}
           activeConversation={activeConversation}
           isLoading={isLoading}
+          streamingContent={streamingContent}
           onNewChat={createNewChat}
           onSelectConversation={setActiveConversationId}
           onDeleteConversation={handleDeleteConversation}
