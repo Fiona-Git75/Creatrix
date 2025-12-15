@@ -548,9 +548,19 @@ export class DatabaseStorage implements IStorage {
     if (insertConnection.isDefault) {
       await this.db.update(connections).set({ isDefault: false }).where(eq(connections.isDefault, true));
     }
-    const connection = { ...insertConnection, id, apiKey: insertConnection.apiKey ?? null, isDefault: insertConnection.isDefault ?? false };
+    const apiKey = insertConnection.apiKey && insertConnection.apiKey.trim() !== '' ? insertConnection.apiKey : null;
+    const connection = { 
+      id,
+      name: insertConnection.name,
+      provider: insertConnection.provider,
+      endpoint: insertConnection.endpoint,
+      apiKey,
+      defaultModel: insertConnection.defaultModel,
+      isDefault: insertConnection.isDefault ?? false 
+    };
+    console.log("Inserting connection:", JSON.stringify(connection));
     await this.db.insert(connections).values(connection);
-    return { ...insertConnection, id };
+    return { ...insertConnection, id, isDefault: connection.isDefault };
   }
 
   async updateConnection(id: string, updates: Partial<InsertConnection>): Promise<Connection | undefined> {
