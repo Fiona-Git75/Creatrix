@@ -37,7 +37,7 @@ const defaultEndpoints: Record<ProviderType, string> = {
 
 const defaultModels: Record<ProviderType, string> = {
   openai: "gpt-4o",
-  ollama: "llama3.2",
+  ollama: "mistral:latest",
   lmstudio: "local-model",
   custom: "default",
 };
