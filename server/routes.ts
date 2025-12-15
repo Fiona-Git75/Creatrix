@@ -24,11 +24,12 @@ export async function registerRoutes(
 
   app.post("/api/connections", async (req: Request, res: Response) => {
     try {
+      console.log("Creating connection with data:", JSON.stringify(req.body));
       const connection = await storage.createConnection(req.body);
       res.status(201).json(connection);
-    } catch (error) {
-      console.error("Error creating connection:", error);
-      res.status(500).json({ error: "Failed to create connection" });
+    } catch (error: any) {
+      console.error("Error creating connection:", error?.message || error, error?.stack);
+      res.status(500).json({ error: "Failed to create connection", details: error?.message });
     }
   });
 
