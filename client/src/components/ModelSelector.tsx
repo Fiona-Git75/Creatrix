@@ -102,13 +102,15 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
       if (!reader) throw new Error("No response stream");
 
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -138,6 +140,26 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
               // Skip invalid JSON
             }
           }
+        }
+      }
+      
+      // Process any remaining buffer content
+      if (buffer.startsWith("data: ")) {
+        try {
+          const data = JSON.parse(buffer.slice(6));
+          if (data.status === "success") {
+            setDownloadProgress({ status: "Download complete!", percent: 100 });
+            queryClient.invalidateQueries({ queryKey: ["/api/connections", activeConnection.id, "models"] });
+            onModelChange(modelId);
+            setTimeout(() => {
+              setDownloadDialogOpen(false);
+              setDownloadingModel(null);
+              setDownloadProgress(null);
+            }, 1500);
+            return;
+          }
+        } catch {
+          // Ignore
         }
       }
     } catch (error: any) {
