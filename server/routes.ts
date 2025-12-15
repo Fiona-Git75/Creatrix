@@ -64,11 +64,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Connection not found" });
       }
       const provider = createProvider(connection);
-      const models = await provider.listModels();
-      res.json(models);
+      const result = await provider.listModelsWithStatus();
+      res.json(result);
     } catch (error) {
       console.error("Error fetching models:", error);
-      res.status(500).json({ error: "Failed to fetch models" });
+      res.status(500).json({ status: "error", message: "Failed to fetch models", models: [] });
     }
   });
 
@@ -85,6 +85,91 @@ export async function registerRoutes(
       console.error("Error checking health:", error);
       res.json({ healthy: false });
     }
+  });
+
+  // Pull/download a model (Ollama only)
+  app.post("/api/connections/:id/models/pull", async (req: Request, res: Response) => {
+    try {
+      const connection = await storage.getConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Connection not found" });
+      }
+      
+      if (connection.provider !== "ollama") {
+        return res.status(400).json({ error: "Model pulling is only supported for Ollama connections" });
+      }
+
+      const { modelName } = req.body;
+      if (!modelName || typeof modelName !== "string") {
+        return res.status(400).json({ error: "Model name is required" });
+      }
+
+      // Allowlist of recommended models for security
+      const allowedModels = [
+        "llama3.2", "llama3.2:1b", "llama3.2:3b",
+        "llama3.1", "llama3.1:8b", "llama3.1:70b",
+        "mistral", "mistral:7b", "mistral:latest",
+        "mixtral", "mixtral:8x7b",
+        "codellama", "codellama:7b", "codellama:13b", "codellama:34b",
+        "deepseek-coder", "deepseek-coder:6.7b", "deepseek-coder:33b",
+        "phi3", "phi3:mini", "phi3:medium",
+        "gemma", "gemma:2b", "gemma:7b",
+        "gemma2", "gemma2:2b", "gemma2:9b", "gemma2:27b",
+        "qwen2", "qwen2:0.5b", "qwen2:1.5b", "qwen2:7b",
+        "vicuna", "vicuna:7b", "vicuna:13b",
+        "neural-chat", "starling-lm",
+      ];
+
+      // Allow any model that starts with an allowed prefix
+      const isAllowed = allowedModels.some(allowed => 
+        modelName === allowed || modelName.startsWith(allowed.split(":")[0])
+      );
+
+      if (!isAllowed) {
+        return res.status(400).json({ 
+          error: `Model "${modelName}" is not in the allowed list. Contact support to add new models.` 
+        });
+      }
+
+      const provider = createProvider(connection);
+      if (!provider.pullModel) {
+        return res.status(400).json({ error: "This provider does not support model pulling" });
+      }
+
+      // Set up SSE for progress
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      try {
+        await provider.pullModel(modelName, (progress) => {
+          res.write(`data: ${JSON.stringify(progress)}\n\n`);
+        });
+        res.write(`data: ${JSON.stringify({ status: "success", message: "Model downloaded successfully" })}\n\n`);
+        res.end();
+      } catch (pullError: any) {
+        res.write(`data: ${JSON.stringify({ status: "error", message: pullError.message })}\n\n`);
+        res.end();
+      }
+    } catch (error: any) {
+      console.error("Error pulling model:", error);
+      res.status(500).json({ error: error.message || "Failed to pull model" });
+    }
+  });
+
+  // Get recommended models catalog
+  app.get("/api/models/catalog", async (_req: Request, res: Response) => {
+    const catalog = [
+      { id: "llama3.2", name: "Llama 3.2", description: "Meta's latest, fast and capable", size: "2GB", tags: ["general", "fast"] },
+      { id: "llama3.2:1b", name: "Llama 3.2 1B", description: "Tiny but surprisingly capable", size: "1GB", tags: ["general", "tiny"] },
+      { id: "mistral", name: "Mistral 7B", description: "Excellent reasoning, efficient", size: "4GB", tags: ["general", "reasoning"] },
+      { id: "codellama", name: "Code Llama", description: "Specialized for coding tasks", size: "4GB", tags: ["coding"] },
+      { id: "deepseek-coder", name: "DeepSeek Coder", description: "Top-tier code generation", size: "4GB", tags: ["coding"] },
+      { id: "phi3:mini", name: "Phi-3 Mini", description: "Microsoft's compact powerhouse", size: "2GB", tags: ["general", "fast"] },
+      { id: "gemma2:2b", name: "Gemma 2 2B", description: "Google's efficient model", size: "1.5GB", tags: ["general", "tiny"] },
+      { id: "qwen2:7b", name: "Qwen 2 7B", description: "Strong multilingual support", size: "4GB", tags: ["general", "multilingual"] },
+    ];
+    res.json(catalog);
   });
 
   // === Projects ===

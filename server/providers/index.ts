@@ -10,6 +10,20 @@ export interface ModelInfo {
   id: string;
   name: string;
   provider: string;
+  size?: string;
+}
+
+export interface ModelsResponse {
+  status: "ok" | "offline" | "empty" | "error";
+  message?: string;
+  models: ModelInfo[];
+}
+
+export interface PullProgress {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
 }
 
 export interface ModelProvider {
@@ -20,7 +34,9 @@ export interface ModelProvider {
     onChunk: (chunk: StreamChunk) => void
   ): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
+  listModelsWithStatus(): Promise<ModelsResponse>;
   healthCheck(): Promise<boolean>;
+  pullModel?(modelName: string, onProgress: (progress: PullProgress) => void): Promise<void>;
 }
 
 // OpenAI-compatible provider (works with OpenAI API)
@@ -102,19 +118,30 @@ export class OpenAIProvider implements ModelProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    const result = await this.listModelsWithStatus();
+    return result.models;
+  }
+
+  async listModelsWithStatus(): Promise<ModelsResponse> {
     try {
       const response = await fetch(`${this.endpoint}/models`, {
         headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        return { status: "error", message: `API returned ${response.status}`, models: [] };
+      }
       const data = await response.json();
-      return (data.data || []).map((m: any) => ({
+      const models = (data.data || []).map((m: any) => ({
         id: m.id,
         name: m.id,
         provider: "openai",
       }));
-    } catch {
-      return [];
+      if (models.length === 0) {
+        return { status: "empty", message: "No models available", models: [] };
+      }
+      return { status: "ok", models };
+    } catch (error: any) {
+      return { status: "offline", message: "Cannot connect to OpenAI API", models: [] };
     }
   }
 
@@ -201,17 +228,40 @@ export class OllamaProvider implements ModelProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    const result = await this.listModelsWithStatus();
+    return result.models;
+  }
+
+  async listModelsWithStatus(): Promise<ModelsResponse> {
     try {
       const response = await fetch(`${this.endpoint}/api/tags`);
-      if (!response.ok) return [];
+      if (!response.ok) {
+        return { status: "error", message: `Ollama returned ${response.status}`, models: [] };
+      }
       const data = await response.json();
-      return (data.models || []).map((m: any) => ({
-        id: m.name,
-        name: m.name,
-        provider: "ollama",
-      }));
-    } catch {
-      return [];
+      const models = (data.models || []).map((m: any) => {
+        const sizeGB = m.size ? (m.size / 1e9).toFixed(1) + "GB" : undefined;
+        return {
+          id: m.name,
+          name: m.name,
+          provider: "ollama",
+          size: sizeGB,
+        };
+      });
+      if (models.length === 0) {
+        return { 
+          status: "empty", 
+          message: "Ollama is running but no models are installed. Download a model to get started.", 
+          models: [] 
+        };
+      }
+      return { status: "ok", models };
+    } catch (error: any) {
+      return { 
+        status: "offline", 
+        message: "Cannot connect to Ollama. Make sure Ollama is running on your system.", 
+        models: [] 
+      };
     }
   }
 
@@ -221,6 +271,54 @@ export class OllamaProvider implements ModelProvider {
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  async pullModel(modelName: string, onProgress: (progress: PullProgress) => void): Promise<void> {
+    const response = await fetch(`${this.endpoint}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelName, stream: true }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to pull model: ${error}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          onProgress({
+            status: parsed.status || "downloading",
+            digest: parsed.digest,
+            total: parsed.total,
+            completed: parsed.completed,
+          });
+          if (parsed.status === "success") {
+            return;
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
     }
   }
 }
@@ -252,17 +350,36 @@ export class LMStudioProvider implements ModelProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    const result = await this.listModelsWithStatus();
+    return result.models;
+  }
+
+  async listModelsWithStatus(): Promise<ModelsResponse> {
     try {
       const response = await fetch(`${this.endpoint}/models`);
-      if (!response.ok) return [];
+      if (!response.ok) {
+        return { status: "error", message: `LM Studio returned ${response.status}`, models: [] };
+      }
       const data = await response.json();
-      return (data.data || []).map((m: any) => ({
+      const models = (data.data || []).map((m: any) => ({
         id: m.id,
         name: m.id,
         provider: "lmstudio",
       }));
-    } catch {
-      return [];
+      if (models.length === 0) {
+        return { 
+          status: "empty", 
+          message: "LM Studio is running but no models are loaded. Load a model in LM Studio to continue.", 
+          models: [] 
+        };
+      }
+      return { status: "ok", models };
+    } catch (error: any) {
+      return { 
+        status: "offline", 
+        message: "Cannot connect to LM Studio. Make sure LM Studio is running with the local server enabled.", 
+        models: [] 
+      };
     }
   }
 
