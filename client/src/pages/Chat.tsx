@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw } from "lucide-react";
+import { Menu, RotateCcw, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -9,6 +9,7 @@ import { ChatMessage, type Message } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { MemoryPanel } from "@/components/MemoryPanel";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +55,7 @@ function ChatContent({
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useSidebar();
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -100,6 +102,15 @@ function ChatContent({
             )}
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setMemoryPanelOpen(true)}
+              data-testid="button-memory"
+              aria-label="Memory"
+            >
+              <Brain className="h-4 w-4" />
+            </Button>
             {hasMessages && (
               <Button
                 size="icon"
@@ -114,6 +125,13 @@ function ChatContent({
             <ThemeToggle />
           </div>
         </header>
+
+        <MemoryPanel
+          open={memoryPanelOpen}
+          onOpenChange={setMemoryPanelOpen}
+          projectId={selectedProjectId}
+          conversationId={activeConversation?.id || null}
+        />
 
         <main className="flex-1 overflow-hidden flex flex-col">
           {hasMessages ? (

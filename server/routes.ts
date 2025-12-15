@@ -363,12 +363,32 @@ export async function registerRoutes(
         content: m.content,
       }));
 
+      // Build system context from memories and project settings
+      const systemParts: string[] = [];
+      
       // Get project system prompt if available
       if (projectId) {
         const project = await storage.getProject(projectId);
         if (project?.systemPrompt) {
-          modelMessages.unshift({ role: "system", content: project.systemPrompt });
+          systemParts.push(project.systemPrompt);
         }
+      }
+
+      // Gather memories from all scopes
+      const globalMemories = await storage.getMemoryEntries("global");
+      const projectMemories = projectId ? await storage.getMemoryEntries("project", projectId) : [];
+      const conversationMemories = await storage.getMemoryEntries("conversation", currentConversationId);
+      
+      const allMemories = [...globalMemories, ...projectMemories, ...conversationMemories];
+      
+      if (allMemories.length > 0) {
+        const memoryText = allMemories.map(m => `- ${m.content}`).join("\n");
+        systemParts.push(`\n## Important Context (User Memories)\nRemember these facts about the user:\n${memoryText}`);
+      }
+
+      // Add system message if we have any context
+      if (systemParts.length > 0) {
+        modelMessages.unshift({ role: "system", content: systemParts.join("\n\n") });
       }
 
       // Set up streaming response
