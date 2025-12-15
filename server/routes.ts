@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { chatRequestSchema, type Message } from "@shared/schema";
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
+import { chunkText } from "./rag/chunking";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -386,6 +387,16 @@ export async function registerRoutes(
         systemParts.push(`\n## Important Context (User Memories)\nRemember these facts about the user:\n${memoryText}`);
       }
 
+      // Search knowledge documents for relevant context
+      const docResults = await storage.searchDocuments(message, projectId, 3);
+      if (docResults.length > 0) {
+        const docContext = docResults.map(({ doc, chunks }) => {
+          const chunkTexts = chunks.map(c => c.content).join("\n\n");
+          return `### ${doc.title}\n${chunkTexts}`;
+        }).join("\n\n---\n\n");
+        systemParts.push(`\n## Relevant Knowledge Base Context\nUse the following information to help answer questions:\n\n${docContext}`);
+      }
+
       // Add system message if we have any context
       if (systemParts.length > 0) {
         modelMessages.unshift({ role: "system", content: systemParts.join("\n\n") });
@@ -497,10 +508,49 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/documents/:id", async (req: Request, res: Response) => {
+    try {
+      const doc = await storage.getKnowledgeDocument(req.params.id);
+      if (!doc) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      res.json(doc);
+    } catch (error) {
+      console.error("Error fetching document:", error);
+      res.status(500).json({ error: "Failed to fetch document" });
+    }
+  });
+
   app.post("/api/documents", async (req: Request, res: Response) => {
     try {
-      const doc = await storage.createKnowledgeDocument(req.body);
-      res.status(201).json(doc);
+      const { title, source, content, projectId } = req.body;
+      
+      if (!title || typeof title !== "string" || !title.trim()) {
+        return res.status(400).json({ error: "Title is required" });
+      }
+      if (!content || typeof content !== "string" || !content.trim()) {
+        return res.status(400).json({ error: "Content is required" });
+      }
+
+      const chunks = chunkText(content.trim(), { chunkSize: 500, chunkOverlap: 50 });
+      
+      const doc = await storage.createKnowledgeDocument({
+        title: title.trim(),
+        source: source || "manual",
+        content: content.trim(),
+        projectId,
+      });
+
+      const updatedDoc = await storage.updateKnowledgeDocument(doc.id, { chunks });
+
+      res.status(201).json({
+        id: updatedDoc?.id || doc.id,
+        title: updatedDoc?.title || doc.title,
+        source: updatedDoc?.source || doc.source,
+        projectId: updatedDoc?.projectId,
+        chunkCount: chunks.length,
+        createdAt: updatedDoc?.createdAt || doc.createdAt,
+      });
     } catch (error) {
       console.error("Error creating document:", error);
       res.status(500).json({ error: "Failed to create document" });
@@ -517,6 +567,24 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting document:", error);
       res.status(500).json({ error: "Failed to delete document" });
+    }
+  });
+
+  app.get("/api/documents/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      const projectId = req.query.projectId as string | undefined;
+      const topK = parseInt(req.query.topK as string) || 3;
+
+      if (!query) {
+        return res.status(400).json({ error: "Query is required" });
+      }
+
+      const results = await storage.searchDocuments(query, projectId, topK);
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching documents:", error);
+      res.status(500).json({ error: "Failed to search documents" });
     }
   });
 

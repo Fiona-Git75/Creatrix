@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -10,6 +10,7 @@ import { ChatInput } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MemoryPanel } from "@/components/MemoryPanel";
+import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +57,7 @@ function ChatContent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useSidebar();
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
+  const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,6 +107,15 @@ function ChatContent({
             <Button
               size="icon"
               variant="ghost"
+              onClick={() => setKnowledgePanelOpen(true)}
+              data-testid="button-knowledge"
+              aria-label="Knowledge Base"
+            >
+              <BookOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
               onClick={() => setMemoryPanelOpen(true)}
               data-testid="button-memory"
               aria-label="Memory"
@@ -131,6 +142,12 @@ function ChatContent({
           onOpenChange={setMemoryPanelOpen}
           projectId={selectedProjectId}
           conversationId={activeConversation?.id || null}
+        />
+
+        <KnowledgePanel
+          open={knowledgePanelOpen}
+          onOpenChange={setKnowledgePanelOpen}
+          projectId={selectedProjectId}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col">

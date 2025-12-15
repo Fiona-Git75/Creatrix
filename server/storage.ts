@@ -48,7 +48,9 @@ export interface IStorage {
   getKnowledgeDocuments(projectId?: string): Promise<KnowledgeDocument[]>;
   getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined>;
   createKnowledgeDocument(doc: InsertKnowledgeDocument): Promise<KnowledgeDocument>;
+  updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined>;
   deleteKnowledgeDocument(id: string): Promise<boolean>;
+  searchDocuments(query: string, projectId?: string, topK?: number): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]>;
 
   // Settings
   getSettings(): Promise<Settings>;
@@ -122,11 +124,11 @@ export class MemStorage implements IStorage {
     
     // If this is set as default, unset other defaults
     if (connection.isDefault) {
-      for (const [key, conn] of this.connections) {
+      Array.from(this.connections.entries()).forEach(([key, conn]) => {
         if (conn.isDefault) {
           this.connections.set(key, { ...conn, isDefault: false });
         }
-      }
+      });
     }
     
     this.connections.set(id, connection);
@@ -139,11 +141,11 @@ export class MemStorage implements IStorage {
     
     // If setting this as default, unset other defaults
     if (updates.isDefault) {
-      for (const [key, conn] of this.connections) {
+      Array.from(this.connections.entries()).forEach(([key, conn]) => {
         if (conn.isDefault && key !== id) {
           this.connections.set(key, { ...conn, isDefault: false });
         }
-      }
+      });
     }
     
     const updated: Connection = { ...connection, ...updates };
@@ -188,11 +190,11 @@ export class MemStorage implements IStorage {
 
   async deleteProject(id: string): Promise<boolean> {
     // Also delete associated conversations
-    for (const [convId, conv] of this.conversations) {
+    Array.from(this.conversations.entries()).forEach(([convId, conv]) => {
       if (conv.projectId === id) {
         this.conversations.delete(convId);
       }
-    }
+    });
     return this.projects.delete(id);
   }
 
@@ -282,7 +284,7 @@ export class MemStorage implements IStorage {
 
   async clearMemory(scope: string, scopeId?: string): Promise<boolean> {
     const toDelete: string[] = [];
-    for (const [id, entry] of this.memoryEntries) {
+    Array.from(this.memoryEntries.entries()).forEach(([id, entry]) => {
       if (entry.scope === scope) {
         if (scope === "global" || 
             (scope === "project" && entry.projectId === scopeId) ||
@@ -290,7 +292,7 @@ export class MemStorage implements IStorage {
           toDelete.push(id);
         }
       }
-    }
+    });
     toDelete.forEach(id => this.memoryEntries.delete(id));
     return true;
   }
@@ -324,6 +326,64 @@ export class MemStorage implements IStorage {
 
   async deleteKnowledgeDocument(id: string): Promise<boolean> {
     return this.knowledgeDocuments.delete(id);
+  }
+
+  async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {
+    const doc = this.knowledgeDocuments.get(id);
+    if (!doc) return undefined;
+    
+    const updated: KnowledgeDocument = { ...doc, ...updates };
+    this.knowledgeDocuments.set(id, updated);
+    return updated;
+  }
+
+  async searchDocuments(query: string, projectId?: string, topK: number = 3): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]> {
+    if (!query || !query.trim()) return [];
+    
+    const docs = await this.getKnowledgeDocuments(projectId);
+    const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[]; score: number }[] = [];
+    
+    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+    if (queryTerms.length === 0) return [];
+
+    for (const doc of docs) {
+      if (!doc.chunks || doc.chunks.length === 0) continue;
+      
+      const matchingChunks: { chunk: import("@shared/schema").DocumentChunk; score: number; position: number }[] = [];
+      
+      for (let i = 0; i < doc.chunks.length; i++) {
+        const chunk = doc.chunks[i];
+        const content = chunk.content.toLowerCase();
+        let score = 0;
+        
+        for (const term of queryTerms) {
+          try {
+            const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escapedTerm, "gi");
+            const matches = content.match(regex);
+            if (matches) {
+              score += matches.length;
+            }
+          } catch {
+            if (content.includes(term)) score += 1;
+          }
+        }
+        
+        if (score > 0) {
+          matchingChunks.push({ chunk, score, position: i });
+        }
+      }
+      
+      if (matchingChunks.length > 0) {
+        matchingChunks.sort((a, b) => b.score - a.score || a.position - b.position);
+        const topChunks = matchingChunks.slice(0, topK).map(m => m.chunk);
+        const totalScore = matchingChunks.reduce((sum, m) => sum + m.score, 0);
+        results.push({ doc, chunks: topChunks, score: totalScore });
+      }
+    }
+    
+    results.sort((a, b) => b.score - a.score || a.doc.title.localeCompare(b.doc.title));
+    return results.slice(0, topK).map(r => ({ doc: r.doc, chunks: r.chunks }));
   }
 
   // Settings
