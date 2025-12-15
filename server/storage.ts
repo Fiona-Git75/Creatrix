@@ -55,6 +55,13 @@ export interface IStorage {
   // Settings
   getSettings(): Promise<Settings>;
   updateSettings(settings: Partial<Settings>): Promise<Settings>;
+
+  // Unified Search
+  unifiedSearch(query: string, projectId?: string): Promise<{
+    conversations: { id: string; title: string; excerpt: string; matchType: string }[];
+    documents: { id: string; title: string; excerpt: string }[];
+    memories: { id: string; content: string; scope: string }[];
+  }>;
 }
 
 export class MemStorage implements IStorage {
@@ -394,6 +401,89 @@ export class MemStorage implements IStorage {
   async updateSettings(updates: Partial<Settings>): Promise<Settings> {
     this.settings = { ...this.settings, ...updates };
     return this.settings;
+  }
+
+  async unifiedSearch(query: string, projectId?: string): Promise<{
+    conversations: { id: string; title: string; excerpt: string; matchType: string }[];
+    documents: { id: string; title: string; excerpt: string }[];
+    memories: { id: string; content: string; scope: string }[];
+  }> {
+    if (!query || !query.trim()) {
+      return { conversations: [], documents: [], memories: [] };
+    }
+
+    const queryLower = query.toLowerCase();
+    const queryTerms = queryLower.split(/\s+/).filter(t => t.length >= 2);
+    if (queryTerms.length === 0) {
+      return { conversations: [], documents: [], memories: [] };
+    }
+
+    const conversations: { id: string; title: string; excerpt: string; matchType: string; score: number }[] = [];
+    const allConversations = await this.getConversations(projectId);
+
+    for (const conv of allConversations) {
+      let score = 0;
+      let matchType = "";
+      let excerpt = "";
+
+      const titleLower = conv.title.toLowerCase();
+      for (const term of queryTerms) {
+        if (titleLower.includes(term)) {
+          score += 3;
+          matchType = "title";
+          excerpt = conv.title;
+        }
+      }
+
+      for (const msg of conv.messages) {
+        if (msg.role === "system") continue;
+        const contentLower = msg.content.toLowerCase();
+        for (const term of queryTerms) {
+          if (contentLower.includes(term)) {
+            score += 1;
+            if (!matchType) matchType = "message";
+            const idx = contentLower.indexOf(term);
+            const start = Math.max(0, idx - 30);
+            const end = Math.min(msg.content.length, idx + term.length + 50);
+            excerpt = (start > 0 ? "..." : "") + msg.content.slice(start, end) + (end < msg.content.length ? "..." : "");
+          }
+        }
+      }
+
+      if (score > 0) {
+        conversations.push({ id: conv.id, title: conv.title, excerpt, matchType, score });
+      }
+    }
+
+    conversations.sort((a, b) => b.score - a.score);
+    const topConversations = conversations.slice(0, 5).map(({ score, ...rest }) => rest);
+
+    const documents: { id: string; title: string; excerpt: string }[] = [];
+    const docResults = await this.searchDocuments(query, projectId, 5);
+    for (const { doc, chunks } of docResults) {
+      const excerpt = chunks[0]?.content.slice(0, 100) + "..." || "";
+      documents.push({ id: doc.id, title: doc.title, excerpt });
+    }
+
+    const memories: { id: string; content: string; scope: string }[] = [];
+    const allMemories = Array.from(this.memoryEntries.values());
+    for (const mem of allMemories) {
+      if (projectId && mem.projectId !== projectId && mem.scope !== "global") continue;
+
+      const contentLower = mem.content.toLowerCase();
+      let matches = false;
+      for (const term of queryTerms) {
+        if (contentLower.includes(term)) {
+          matches = true;
+          break;
+        }
+      }
+      if (matches) {
+        memories.push({ id: mem.id, content: mem.content.slice(0, 100), scope: mem.scope });
+      }
+    }
+
+    return { conversations: topConversations, documents, memories: memories.slice(0, 5) };
   }
 }
 

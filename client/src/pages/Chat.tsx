@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { KnowledgePanel } from "@/components/KnowledgePanel";
+import { SearchDialog } from "@/components/SearchDialog";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -58,6 +59,18 @@ function ChatContent({
   const { isMobile } = useSidebar();
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchDialogOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -107,6 +120,15 @@ function ChatContent({
             <Button
               size="icon"
               variant="ghost"
+              onClick={() => setSearchDialogOpen(true)}
+              data-testid="button-search"
+              aria-label="Search"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
               onClick={() => setKnowledgePanelOpen(true)}
               data-testid="button-knowledge"
               aria-label="Knowledge Base"
@@ -148,6 +170,13 @@ function ChatContent({
           open={knowledgePanelOpen}
           onOpenChange={setKnowledgePanelOpen}
           projectId={selectedProjectId}
+        />
+
+        <SearchDialog
+          open={searchDialogOpen}
+          onOpenChange={setSearchDialogOpen}
+          projectId={selectedProjectId}
+          onSelectConversation={onSelectConversation}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col">

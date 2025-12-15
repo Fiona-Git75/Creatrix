@@ -609,5 +609,23 @@ export async function registerRoutes(
     }
   });
 
+  // === Unified Search ===
+  app.get("/api/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      const projectId = req.query.projectId as string | undefined;
+
+      if (!query || !query.trim()) {
+        return res.json({ conversations: [], documents: [], memories: [] });
+      }
+
+      const results = await storage.unifiedSearch(query, projectId);
+      res.json(results);
+    } catch (error) {
+      console.error("Error performing unified search:", error);
+      res.status(500).json({ error: "Failed to perform search" });
+    }
+  });
+
   return httpServer;
 }
