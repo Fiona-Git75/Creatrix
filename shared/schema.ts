@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -7,6 +7,69 @@ export const users = pgTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+});
+
+// Connections table
+export const connections = pgTable("connections", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  provider: varchar("provider", { length: 20 }).notNull(),
+  endpoint: text("endpoint").notNull(),
+  apiKey: text("api_key"),
+  defaultModel: text("default_model").notNull(),
+  isDefault: boolean("is_default").default(false),
+});
+
+// Projects table
+export const projects = pgTable("projects", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  connectionId: varchar("connection_id", { length: 36 }),
+  systemPrompt: text("system_prompt"),
+  createdAt: text("created_at").notNull(),
+});
+
+// Conversations table
+export const conversations = pgTable("conversations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  title: text("title").notNull(),
+  projectId: varchar("project_id", { length: 36 }),
+  connectionId: varchar("connection_id", { length: 36 }),
+  model: text("model").notNull(),
+  messages: jsonb("messages").notNull().default([]),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+// Memory entries table
+export const memoryEntries = pgTable("memory_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  scope: varchar("scope", { length: 20 }).notNull(),
+  projectId: varchar("project_id", { length: 36 }),
+  conversationId: varchar("conversation_id", { length: 36 }),
+  content: text("content").notNull(),
+  summary: text("summary"),
+  createdAt: text("created_at").notNull(),
+});
+
+// Knowledge documents table
+export const knowledgeDocuments = pgTable("knowledge_documents", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  projectId: varchar("project_id", { length: 36 }),
+  title: text("title").notNull(),
+  source: text("source").notNull(),
+  content: text("content").notNull(),
+  chunks: jsonb("chunks").notNull().default([]),
+  createdAt: text("created_at").notNull(),
+});
+
+// Settings table
+export const settings = pgTable("settings", {
+  id: varchar("id", { length: 36 }).primaryKey().default("default"),
+  defaultConnectionId: varchar("default_connection_id", { length: 36 }),
+  defaultProjectId: varchar("default_project_id", { length: 36 }),
+  theme: varchar("theme", { length: 10 }).default("system"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
