@@ -1,0 +1,3 @@
+- [Workflow runner port detection](workflow-runner-issue.md) — runner can't detect port 5000 via TCP in this repl's MicroVM; server works fine manually but workflow always shows DIDNT_OPEN_A_PORT.
+- [Server startup order](server-startup-order.md) — httpServer.listen must be called BEFORE setupVite, with a 200 placeholder for "/" while Vite initializes, so the runner's health check can pass.
+- [Project folderPath in capabilities](project-foldepath-capability.md) — project.folderPath should override settings.rootFolder when invoking capabilities in the chat route.

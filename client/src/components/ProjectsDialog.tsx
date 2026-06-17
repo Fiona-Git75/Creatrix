@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, Pencil } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +30,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     name: "",
     description: "",
     systemPrompt: "",
+    folderPath: "",
   });
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
@@ -81,6 +82,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       name: "",
       description: "",
       systemPrompt: "",
+      folderPath: "",
     });
   };
 
@@ -90,6 +92,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       name: project.name,
       description: project.description || "",
       systemPrompt: project.systemPrompt || "",
+      folderPath: project.folderPath || "",
     });
   };
 
@@ -161,6 +164,12 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
                               System prompt configured
                             </p>
                           )}
+                          {project.folderPath && (
+                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 line-clamp-1">
+                              <FolderOpen className="h-3 w-3 shrink-0" />
+                              {project.folderPath}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <Button
@@ -219,8 +228,8 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
 }
 
 interface ProjectFormProps {
-  formData: { name: string; description: string; systemPrompt: string };
-  setFormData: (data: { name: string; description: string; systemPrompt: string }) => void;
+  formData: { name: string; description: string; systemPrompt: string; folderPath: string };
+  setFormData: (data: { name: string; description: string; systemPrompt: string; folderPath: string }) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   isLoading: boolean;
@@ -250,6 +259,23 @@ function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, sub
           placeholder="Brief description of this project"
           data-testid="input-project-description"
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="project-folder-path" className="flex items-center gap-1.5">
+          <FolderOpen className="h-3.5 w-3.5" />
+          Project Folder (optional)
+        </Label>
+        <Input
+          id="project-folder-path"
+          value={formData.folderPath}
+          onChange={(e) => setFormData({ ...formData, folderPath: e.target.value })}
+          placeholder="/home/user/my-project"
+          data-testid="input-project-folder-path"
+        />
+        <p className="text-xs text-muted-foreground">
+          Filesystem tools and library browsing will be scoped to this folder when this project is active.
+        </p>
       </div>
 
       <div className="space-y-2">

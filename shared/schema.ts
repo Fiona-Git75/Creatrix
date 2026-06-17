@@ -27,6 +27,7 @@ export const projects = pgTable("projects", {
   description: text("description"),
   connectionId: varchar("connection_id", { length: 36 }),
   systemPrompt: text("system_prompt"),
+  folderPath: text("folder_path"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -158,6 +159,7 @@ export const projectSchema = z.object({
   description: z.string().optional(),
   connectionId: z.string().optional(),
   systemPrompt: z.string().optional(),
+  folderPath: z.string().optional(),
   createdAt: z.string(),
 });
 export type Project = z.infer<typeof projectSchema>;

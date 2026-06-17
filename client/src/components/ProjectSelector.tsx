@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, FolderOpen, Plus, Loader2 } from "lucide-react";
+import { ChevronDown, FolderOpen, Plus, Loader2, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -79,6 +79,12 @@ export function ProjectSelector({
               {project.description && (
                 <span className="text-xs text-muted-foreground truncate max-w-full">
                   {project.description}
+                </span>
+              )}
+              {project.folderPath && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1 truncate max-w-full">
+                  <HardDrive className="h-2.5 w-2.5 shrink-0" />
+                  {project.folderPath}
                 </span>
               )}
             </DropdownMenuItem>

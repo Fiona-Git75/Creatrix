@@ -530,13 +530,13 @@ export class DatabaseStorage implements IStorage {
 
   async getProjects(): Promise<Project[]> {
     const result = await this.db.select().from(projects).orderBy(desc(projects.createdAt));
-    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined }));
+    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined }));
   }
   async getProject(id: string): Promise<Project | undefined> {
     const result = await this.db.select().from(projects).where(eq(projects.id, id));
     if (!result[0]) return undefined;
     const p = result[0];
-    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined };
+    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined };
   }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();

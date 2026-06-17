@@ -375,9 +375,10 @@ export async function registerRoutes(
       // Build system context from memories and project settings
       const systemParts: string[] = [];
       
-      // Get project system prompt if available
+      // Get project system prompt and folder path if available
+      let project: Awaited<ReturnType<typeof storage.getProject>> | undefined;
       if (projectId) {
-        const project = await storage.getProject(projectId);
+        project = await storage.getProject(projectId) ?? undefined;
         if (project?.systemPrompt) {
           systemParts.push(project.systemPrompt);
         }
@@ -483,10 +484,10 @@ export async function registerRoutes(
             // Notify client a tool is running
             res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
 
-            // Invoke the capability
+            // Invoke the capability — project folderPath takes priority over global rootFolder
             const invocation = await invokeCapability(
               toolName, toolArgs,
-              { rootFolder: settings.rootFolder, storageRef: storage }
+              { rootFolder: project?.folderPath || settings.rootFolder, storageRef: storage }
             );
 
             // Auto-journal
