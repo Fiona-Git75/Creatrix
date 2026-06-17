@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, jsonb, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -70,13 +70,67 @@ export const settings = pgTable("settings", {
   defaultConnectionId: varchar("default_connection_id", { length: 36 }),
   defaultProjectId: varchar("default_project_id", { length: 36 }),
   theme: varchar("theme", { length: 10 }).default("system"),
+  rootFolder: text("root_folder"),
+  morningOrientationEnabled: boolean("morning_orientation_enabled").default(false),
 });
+
+// ─── Phase 2: Library ────────────────────────────────────────────────────────
+
+// Library folders — named collections within the library
+export const libraryFolders = pgTable("library_folders", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  parentId: varchar("parent_id", { length: 36 }),       // null = root collection
+  description: text("description"),
+  createdAt: text("created_at").notNull(),
+});
+
+// Library items — an inspectable record of every document the resident knows about
+export const libraryItems = pgTable("library_items", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  folderId: varchar("folder_id", { length: 36 }),        // null = root
+  title: text("title").notNull(),
+  filePath: text("file_path"),                            // absolute path on disk (when local)
+  source: varchar("source", { length: 20 }).notNull(),   // "file" | "upload" | "url" | "note"
+  mimeType: text("mime_type"),
+  content: text("content"),                               // cached text content
+  summary: text("summary"),                               // short resident-generated summary
+  tags: text("tags").array(),
+  createdAt: text("created_at").notNull(),
+  accessedAt: text("accessed_at"),
+});
+
+// ─── Phase 2: Resident Journal ───────────────────────────────────────────────
+
+// Journal entry types
+export const journalEntryTypes = [
+  "read",          // resident read a document
+  "created",       // resident created a file or note
+  "question",      // open question the resident noted
+  "search",        // a search the resident performed
+  "action",        // any other capability invocation
+  "summary",       // end-of-session or morning summary
+] as const;
+export type JournalEntryType = typeof journalEntryTypes[number];
+
+export const journalEntries = pgTable("journal_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  type: varchar("type", { length: 20 }).notNull(),
+  title: text("title").notNull(),
+  detail: text("detail"),
+  relatedPath: text("related_path"),                      // file path if relevant
+  relatedLibraryItemId: varchar("related_library_item_id", { length: 36 }),
+  relatedConversationId: varchar("related_conversation_id", { length: 36 }),
+  resolved: boolean("resolved").default(false),           // for questions: has it been answered?
+  createdAt: text("created_at").notNull(),
+});
+
+// ─── Zod schemas & types ─────────────────────────────────────────────────────
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
 });
-
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -93,9 +147,7 @@ export const connectionSchema = z.object({
   defaultModel: z.string(),
   isDefault: z.boolean().default(false),
 });
-
 export type Connection = z.infer<typeof connectionSchema>;
-
 export const insertConnectionSchema = connectionSchema.omit({ id: true });
 export type InsertConnection = z.infer<typeof insertConnectionSchema>;
 
@@ -108,9 +160,7 @@ export const projectSchema = z.object({
   systemPrompt: z.string().optional(),
   createdAt: z.string(),
 });
-
 export type Project = z.infer<typeof projectSchema>;
-
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 
@@ -121,7 +171,6 @@ export const messageSchema = z.object({
   content: z.string(),
   createdAt: z.string().optional(),
 });
-
 export type Message = z.infer<typeof messageSchema>;
 
 // Conversations
@@ -135,9 +184,7 @@ export const conversationSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-
 export type Conversation = z.infer<typeof conversationSchema>;
-
 export const insertConversationSchema = conversationSchema.omit({ 
   id: true, 
   createdAt: true,
@@ -159,9 +206,7 @@ export const memoryEntrySchema = z.object({
   summary: z.string().optional(),
   createdAt: z.string(),
 });
-
 export type MemoryEntry = z.infer<typeof memoryEntrySchema>;
-
 export const insertMemoryEntrySchema = memoryEntrySchema.omit({ id: true, createdAt: true });
 export type InsertMemoryEntry = z.infer<typeof insertMemoryEntrySchema>;
 
@@ -171,7 +216,6 @@ export const documentChunkSchema = z.object({
   content: z.string(),
   metadata: z.record(z.string()).optional(),
 });
-
 export type DocumentChunk = z.infer<typeof documentChunkSchema>;
 
 export const knowledgeDocumentSchema = z.object({
@@ -183,9 +227,7 @@ export const knowledgeDocumentSchema = z.object({
   chunks: z.array(documentChunkSchema),
   createdAt: z.string(),
 });
-
 export type KnowledgeDocument = z.infer<typeof knowledgeDocumentSchema>;
-
 export const insertKnowledgeDocumentSchema = knowledgeDocumentSchema.omit({ 
   id: true, 
   createdAt: true,
@@ -201,7 +243,6 @@ export const chatRequestSchema = z.object({
   message: z.string().min(1),
   model: z.string().optional(),
 });
-
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
 // Settings schema
@@ -209,6 +250,92 @@ export const settingsSchema = z.object({
   defaultConnectionId: z.string().optional(),
   defaultProjectId: z.string().optional(),
   theme: z.enum(["light", "dark", "system"]).default("system"),
+  rootFolder: z.string().optional(),
+  morningOrientationEnabled: z.boolean().default(false),
 });
-
 export type Settings = z.infer<typeof settingsSchema>;
+
+// ─── Phase 2 schemas ─────────────────────────────────────────────────────────
+
+// Library folder
+export const libraryFolderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  parentId: z.string().optional(),
+  description: z.string().optional(),
+  createdAt: z.string(),
+});
+export type LibraryFolder = z.infer<typeof libraryFolderSchema>;
+export const insertLibraryFolderSchema = libraryFolderSchema.omit({ id: true, createdAt: true });
+export type InsertLibraryFolder = z.infer<typeof insertLibraryFolderSchema>;
+
+// Library item sources
+export const libraryItemSources = ["file", "upload", "url", "note"] as const;
+export type LibraryItemSource = typeof libraryItemSources[number];
+
+// Library item
+export const libraryItemSchema = z.object({
+  id: z.string(),
+  folderId: z.string().optional(),
+  title: z.string(),
+  filePath: z.string().optional(),
+  source: z.enum(libraryItemSources),
+  mimeType: z.string().optional(),
+  content: z.string().optional(),
+  summary: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  createdAt: z.string(),
+  accessedAt: z.string().optional(),
+});
+export type LibraryItem = z.infer<typeof libraryItemSchema>;
+export const insertLibraryItemSchema = libraryItemSchema.omit({ id: true, createdAt: true });
+export type InsertLibraryItem = z.infer<typeof insertLibraryItemSchema>;
+
+// Journal entry
+export const journalEntrySchema = z.object({
+  id: z.string(),
+  type: z.enum(journalEntryTypes),
+  title: z.string(),
+  detail: z.string().optional(),
+  relatedPath: z.string().optional(),
+  relatedLibraryItemId: z.string().optional(),
+  relatedConversationId: z.string().optional(),
+  resolved: z.boolean().default(false),
+  createdAt: z.string(),
+});
+export type JournalEntry = z.infer<typeof journalEntrySchema>;
+export const insertJournalEntrySchema = journalEntrySchema.omit({ id: true, createdAt: true });
+export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
+
+// Filesystem capability — supported readable extensions
+export const readableExtensions = [
+  ".md", ".txt", ".docx", ".pdf", ".rtf", ".odt",
+  ".py", ".js", ".ts", ".tsx", ".json", ".yaml", ".yml",
+  ".toml", ".ini", ".xml", ".css", ".html", ".csv", ".xlsx",
+] as const;
+export type ReadableExtension = typeof readableExtensions[number];
+
+// Capability invocation (used in chat context to track what tools were called)
+export const capabilityNames = [
+  "read_file",
+  "write_file",
+  "create_note",
+  "create_folder",
+  "copy_file",
+  "move_file",
+  "delete_file",
+  "web_search",
+  "retrieve_url",
+  "search_library",
+  "save_conversation",
+] as const;
+export type CapabilityName = typeof capabilityNames[number];
+
+export const capabilityInvocationSchema = z.object({
+  capability: z.enum(capabilityNames),
+  args: z.record(z.unknown()),
+  status: z.enum(["pending", "running", "success", "error", "requires_confirmation"]),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+});
+export type CapabilityInvocation = z.infer<typeof capabilityInvocationSchema>;

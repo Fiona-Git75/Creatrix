@@ -1,10 +1,13 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { chatRequestSchema, type Message } from "@shared/schema";
+import { chatRequestSchema, type Message, type CapabilityName } from "@shared/schema";
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
+import { listCapabilities, invokeCapability } from "./capabilities";
+import fs from "fs/promises";
+import path from "path";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -625,6 +628,265 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error performing unified search:", error);
       res.status(500).json({ error: "Failed to perform search" });
+    }
+  });
+
+  // === Capability Registry ===
+  app.get("/api/capabilities", (_req: Request, res: Response) => {
+    const caps = listCapabilities().map(c => ({
+      name: c.name,
+      description: c.description,
+      requiresConfirmation: c.requiresConfirmation ?? false,
+      argsSchema: c.argsSchema,
+    }));
+    res.json(caps);
+  });
+
+  app.post("/api/capabilities/invoke", async (req: Request, res: Response) => {
+    try {
+      const { capability, args } = req.body;
+      if (!capability) return res.status(400).json({ error: "capability is required" });
+
+      const settings = await storage.getSettings();
+      const result = await invokeCapability(
+        capability as CapabilityName,
+        args || {},
+        { rootFolder: settings.rootFolder, storageRef: storage }
+      );
+
+      // Auto-log successful invocations to the journal
+      if (result.status === "success") {
+        const journalTypeMap: Record<string, string> = {
+          read_file: "read", write_file: "created", create_note: "created",
+          create_folder: "created", copy_file: "action", move_file: "action",
+          delete_file: "action", web_search: "search", retrieve_url: "search",
+          search_library: "search", save_conversation: "created",
+        };
+        const journalType = (journalTypeMap[capability] || "action") as any;
+        await storage.createJournalEntry({
+          type: journalType,
+          title: `${capability.replace(/_/g, " ")}: ${String(args?.path || args?.query || args?.title || args?.url || "").slice(0, 60)}`,
+          detail: JSON.stringify(result.result)?.slice(0, 200),
+          relatedPath: (args?.path || args?.destination) as string | undefined,
+          resolved: false,
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error invoking capability:", error);
+      res.status(500).json({ error: error.message || "Failed to invoke capability" });
+    }
+  });
+
+  // === Filesystem Browser ===
+  app.get("/api/filesystem/browse", async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      const rootFolder = settings.rootFolder;
+      if (!rootFolder) return res.status(400).json({ error: "No root folder configured in settings" });
+
+      const requestedPath = req.query.path as string | undefined;
+      const targetPath = requestedPath ? path.join(rootFolder, requestedPath) : rootFolder;
+
+      // Security: prevent path traversal
+      const resolved = path.resolve(targetPath);
+      const root = path.resolve(rootFolder);
+      if (!resolved.startsWith(root)) {
+        return res.status(403).json({ error: "Access denied: path is outside root folder" });
+      }
+
+      const entries = await fs.readdir(resolved, { withFileTypes: true });
+      const items = await Promise.all(entries.map(async (entry) => {
+        const entryPath = path.join(resolved, entry.name);
+        const stat = await fs.stat(entryPath).catch(() => null);
+        return {
+          name: entry.name,
+          type: entry.isDirectory() ? "folder" : "file",
+          path: path.relative(root, entryPath),
+          size: stat?.size,
+          modifiedAt: stat?.mtime.toISOString(),
+        };
+      }));
+
+      items.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      res.json({ path: path.relative(root, resolved) || ".", items, rootFolder });
+    } catch (error: any) {
+      console.error("Error browsing filesystem:", error);
+      res.status(500).json({ error: error.message || "Failed to browse filesystem" });
+    }
+  });
+
+  // === Library Folders ===
+  app.get("/api/library/folders", async (req: Request, res: Response) => {
+    try {
+      const parentId = req.query.parentId as string | undefined;
+      const folders = await storage.getLibraryFolders(parentId === "root" ? null : parentId);
+      res.json(folders);
+    } catch (error) {
+      console.error("Error fetching library folders:", error);
+      res.status(500).json({ error: "Failed to fetch library folders" });
+    }
+  });
+
+  app.post("/api/library/folders", async (req: Request, res: Response) => {
+    try {
+      const folder = await storage.createLibraryFolder(req.body);
+      res.status(201).json(folder);
+    } catch (error) {
+      console.error("Error creating library folder:", error);
+      res.status(500).json({ error: "Failed to create library folder" });
+    }
+  });
+
+  app.patch("/api/library/folders/:id", async (req: Request, res: Response) => {
+    try {
+      const folder = await storage.updateLibraryFolder(req.params.id, req.body);
+      if (!folder) return res.status(404).json({ error: "Folder not found" });
+      res.json(folder);
+    } catch (error) {
+      console.error("Error updating library folder:", error);
+      res.status(500).json({ error: "Failed to update library folder" });
+    }
+  });
+
+  app.delete("/api/library/folders/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteLibraryFolder(req.params.id);
+      if (!deleted) return res.status(404).json({ error: "Folder not found" });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting library folder:", error);
+      res.status(500).json({ error: "Failed to delete library folder" });
+    }
+  });
+
+  // === Library Items ===
+  app.get("/api/library/items", async (req: Request, res: Response) => {
+    try {
+      const folderId = req.query.folderId as string | undefined;
+      const recent = req.query.recent === "true";
+      const limit = parseInt(req.query.limit as string) || 20;
+
+      let items;
+      if (recent) {
+        items = await storage.getRecentLibraryItems(limit);
+      } else {
+        items = await storage.getLibraryItems(folderId === "root" ? null : folderId);
+      }
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching library items:", error);
+      res.status(500).json({ error: "Failed to fetch library items" });
+    }
+  });
+
+  app.get("/api/library/items/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      if (!query?.trim()) return res.json([]);
+      const items = await storage.searchLibraryItems(query);
+      res.json(items);
+    } catch (error) {
+      console.error("Error searching library:", error);
+      res.status(500).json({ error: "Failed to search library" });
+    }
+  });
+
+  app.get("/api/library/items/:id", async (req: Request, res: Response) => {
+    try {
+      const item = await storage.getLibraryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Library item not found" });
+
+      // Update accessedAt
+      await storage.updateLibraryItem(req.params.id, { accessedAt: new Date().toISOString() });
+      res.json(item);
+    } catch (error) {
+      console.error("Error fetching library item:", error);
+      res.status(500).json({ error: "Failed to fetch library item" });
+    }
+  });
+
+  app.post("/api/library/items", async (req: Request, res: Response) => {
+    try {
+      const item = await storage.createLibraryItem(req.body);
+      await storage.createJournalEntry({
+        type: "created",
+        title: `Added to library: ${item.title}`,
+        relatedLibraryItemId: item.id,
+        resolved: false,
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating library item:", error);
+      res.status(500).json({ error: "Failed to create library item" });
+    }
+  });
+
+  app.patch("/api/library/items/:id", async (req: Request, res: Response) => {
+    try {
+      const item = await storage.updateLibraryItem(req.params.id, req.body);
+      if (!item) return res.status(404).json({ error: "Library item not found" });
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating library item:", error);
+      res.status(500).json({ error: "Failed to update library item" });
+    }
+  });
+
+  app.delete("/api/library/items/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteLibraryItem(req.params.id);
+      if (!deleted) return res.status(404).json({ error: "Library item not found" });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting library item:", error);
+      res.status(500).json({ error: "Failed to delete library item" });
+    }
+  });
+
+  // === Journal ===
+  app.get("/api/journal", async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const type = req.query.type as string | undefined;
+      const since = req.query.since as string | undefined;
+
+      let entries;
+      if (since) {
+        entries = await storage.getJournalEntriesSince(since);
+      } else {
+        entries = await storage.getJournalEntries(limit, type);
+      }
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching journal:", error);
+      res.status(500).json({ error: "Failed to fetch journal entries" });
+    }
+  });
+
+  app.post("/api/journal", async (req: Request, res: Response) => {
+    try {
+      const entry = await storage.createJournalEntry(req.body);
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error creating journal entry:", error);
+      res.status(500).json({ error: "Failed to create journal entry" });
+    }
+  });
+
+  app.patch("/api/journal/:id", async (req: Request, res: Response) => {
+    try {
+      const entry = await storage.updateJournalEntry(req.params.id, req.body);
+      if (!entry) return res.status(404).json({ error: "Journal entry not found" });
+      res.json(entry);
+    } catch (error) {
+      console.error("Error updating journal entry:", error);
+      res.status(500).json({ error: "Failed to update journal entry" });
     }
   });
 

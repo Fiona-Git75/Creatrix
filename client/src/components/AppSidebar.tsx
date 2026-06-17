@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Plus, Settings, FolderOpen, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +19,7 @@ import { ConnectionSelector } from "./ConnectionSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import { ConnectionsDialog } from "./ConnectionsDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
+import { MorningOrientation } from "./MorningOrientation";
 
 interface AppSidebarProps {
   conversations: Conversation[];
@@ -27,6 +27,7 @@ interface AppSidebarProps {
   selectedModel: string;
   selectedConnectionId: string | null;
   selectedProjectId: string | null;
+  morningOrientationEnabled: boolean;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -41,6 +42,7 @@ export function AppSidebar({
   selectedModel,
   selectedConnectionId,
   selectedProjectId,
+  morningOrientationEnabled,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
@@ -67,7 +69,7 @@ export function AppSidebar({
             <Plus className="h-4 w-4" />
             New Chat
           </Button>
-          
+
           <ProjectSelector
             selectedProjectId={selectedProjectId}
             onProjectChange={onProjectChange}
@@ -103,6 +105,8 @@ export function AppSidebar({
           </SidebarGroup>
         </SidebarContent>
 
+        {morningOrientationEnabled && <MorningOrientation />}
+
         <SidebarFooter className="p-4 space-y-3 border-t">
           <div className="space-y-2">
             <div className="flex items-center gap-2 px-1">
@@ -115,13 +119,13 @@ export function AppSidebar({
               onManageConnections={() => setConnectionsDialogOpen(true)}
             />
           </div>
-          
+
           <ModelSelector
             selectedModel={selectedModel}
             connectionId={selectedConnectionId}
             onModelChange={onModelChange}
           />
-          
+
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"
@@ -138,7 +142,7 @@ export function AppSidebar({
         open={connectionsDialogOpen}
         onOpenChange={setConnectionsDialogOpen}
       />
-      
+
       <ProjectsDialog
         open={projectsDialogOpen}
         onOpenChange={setProjectsDialogOpen}

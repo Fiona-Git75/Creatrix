@@ -1,0 +1,426 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  Library, FolderOpen, FileText, Search, Plus, Trash2,
+  ChevronRight, ChevronDown, Clock, Tag, Globe, Loader2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import type { LibraryItem, LibraryFolder } from "@shared/schema";
+
+interface LibraryPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function sourceIcon(source: string) {
+  switch (source) {
+    case "file": return <FileText className="h-3.5 w-3.5 text-blue-500" />;
+    case "url": return <Globe className="h-3.5 w-3.5 text-green-500" />;
+    case "note": return <FileText className="h-3.5 w-3.5 text-amber-500" />;
+    default: return <FileText className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+}
+
+function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string) => void }) {
+  return (
+    <div
+      className="flex items-start gap-2 p-2.5 rounded-md border bg-card hover:bg-accent/40 transition-colors group"
+      data-testid={`card-library-item-${item.id}`}
+    >
+      <div className="mt-0.5 shrink-0">{sourceIcon(item.source)}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{item.title}</p>
+        {item.summary && (
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.summary}</p>
+        )}
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs text-muted-foreground">{formatDate(item.createdAt)}</span>
+          {item.tags?.map(tag => (
+            <Badge key={tag} variant="secondary" className="text-xs px-1 py-0">{tag}</Badge>
+          ))}
+        </div>
+      </div>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6"
+        onClick={() => onDelete(item.id)}
+        data-testid={`button-delete-library-item-${item.id}`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: items = [] } = useQuery<LibraryItem[]>({
+    queryKey: ["/api/library/items", { folderId: folder.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/library/items?folderId=${folder.id}`);
+      return res.json();
+    },
+    enabled: expanded,
+  });
+
+  return (
+    <div data-testid={`folder-library-${folder.id}`}>
+      <div
+        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 cursor-pointer transition-colors group"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+        <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+        <span className="text-sm flex-1">{folder.name}</span>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="opacity-0 group-hover:opacity-100 h-5 w-5 shrink-0"
+          onClick={(e) => { e.stopPropagation(); onDelete(folder.id); }}
+          data-testid={`button-delete-folder-${folder.id}`}
+        >
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+      {expanded && (
+        <div className="ml-6 mt-1 space-y-1">
+          {items.length === 0 ? (
+            <p className="text-xs text-muted-foreground px-2 py-1">Empty folder</p>
+          ) : (
+            items.map(item => (
+              <ItemCard key={item.id} item={item} onDelete={() => queryClient.invalidateQueries({ queryKey: ["/api/library/items"] })} />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [addFolderOpen, setAddFolderOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [newSource, setNewSource] = useState<"note" | "url" | "file" | "upload">("note");
+  const [newFolderName, setNewFolderName] = useState("");
+  const { toast } = useToast();
+
+  const { data: folders = [], isLoading: loadingFolders } = useQuery<LibraryFolder[]>({
+    queryKey: ["/api/library/folders"],
+    enabled: open,
+  });
+
+  const { data: recentItems = [], isLoading: loadingRecent } = useQuery<LibraryItem[]>({
+    queryKey: ["/api/library/items", { recent: true }],
+    queryFn: async () => {
+      const res = await fetch("/api/library/items?recent=true&limit=20");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const { data: searchResults = [], isLoading: loadingSearch } = useQuery<LibraryItem[]>({
+    queryKey: ["/api/library/items/search", searchQuery],
+    queryFn: async () => {
+      if (!searchQuery.trim()) return [];
+      const res = await fetch(`/api/library/items/search?q=${encodeURIComponent(searchQuery)}`);
+      return res.json();
+    },
+    enabled: open && searchQuery.trim().length > 1,
+  });
+
+  const createItemMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/library/items", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/items"] });
+      setAddItemOpen(false);
+      setNewTitle("");
+      setNewContent("");
+      toast({ title: "Added to library" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to add item.", variant: "destructive" }),
+  });
+
+  const deleteItemMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/library/items/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/items"] });
+      toast({ title: "Removed from library" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove item.", variant: "destructive" }),
+  });
+
+  const createFolderMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/library/folders", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/folders"] });
+      setAddFolderOpen(false);
+      setNewFolderName("");
+      toast({ title: "Collection created" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to create collection.", variant: "destructive" }),
+  });
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/library/folders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/folders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/items"] });
+      toast({ title: "Collection removed" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove collection.", variant: "destructive" }),
+  });
+
+  const isSearching = searchQuery.trim().length > 1;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Library className="h-5 w-5" />
+            Library
+          </DialogTitle>
+          <DialogDescription>
+            An inspectable record of documents, notes, and files the resident knows about.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search library…"
+            className="pl-9"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="input-library-search"
+          />
+        </div>
+
+        {isSearching ? (
+          <div className="flex-1 overflow-hidden">
+            <p className="text-xs text-muted-foreground mb-2">
+              {loadingSearch ? "Searching…" : `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""}`}
+            </p>
+            <ScrollArea className="h-[400px]">
+              {loadingSearch ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Search className="h-8 w-8 mx-auto mb-2" />
+                  <p className="text-sm">No results found</p>
+                </div>
+              ) : (
+                <div className="space-y-2 pr-2">
+                  {searchResults.map(item => (
+                    <ItemCard key={item.id} item={item} onDelete={(id) => deleteItemMutation.mutate(id)} />
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        ) : (
+          <Tabs defaultValue="recent" className="flex-1 flex flex-col overflow-hidden">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="recent" className="gap-1.5" data-testid="tab-library-recent">
+                <Clock className="h-3.5 w-3.5" />
+                Recent
+              </TabsTrigger>
+              <TabsTrigger value="collections" className="gap-1.5" data-testid="tab-library-collections">
+                <FolderOpen className="h-3.5 w-3.5" />
+                Collections
+                {folders.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">{folders.length}</Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="recent" className="flex-1 overflow-hidden mt-2">
+              <ScrollArea className="h-[380px]">
+                {loadingRecent ? (
+                  <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                ) : recentItems.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Library className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">Library is empty</p>
+                    <p className="text-xs mt-1">Add notes, files, or URLs to build your library.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 pr-2">
+                    {recentItems.map(item => (
+                      <ItemCard key={item.id} item={item} onDelete={(id) => deleteItemMutation.mutate(id)} />
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="collections" className="flex-1 overflow-hidden mt-2">
+              <ScrollArea className="h-[380px]">
+                {loadingFolders ? (
+                  <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                ) : folders.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FolderOpen className="h-8 w-8 mx-auto mb-2" />
+                    <p className="text-sm">No collections yet</p>
+                    <p className="text-xs mt-1">Create a collection to organise your library.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 pr-2">
+                    {folders.map(folder => (
+                      <FolderSection
+                        key={folder.id}
+                        folder={folder}
+                        onDelete={(id) => deleteFolderMutation.mutate(id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        )}
+
+        <DialogFooter className="gap-2 flex-row justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAddFolderOpen(true)}
+            className="gap-1.5"
+            data-testid="button-add-collection"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Collection
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setAddItemOpen(true)}
+            className="gap-1.5"
+            data-testid="button-add-library-item"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Item
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      {/* Add Item Dialog */}
+      <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add to Library</DialogTitle>
+            <DialogDescription>Save a note, URL, or text to the library.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Type</label>
+              <Select value={newSource} onValueChange={(v) => setNewSource(v as any)}>
+                <SelectTrigger data-testid="select-library-source">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="note">Note</SelectItem>
+                  <SelectItem value="url">URL / Web Page</SelectItem>
+                  <SelectItem value="upload">Uploaded File</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                placeholder="Title…"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                data-testid="input-library-title"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">{newSource === "url" ? "URL" : "Content"}</label>
+              <Textarea
+                placeholder={newSource === "url" ? "https://…" : "Write or paste content…"}
+                value={newContent}
+                onChange={(e) => setNewContent(e.target.value)}
+                rows={4}
+                data-testid="textarea-library-content"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddItemOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createItemMutation.mutate({ title: newTitle, source: newSource, content: newContent, summary: newContent.slice(0, 200) })}
+              disabled={!newTitle.trim() || createItemMutation.isPending}
+              data-testid="button-save-library-item"
+            >
+              {createItemMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Collection Dialog */}
+      <Dialog open={addFolderOpen} onOpenChange={setAddFolderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Collection</DialogTitle>
+            <DialogDescription>Create a named collection to organise library items.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Name</label>
+            <Input
+              placeholder="Collection name…"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              data-testid="input-folder-name"
+              onKeyDown={(e) => { if (e.key === "Enter" && newFolderName.trim()) createFolderMutation.mutate({ name: newFolderName }); }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddFolderOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createFolderMutation.mutate({ name: newFolderName })}
+              disabled={!newFolderName.trim() || createFolderMutation.isPending}
+              data-testid="button-save-folder"
+            >
+              {createFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Dialog>
+  );
+}

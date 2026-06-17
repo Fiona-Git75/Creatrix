@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen, Search } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { KnowledgePanel } from "@/components/KnowledgePanel";
+import { LibraryPanel } from "@/components/LibraryPanel";
+import { JournalPanel } from "@/components/JournalPanel";
 import { SearchDialog } from "@/components/SearchDialog";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -30,6 +32,7 @@ function ChatContent({
   selectedModel,
   selectedConnectionId,
   selectedProjectId,
+  morningOrientationEnabled,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
@@ -46,6 +49,7 @@ function ChatContent({
   selectedModel: string;
   selectedConnectionId: string | null;
   selectedProjectId: string | null;
+  morningOrientationEnabled: boolean;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -59,6 +63,8 @@ function ChatContent({
   const { isMobile } = useSidebar();
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
+  const [libraryPanelOpen, setLibraryPanelOpen] = useState(false);
+  const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -96,6 +102,7 @@ function ChatContent({
         selectedModel={selectedModel}
         selectedConnectionId={selectedConnectionId}
         selectedProjectId={selectedProjectId}
+        morningOrientationEnabled={morningOrientationEnabled}
         onNewChat={onNewChat}
         onSelectConversation={onSelectConversation}
         onDeleteConversation={onDeleteConversation}
@@ -125,6 +132,24 @@ function ChatContent({
               aria-label="Search"
             >
               <Search className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setJournalPanelOpen(true)}
+              data-testid="button-journal"
+              aria-label="Journal"
+            >
+              <BookOpenCheck className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setLibraryPanelOpen(true)}
+              data-testid="button-library"
+              aria-label="Library"
+            >
+              <Library className="h-4 w-4" />
             </Button>
             <Button
               size="icon"
@@ -172,6 +197,16 @@ function ChatContent({
           projectId={selectedProjectId}
         />
 
+        <LibraryPanel
+          open={libraryPanelOpen}
+          onOpenChange={setLibraryPanelOpen}
+        />
+
+        <JournalPanel
+          open={journalPanelOpen}
+          onOpenChange={setJournalPanelOpen}
+        />
+
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}
@@ -184,7 +219,7 @@ function ChatContent({
             <>
               <ScrollArea className="flex-1">
                 <div className="py-4">
-                  {displayMessages.map((message, index) => (
+                  {displayMessages.map((message) => (
                     <ChatMessage
                       key={message.id}
                       message={message}
@@ -225,6 +260,10 @@ export default function Chat() {
 
   const { data: connections = [] } = useQuery<Connection[]>({
     queryKey: ["/api/connections"],
+  });
+
+  const { data: settings } = useQuery<{ morningOrientationEnabled?: boolean }>({
+    queryKey: ["/api/settings"],
   });
 
   useEffect(() => {
@@ -307,7 +346,7 @@ export default function Chat() {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              
+
               if (data.type === "conversation_id" && !activeConversationId) {
                 setActiveConversationId(data.id);
               } else if (data.type === "content") {
@@ -365,6 +404,7 @@ export default function Chat() {
           selectedModel={selectedModel}
           selectedConnectionId={selectedConnectionId}
           selectedProjectId={selectedProjectId}
+          morningOrientationEnabled={settings?.morningOrientationEnabled ?? false}
           onNewChat={createNewChat}
           onSelectConversation={setActiveConversationId}
           onDeleteConversation={handleDeleteConversation}
