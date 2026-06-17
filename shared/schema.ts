@@ -328,6 +328,11 @@ export const capabilityNames = [
   "retrieve_url",
   "search_library",
   "save_conversation",
+  "notion_search",
+  "notion_get_page",
+  "notion_create_page",
+  "notion_query_database",
+  "notion_append_block",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

@@ -2,6 +2,7 @@ import type { CapabilityName, CapabilityInvocation } from "@shared/schema";
 import { filesystemCapabilities } from "./filesystem";
 import { webCapabilities } from "./web";
 import { libraryCapabilities } from "./library";
+import { notionCapabilities } from "./notion";
 
 export interface CapabilityContext {
   rootFolder?: string;
@@ -28,7 +29,7 @@ function register(def: CapabilityDefinition) {
 }
 
 // Register all capabilities
-for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities]) {
+for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities]) {
   register(cap);
 }
 

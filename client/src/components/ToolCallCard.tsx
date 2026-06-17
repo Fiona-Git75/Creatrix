@@ -23,10 +23,15 @@ const CAPABILITY_LABELS: Partial<Record<CapabilityName, string>> = {
   retrieve_url: "Fetching URL",
   search_library: "Searching library",
   save_conversation: "Saving to library",
+  notion_search: "Searching Notion",
+  notion_get_page: "Reading Notion page",
+  notion_create_page: "Creating Notion page",
+  notion_query_database: "Querying Notion database",
+  notion_append_block: "Appending to Notion page",
 };
 
 function argSummary(capability: CapabilityName, args: Record<string, unknown>): string {
-  const val = args.path || args.query || args.title || args.url || args.source || "";
+  const val = args.path || args.query || args.title || args.pageId || args.databaseId || args.url || args.source || "";
   return String(val).slice(0, 60) || capability;
 }
 

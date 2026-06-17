@@ -3,8 +3,9 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
   ChevronRight, ChevronDown, Clock, Globe, Loader2,
-  HardDrive, FilePlus, ArrowLeft, Download,
+  HardDrive, FilePlus, ArrowLeft, Download, BookOpen, ExternalLink,
 } from "lucide-react";
+import { SiNotion } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -147,6 +148,129 @@ function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+interface NotionResult {
+  id: string;
+  type: string;
+  title: string;
+  url: string;
+  lastEdited: string;
+}
+
+function NotionBrowser({ onImport }: { onImport: (item: NotionResult) => void }) {
+  const [query, setQuery] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const { toast } = useToast();
+
+  const { data, isLoading, error } = useQuery<{ results: NotionResult[] }>({
+    queryKey: ["/api/capabilities/invoke", "notion_search", submitted],
+    queryFn: async () => {
+      if (!submitted.trim()) return { results: [] };
+      const res = await apiRequest("POST", "/api/capabilities/invoke", {
+        name: "notion_search",
+        args: { query: submitted, maxResults: 20 },
+      });
+      return res.json();
+    },
+    enabled: submitted.trim().length > 0,
+  });
+
+  const results = (data as any)?.result?.results ?? (data as any)?.results ?? [];
+
+  const handleSearch = () => {
+    if (query.trim()) setSubmitted(query.trim());
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <Input
+          placeholder="Search your Notion workspace…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          data-testid="input-notion-search"
+        />
+        <Button
+          size="sm"
+          onClick={handleSearch}
+          disabled={!query.trim() || isLoading}
+          data-testid="button-notion-search"
+        >
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="text-center py-6 text-muted-foreground">
+          <SiNotion className="h-8 w-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">Could not connect to Notion.</p>
+          <p className="text-xs mt-1">{(error as Error).message}</p>
+        </div>
+      )}
+
+      {!submitted && !error && (
+        <div className="text-center py-6 text-muted-foreground">
+          <SiNotion className="h-8 w-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">Search for pages, databases, or notes in your Notion workspace.</p>
+        </div>
+      )}
+
+      <ScrollArea className="h-[300px]">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : results.length === 0 && submitted ? (
+          <div className="text-center py-6 text-muted-foreground">
+            <Search className="h-6 w-6 mx-auto mb-2" />
+            <p className="text-sm">No results for "{submitted}"</p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {results.map((item: NotionResult) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-accent/40 transition-colors group"
+                data-testid={`notion-result-${item.id}`}
+              >
+                <SiNotion className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{item.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.type === "database" ? "Database" : "Page"} · {new Date(item.lastEdited).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    title="Import to library"
+                    onClick={() => onImport(item)}
+                    data-testid={`button-notion-import-${item.id}`}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-sm hover:bg-accent transition-colors"
+                    title="Open in Notion"
+                    data-testid={`link-notion-open-${item.id}`}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
   );
 }
@@ -363,6 +487,17 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
     toast({ title: "Importing…", description: entry.name });
   };
 
+  const handleImportFromNotion = (item: NotionResult) => {
+    createItemMutation.mutate({
+      title: item.title,
+      source: "url",
+      content: item.url,
+      summary: `Notion ${item.type}: ${item.title}`,
+      tags: ["notion"],
+    });
+    toast({ title: "Added to library", description: item.title });
+  };
+
   const isSearching = searchQuery.trim().length > 1;
 
   return (
@@ -413,7 +548,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
           </div>
         ) : (
           <Tabs defaultValue="recent" className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="recent" className="gap-1.5" data-testid="tab-library-recent">
                 <Clock className="h-3.5 w-3.5" />
                 Recent
@@ -425,9 +560,13 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                   <Badge variant="secondary" className="ml-1 text-xs">{folders.length}</Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="notion" className="gap-1.5" data-testid="tab-library-notion">
+                <SiNotion className="h-3.5 w-3.5" />
+                Notion
+              </TabsTrigger>
               <TabsTrigger value="browse" className="gap-1.5" data-testid="tab-library-browse">
                 <HardDrive className="h-3.5 w-3.5" />
-                Browse
+                Files
               </TabsTrigger>
             </TabsList>
 
@@ -473,6 +612,10 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                   </div>
                 )}
               </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="notion" className="flex-1 overflow-hidden mt-2">
+              <NotionBrowser onImport={handleImportFromNotion} />
             </TabsContent>
 
             <TabsContent value="browse" className="flex-1 overflow-hidden mt-2">
