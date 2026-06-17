@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
@@ -13,6 +13,7 @@ import { MemoryPanel } from "@/components/MemoryPanel";
 import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { JournalPanel } from "@/components/JournalPanel";
+import { SystemLogPanel } from "@/components/SystemLogPanel";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
 import { type Conversation } from "@/components/ConversationItem";
@@ -69,6 +70,7 @@ function ChatContent({
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(false);
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
+  const [systemLogOpen, setSystemLogOpen] = useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -173,6 +175,15 @@ function ChatContent({
             >
               <Brain className="h-4 w-4" />
             </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setSystemLogOpen(true)}
+              data-testid="button-system-log"
+              aria-label="System Log"
+            >
+              <Activity className="h-4 w-4" />
+            </Button>
             {hasMessages && (
               <Button
                 size="icon"
@@ -201,6 +212,7 @@ function ChatContent({
         />
         <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
         <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />
+        <SystemLogPanel open={systemLogOpen} onOpenChange={setSystemLogOpen} />
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}

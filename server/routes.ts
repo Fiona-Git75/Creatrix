@@ -6,8 +6,11 @@ import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
 import { listCapabilities, invokeCapability } from "./capabilities";
+import { syslog, getLogs, clearLogs } from "./syslog";
 import fs from "fs/promises";
 import path from "path";
+
+const SERVER_START = Date.now();
 
 export async function registerRoutes(
   httpServer: Server,
@@ -85,9 +88,10 @@ export async function registerRoutes(
       }
       const provider = createProvider(connection);
       const healthy = await provider.healthCheck();
+      syslog(healthy ? "info" : "warn", "connection", `Health check: ${connection.name}`, healthy ? "healthy" : "offline");
       res.json({ healthy });
-    } catch (error) {
-      console.error("Error checking health:", error);
+    } catch (error: any) {
+      syslog("error", "connection", "Health check failed", error?.message);
       res.json({ healthy: false });
     }
   });
@@ -533,12 +537,12 @@ export async function registerRoutes(
         res.write(`data: ${JSON.stringify({ type: "done", messageId: assistantMessageId })}\n\n`);
         res.end();
       } catch (streamError: any) {
-        console.error("Streaming error:", streamError);
+        syslog("error", "chat", "Streaming error", streamError?.message);
         res.write(`data: ${JSON.stringify({ type: "error", message: streamError.message || "Failed to get AI response" })}\n\n`);
         res.end();
       }
     } catch (error: any) {
-      console.error("Error in chat:", error);
+      syslog("error", "chat", "Chat request failed", error?.message);
       res.status(500).json({ error: error.message || "Failed to process chat" });
     }
   });
@@ -763,9 +767,15 @@ export async function registerRoutes(
         });
       }
 
+      const argSummary = String(args?.path || args?.query || args?.title || args?.pageId || args?.url || "").slice(0, 80);
+      if (result.status === "success") {
+        syslog("info", "tool", `${capability} → ok`, argSummary || undefined);
+      } else {
+        syslog("warn", "tool", `${capability} → ${result.error}`, argSummary || undefined);
+      }
       res.json(result);
     } catch (error: any) {
-      console.error("Error invoking capability:", error);
+      syslog("error", "tool", `Capability invoke failed: ${req.body?.capability}`, error?.message);
       res.status(500).json({ error: error.message || "Failed to invoke capability" });
     }
   });
@@ -979,6 +989,42 @@ export async function registerRoutes(
       console.error("Error updating journal entry:", error);
       res.status(500).json({ error: "Failed to update journal entry" });
     }
+  });
+
+  // === System Logs & Health ===
+  app.get("/api/system/logs", (req: Request, res: Response) => {
+    const level = req.query.level as string | undefined;
+    const category = req.query.category as string | undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 200;
+    const entries = getLogs({
+      level: level as any,
+      category: category as any,
+      limit,
+    });
+    res.json(entries);
+  });
+
+  app.delete("/api/system/logs", (_req: Request, res: Response) => {
+    clearLogs();
+    syslog("info", "system", "Logs cleared by user");
+    res.json({ ok: true });
+  });
+
+  app.get("/api/system/health", async (_req: Request, res: Response) => {
+    let dbOk = false;
+    try {
+      await storage.getSettings();
+      dbOk = true;
+    } catch {}
+
+    const uptimeSeconds = Math.floor((Date.now() - SERVER_START) / 1000);
+    const allLogs = getLogs({ limit: 500 });
+    const recentErrors = allLogs.filter(
+      (e) => e.level === "error" && Date.now() - new Date(e.timestamp).getTime() < 5 * 60 * 1000
+    ).length;
+
+    const status = !dbOk ? "error" : recentErrors > 5 ? "degraded" : "ok";
+    res.json({ status, db: dbOk, uptime: uptimeSeconds, logCount: allLogs.length, recentErrors });
   });
 
   return httpServer;
