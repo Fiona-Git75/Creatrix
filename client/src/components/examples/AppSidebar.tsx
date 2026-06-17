@@ -18,12 +18,17 @@ export default function AppSidebarExample() {
           conversations={conversations}
           activeConversationId={activeId}
           selectedModel={model}
+          selectedConnectionId={null}
+          selectedProjectId={null}
+          morningOrientationEnabled={false}
           onNewChat={() => console.log("New chat")}
           onSelectConversation={setActiveId}
           onDeleteConversation={(id) => {
             setConversations((prev) => prev.filter((c) => c.id !== id));
           }}
           onModelChange={setModel}
+          onConnectionChange={() => {}}
+          onProjectChange={() => {}}
         />
         <div className="flex-1 bg-background p-4">
           <p className="text-muted-foreground">Main content area</p>

@@ -14,10 +14,12 @@ import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { SearchDialog } from "@/components/SearchDialog";
+import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Connection } from "@shared/schema";
+import type { CapabilityName } from "@shared/schema";
 
 interface ConversationData extends Conversation {
   messages: Message[];
@@ -29,6 +31,7 @@ function ChatContent({
   activeConversation,
   isLoading,
   streamingContent,
+  toolEvents,
   selectedModel,
   selectedConnectionId,
   selectedProjectId,
@@ -46,6 +49,7 @@ function ChatContent({
   activeConversation: ConversationData | null;
   isLoading: boolean;
   streamingContent: string;
+  toolEvents: ToolEvent[];
   selectedModel: string;
   selectedConnectionId: string | null;
   selectedProjectId: string | null;
@@ -80,10 +84,10 @@ function ChatContent({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConversation?.messages, streamingContent]);
+  }, [activeConversation?.messages, streamingContent, toolEvents]);
 
   const messages = activeConversation?.messages || [];
-  const hasMessages = messages.length > 0 || streamingContent;
+  const hasMessages = messages.length > 0 || streamingContent || toolEvents.length > 0;
 
   const displayMessages = [...messages];
   if (streamingContent) {
@@ -190,23 +194,13 @@ function ChatContent({
           projectId={selectedProjectId}
           conversationId={activeConversation?.id || null}
         />
-
         <KnowledgePanel
           open={knowledgePanelOpen}
           onOpenChange={setKnowledgePanelOpen}
           projectId={selectedProjectId}
         />
-
-        <LibraryPanel
-          open={libraryPanelOpen}
-          onOpenChange={setLibraryPanelOpen}
-        />
-
-        <JournalPanel
-          open={journalPanelOpen}
-          onOpenChange={setJournalPanelOpen}
-        />
-
+        <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
+        <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}
@@ -226,6 +220,16 @@ function ChatContent({
                       isStreaming={message.id === "streaming"}
                     />
                   ))}
+
+                  {/* Tool call cards shown during active generation */}
+                  {toolEvents.length > 0 && (
+                    <div className="px-4 py-1 max-w-3xl mx-auto">
+                      {toolEvents.map(event => (
+                        <ToolCallCard key={event.id} event={event} />
+                      ))}
+                    </div>
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
@@ -249,12 +253,13 @@ export default function Chat() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [selectedModel, setSelectedModel] = useState("llama3.2");
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const { data: conversations = [], isLoading: isLoadingConversations } = useQuery<ConversationData[]>({
+  const { data: conversations = [] } = useQuery<ConversationData[]>({
     queryKey: ["/api/conversations"],
   });
 
@@ -297,6 +302,7 @@ export default function Chat() {
   const createNewChat = () => {
     setActiveConversationId(null);
     setStreamingContent("");
+    setToolEvents([]);
   };
 
   const handleConnectionChange = (connectionId: string) => {
@@ -310,6 +316,7 @@ export default function Chat() {
   const handleSendMessage = async (content: string) => {
     setIsLoading(true);
     setStreamingContent("");
+    setToolEvents([]);
 
     try {
       const response = await fetch("/api/chat", {
@@ -334,6 +341,9 @@ export default function Chat() {
 
       const decoder = new TextDecoder();
       let accumulated = "";
+      // Maps tool event id → index in toolEvents array (via closure)
+      const activeToolEvents = new Map<string, string>();
+      let eventCounter = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -343,24 +353,43 @@ export default function Chat() {
         const lines = chunk.split("\n");
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
 
-              if (data.type === "conversation_id" && !activeConversationId) {
-                setActiveConversationId(data.id);
-              } else if (data.type === "content") {
-                accumulated += data.content;
-                setStreamingContent(accumulated);
-              } else if (data.type === "done") {
-                setStreamingContent("");
-                queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-              } else if (data.type === "error") {
-                throw new Error(data.message);
+            if (data.type === "conversation_id" && !activeConversationId) {
+              setActiveConversationId(data.id);
+            } else if (data.type === "content") {
+              accumulated += data.content;
+              setStreamingContent(accumulated);
+            } else if (data.type === "tool_call") {
+              const eventId = `tool-${++eventCounter}`;
+              activeToolEvents.set(data.capability, eventId);
+              setToolEvents(prev => [...prev, {
+                id: eventId,
+                capability: data.capability as CapabilityName,
+                args: data.args || {},
+                status: "running",
+              }]);
+            } else if (data.type === "tool_result") {
+              const eventId = activeToolEvents.get(data.capability);
+              if (eventId) {
+                setToolEvents(prev => prev.map(e =>
+                  e.id === eventId
+                    ? { ...e, status: data.status === "success" ? "success" : "error", result: data.result, error: data.error }
+                    : e
+                ));
               }
-            } catch (parseError) {
-              // Skip invalid JSON
+            } else if (data.type === "done") {
+              setStreamingContent("");
+              setToolEvents([]);
+              queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
+            } else if (data.type === "error") {
+              throw new Error(data.message);
             }
+          } catch (parseError) {
+            // Skip invalid JSON lines
           }
         }
       }
@@ -372,6 +401,8 @@ export default function Chat() {
       });
     } finally {
       setIsLoading(false);
+      setStreamingContent("");
+      setToolEvents([]);
     }
   };
 
@@ -401,6 +432,7 @@ export default function Chat() {
           activeConversation={activeConversation}
           isLoading={isLoading}
           streamingContent={streamingContent}
+          toolEvents={toolEvents}
           selectedModel={selectedModel}
           selectedConnectionId={selectedConnectionId}
           selectedProjectId={selectedProjectId}

@@ -401,7 +401,16 @@ export async function registerRoutes(
         systemParts.push(`\n## Relevant Knowledge Base Context\nUse the following information to help answer questions:\n\n${docContext}`);
       }
 
-      // Add system message if we have any context
+      // === Tool capability injection ===
+      const settings = await storage.getSettings();
+      const caps = listCapabilities();
+      const toolDescriptions = caps.map(c =>
+        `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
+      ).join("\n");
+
+      systemParts.push(`\n## Tools\n\nYou have access to tools. To call a tool, output:\n\n<tool_call>{"name":"tool_name","args":{"arg":"value"}}</tool_call>\n\nOutput ONLY the tool call tag — no extra text on that line. Wait; the result will be given back to you. Then continue your response.\n\nAvailable tools:\n${toolDescriptions}\n\nOnly call tools when the user explicitly asks you to read files, search the web, create notes, etc. For general conversation, answer directly without tools.`);
+
+      // Add system message
       if (systemParts.length > 0) {
         modelMessages.unshift({ role: "system", content: systemParts.join("\n\n") });
       }
@@ -419,19 +428,101 @@ export async function registerRoutes(
 
       try {
         const provider = createProvider(connection);
-        
-        await provider.generateStream(modelMessages, selectedModel, (chunk) => {
-          if (chunk.type === "content" && chunk.content) {
-            fullContent += chunk.content;
-            res.write(`data: ${JSON.stringify({ type: "content", content: chunk.content })}\n\n`);
-          } else if (chunk.type === "error") {
-            res.write(`data: ${JSON.stringify({ type: "error", message: chunk.error })}\n\n`);
-          } else if (chunk.type === "done") {
-            // Will be handled after loop
-          }
-        });
+        const TOOL_CALL_RE = /<tool_call>([\s\S]*?)<\/tool_call>/;
+        const MAX_TOOL_ITERATIONS = 5;
 
-        // Save assistant message
+        for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+          // Buffer the full response from the model
+          let buffered = "";
+          let streamError: string | null = null;
+
+          await provider.generateStream(modelMessages, selectedModel, (chunk) => {
+            if (chunk.type === "content" && chunk.content) {
+              buffered += chunk.content;
+            } else if (chunk.type === "error") {
+              streamError = chunk.error || "Unknown stream error";
+            }
+          });
+
+          if (streamError) {
+            res.write(`data: ${JSON.stringify({ type: "error", message: streamError })}\n\n`);
+            res.end();
+            return;
+          }
+
+          // Check for a tool call
+          const match = TOOL_CALL_RE.exec(buffered);
+
+          if (match) {
+            // Stream the text that came before the tool call
+            const toolCallStart = buffered.indexOf("<tool_call>");
+            const preText = buffered.slice(0, toolCallStart).trim();
+            if (preText) {
+              res.write(`data: ${JSON.stringify({ type: "content", content: preText + "\n\n" })}\n\n`);
+              fullContent += preText + "\n\n";
+            }
+
+            // Parse the tool call
+            let toolName: CapabilityName;
+            let toolArgs: Record<string, unknown> = {};
+            try {
+              const parsed = JSON.parse(match[1]);
+              toolName = parsed.name as CapabilityName;
+              toolArgs = parsed.args || {};
+            } catch {
+              // Malformed — emit as plain text and stop
+              res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
+              fullContent += buffered;
+              break;
+            }
+
+            // Notify client a tool is running
+            res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+
+            // Invoke the capability
+            const invocation = await invokeCapability(
+              toolName, toolArgs,
+              { rootFolder: settings.rootFolder, storageRef: storage }
+            );
+
+            // Auto-journal
+            if (invocation.status === "success") {
+              const jTypeMap: Record<string, string> = {
+                read_file: "read", write_file: "created", create_note: "created",
+                create_folder: "created", copy_file: "action", move_file: "action",
+                delete_file: "action", web_search: "search", retrieve_url: "search",
+                search_library: "search", save_conversation: "created",
+              };
+              await storage.createJournalEntry({
+                type: (jTypeMap[toolName] || "action") as any,
+                title: `${toolName.replace(/_/g, " ")}: ${String(toolArgs.path || toolArgs.query || toolArgs.title || toolArgs.url || "").slice(0, 60)}`,
+                detail: JSON.stringify(invocation.result)?.slice(0, 200),
+                relatedPath: (toolArgs.path || toolArgs.destination) as string | undefined,
+                resolved: false,
+              });
+            }
+
+            // Send result to client
+            res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: invocation.status, result: invocation.result, error: invocation.error })}\n\n`);
+
+            // Add assistant turn + tool result to message history for next iteration
+            const assistantTurn = preText ? `${preText}\n\n<tool_call>${match[1]}</tool_call>` : `<tool_call>${match[1]}</tool_call>`;
+            modelMessages.push({ role: "assistant", content: assistantTurn });
+
+            const resultContent = invocation.status === "success"
+              ? `<tool_result>${JSON.stringify(invocation.result, null, 2)}</tool_result>`
+              : `<tool_error>Tool "${toolName}" failed: ${invocation.error}</tool_error>`;
+            modelMessages.push({ role: "user", content: resultContent });
+
+          } else {
+            // No tool call — stream to client and exit loop
+            res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
+            fullContent = (fullContent + buffered).trim();
+            break;
+          }
+        }
+
+        // Save complete assistant message
         const assistantMessage: Message = {
           id: assistantMessageId,
           role: "assistant",

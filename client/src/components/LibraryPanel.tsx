@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
-  ChevronRight, ChevronDown, Clock, Tag, Globe, Loader2,
+  ChevronRight, ChevronDown, Clock, Globe, Loader2,
+  HardDrive, FilePlus, ArrowLeft, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,12 +35,33 @@ interface LibraryPanelProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface FsEntry {
+  name: string;
+  type: "file" | "folder";
+  path: string;
+  size?: number;
+  modifiedAt?: string;
+}
+
+interface FsBrowseResult {
+  path: string;
+  items: FsEntry[];
+  rootFolder: string;
+}
+
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatSize(bytes?: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function sourceIcon(source: string) {
@@ -117,7 +139,7 @@ function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: 
       {expanded && (
         <div className="ml-6 mt-1 space-y-1">
           {items.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-2 py-1">Empty folder</p>
+            <p className="text-xs text-muted-foreground px-2 py-1">Empty collection</p>
           ) : (
             items.map(item => (
               <ItemCard key={item.id} item={item} onDelete={() => queryClient.invalidateQueries({ queryKey: ["/api/library/items"] })} />
@@ -125,6 +147,132 @@ function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function FilesystemBrowser({ onImport }: { onImport: (entry: FsEntry) => void }) {
+  const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
+  const { toast } = useToast();
+
+  const { data, isLoading, error } = useQuery<FsBrowseResult>({
+    queryKey: ["/api/filesystem/browse", currentPath],
+    queryFn: async () => {
+      const params = currentPath ? `?path=${encodeURIComponent(currentPath)}` : "";
+      const res = await fetch(`/api/filesystem/browse${params}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to browse");
+      }
+      return res.json();
+    },
+  });
+
+  const pathParts = (data?.path && data.path !== ".") ? data.path.split("/").filter(Boolean) : [];
+
+  const navigate = (entry: FsEntry) => {
+    if (entry.type === "folder") {
+      setCurrentPath(entry.path);
+    }
+  };
+
+  const goUp = () => {
+    if (pathParts.length === 0) return;
+    const parent = pathParts.slice(0, -1).join("/");
+    setCurrentPath(parent || undefined);
+  };
+
+  const goToSegment = (index: number) => {
+    const seg = pathParts.slice(0, index + 1).join("/");
+    setCurrentPath(seg || undefined);
+  };
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        <HardDrive className="h-8 w-8 mx-auto mb-2" />
+        <p className="text-sm">{(error as Error).message}</p>
+        <p className="text-xs mt-1">Set a root folder in Settings to enable browsing.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+        <button
+          className="hover:text-foreground transition-colors font-medium"
+          onClick={() => setCurrentPath(undefined)}
+          data-testid="breadcrumb-root"
+        >
+          root
+        </button>
+        {pathParts.map((part, i) => (
+          <span key={i} className="flex items-center gap-1">
+            <ChevronRight className="h-3 w-3" />
+            <button
+              className="hover:text-foreground transition-colors"
+              onClick={() => goToSegment(i)}
+            >
+              {part}
+            </button>
+          </span>
+        ))}
+      </div>
+
+      <ScrollArea className="h-[340px]">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {pathParts.length > 0 && (
+              <button
+                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-accent/40 text-sm text-muted-foreground transition-colors"
+                onClick={goUp}
+                data-testid="button-go-up"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                ..
+              </button>
+            )}
+            {data?.items.length === 0 && (
+              <p className="text-xs text-muted-foreground px-2 py-4 text-center">Empty folder</p>
+            )}
+            {data?.items.map(entry => (
+              <div
+                key={entry.path}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 transition-colors group cursor-pointer"
+                onClick={() => navigate(entry)}
+                data-testid={`fs-entry-${entry.type}-${entry.name}`}
+              >
+                {entry.type === "folder"
+                  ? <FolderOpen className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                  : <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                }
+                <span className="text-sm flex-1 truncate">{entry.name}</span>
+                {entry.size !== undefined && (
+                  <span className="text-xs text-muted-foreground shrink-0">{formatSize(entry.size)}</span>
+                )}
+                {entry.type === "file" && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="opacity-0 group-hover:opacity-100 h-6 w-6 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); onImport(entry); }}
+                    title="Import to library"
+                    data-testid={`button-import-${entry.name}`}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
   );
 }
@@ -205,6 +353,16 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
     onError: () => toast({ title: "Error", description: "Failed to remove collection.", variant: "destructive" }),
   });
 
+  const handleImportFromFs = (entry: FsEntry) => {
+    createItemMutation.mutate({
+      title: entry.name,
+      source: "file",
+      filePath: entry.path,
+      summary: `File imported from ${entry.path}`,
+    });
+    toast({ title: "Importing…", description: entry.name });
+  };
+
   const isSearching = searchQuery.trim().length > 1;
 
   return (
@@ -255,7 +413,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
           </div>
         ) : (
           <Tabs defaultValue="recent" className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="recent" className="gap-1.5" data-testid="tab-library-recent">
                 <Clock className="h-3.5 w-3.5" />
                 Recent
@@ -267,17 +425,21 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                   <Badge variant="secondary" className="ml-1 text-xs">{folders.length}</Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="browse" className="gap-1.5" data-testid="tab-library-browse">
+                <HardDrive className="h-3.5 w-3.5" />
+                Browse
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="recent" className="flex-1 overflow-hidden mt-2">
-              <ScrollArea className="h-[380px]">
+              <ScrollArea className="h-[360px]">
                 {loadingRecent ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : recentItems.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Library className="h-8 w-8 mx-auto mb-2" />
                     <p className="text-sm">Library is empty</p>
-                    <p className="text-xs mt-1">Add notes, files, or URLs to build your library.</p>
+                    <p className="text-xs mt-1">Add notes, files, or URLs — or ask the AI to save something.</p>
                   </div>
                 ) : (
                   <div className="space-y-2 pr-2">
@@ -290,7 +452,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
             </TabsContent>
 
             <TabsContent value="collections" className="flex-1 overflow-hidden mt-2">
-              <ScrollArea className="h-[380px]">
+              <ScrollArea className="h-[360px]">
                 {loadingFolders ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : folders.length === 0 ? (
@@ -311,6 +473,10 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                   </div>
                 )}
               </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="browse" className="flex-1 overflow-hidden mt-2">
+              <FilesystemBrowser onImport={handleImportFromFs} />
             </TabsContent>
           </Tabs>
         )}
@@ -382,7 +548,12 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddItemOpen(false)}>Cancel</Button>
             <Button
-              onClick={() => createItemMutation.mutate({ title: newTitle, source: newSource, content: newContent, summary: newContent.slice(0, 200) })}
+              onClick={() => createItemMutation.mutate({
+                title: newTitle,
+                source: newSource,
+                content: newContent,
+                summary: newContent.slice(0, 200),
+              })}
               disabled={!newTitle.trim() || createItemMutation.isPending}
               data-testid="button-save-library-item"
             >
@@ -406,7 +577,11 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               data-testid="input-folder-name"
-              onKeyDown={(e) => { if (e.key === "Enter" && newFolderName.trim()) createFolderMutation.mutate({ name: newFolderName }); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newFolderName.trim()) {
+                  createFolderMutation.mutate({ name: newFolderName });
+                }
+              }}
             />
           </div>
           <DialogFooter>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -19,9 +21,10 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Connection, ProviderType } from "@shared/schema";
+import type { Connection, ProviderType, Settings } from "@shared/schema";
 
 interface ConnectionsDialogProps {
   open: boolean;
@@ -42,7 +45,7 @@ const defaultModels: Record<ProviderType, string> = {
   custom: "default",
 };
 
-export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps) {
+function ConnectionsTab() {
   const { toast } = useToast();
   const [isAdding, setIsAdding] = useState(false);
   const [newConnection, setNewConnection] = useState({
@@ -59,9 +62,8 @@ export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: typeof newConnection) => {
-      return await apiRequest("POST", "/api/connections", data);
-    },
+    mutationFn: async (data: typeof newConnection) =>
+      await apiRequest("POST", "/api/connections", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
       setIsAdding(false);
@@ -129,181 +131,311 @@ export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps
   };
 
   return (
+    <ScrollArea className="h-[480px]">
+      <div className="space-y-4 pr-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : connections.length === 0 && !isAdding ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <p className="mb-4">No connections configured</p>
+            <Button onClick={() => setIsAdding(true)} data-testid="button-add-first-connection">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Your First Connection
+            </Button>
+          </div>
+        ) : (
+          <>
+            {connections.map((connection) => (
+              <Card key={connection.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium truncate">{connection.name}</span>
+                      {connection.isDefault && (
+                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {providerLabels[connection.provider as ProviderType]}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {connection.endpoint}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <ConnectionHealth connectionId={connection.id} />
+                    {!connection.isDefault && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDefaultMutation.mutate(connection.id)}
+                        data-testid={`button-set-default-${connection.id}`}
+                      >
+                        Set Default
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => deleteMutation.mutate(connection.id)}
+                      data-testid={`button-delete-connection-${connection.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+
+            {!isAdding && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setIsAdding(true)}
+                data-testid="button-add-connection"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Connection
+              </Button>
+            )}
+          </>
+        )}
+
+        {isAdding && (
+          <Card className="p-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  value={newConnection.name}
+                  onChange={(e) => setNewConnection({ ...newConnection, name: e.target.value })}
+                  placeholder="My Local Ollama"
+                  data-testid="input-connection-name"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="provider">Provider</Label>
+                <Select
+                  value={newConnection.provider}
+                  onValueChange={(v) => handleProviderChange(v as ProviderType)}
+                >
+                  <SelectTrigger data-testid="select-provider">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                    <SelectItem value="lmstudio">LM Studio (Local)</SelectItem>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="custom">Custom API</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="endpoint">Endpoint URL</Label>
+                <Input
+                  id="endpoint"
+                  value={newConnection.endpoint}
+                  onChange={(e) => setNewConnection({ ...newConnection, endpoint: e.target.value })}
+                  placeholder="http://localhost:11434"
+                  data-testid="input-connection-endpoint"
+                />
+              </div>
+
+              {(newConnection.provider === "openai" || newConnection.provider === "custom") && (
+                <div className="space-y-2">
+                  <Label htmlFor="apiKey">API Key (optional)</Label>
+                  <Input
+                    id="apiKey"
+                    type="password"
+                    value={newConnection.apiKey}
+                    onChange={(e) => setNewConnection({ ...newConnection, apiKey: e.target.value })}
+                    placeholder="sk-..."
+                    data-testid="input-connection-apikey"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="defaultModel">Default Model</Label>
+                <Input
+                  id="defaultModel"
+                  value={newConnection.defaultModel}
+                  onChange={(e) => setNewConnection({ ...newConnection, defaultModel: e.target.value })}
+                  placeholder="llama3.2"
+                  data-testid="input-connection-model"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => { setIsAdding(false); resetForm(); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  data-testid="button-save-connection"
+                >
+                  {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save Connection
+                </Button>
+              </div>
+            </form>
+          </Card>
+        )}
+      </div>
+    </ScrollArea>
+  );
+}
+
+function SettingsTab() {
+  const { toast } = useToast();
+
+  const { data: settings, isLoading } = useQuery<Settings>({
+    queryKey: ["/api/settings"],
+  });
+
+  const [rootFolder, setRootFolder] = useState<string>("");
+  const [initialized, setInitialized] = useState(false);
+
+  if (settings && !initialized) {
+    setRootFolder(settings.rootFolder || "");
+    setInitialized(true);
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: (updates: Partial<Settings>) => apiRequest("PATCH", "/api/settings", updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Settings saved" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Root Folder */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Root Folder</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The base folder for filesystem tools (read_file, create_note, etc.). Leave empty to disable filesystem access.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="/home/user/notes"
+            value={rootFolder}
+            onChange={(e) => setRootFolder(e.target.value)}
+            className="font-mono text-sm"
+            data-testid="input-root-folder"
+          />
+          <Button
+            onClick={() => updateMutation.mutate({ rootFolder: rootFolder || undefined })}
+            disabled={updateMutation.isPending}
+            size="sm"
+            data-testid="button-save-root-folder"
+          >
+            {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+        </div>
+        {rootFolder && (
+          <p className="text-xs text-green-600 dark:text-green-400">
+            Filesystem tools will operate within: <span className="font-mono">{rootFolder}</span>
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Morning Orientation */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <SettingsIcon className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-medium">Morning Orientation</h3>
+          </div>
+          <Switch
+            checked={settings?.morningOrientationEnabled ?? false}
+            onCheckedChange={(checked) => updateMutation.mutate({ morningOrientationEnabled: checked })}
+            data-testid="switch-morning-orientation"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Show a collapsible summary in the sidebar with yesterday's activity and any open questions.
+        </p>
+      </div>
+
+      <Separator />
+
+      {/* Theme */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">Theme</h3>
+        <Select
+          value={settings?.theme ?? "system"}
+          onValueChange={(v) => updateMutation.mutate({ theme: v as Settings["theme"] })}
+        >
+          <SelectTrigger data-testid="select-theme">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">System</SelectItem>
+            <SelectItem value="light">Light</SelectItem>
+            <SelectItem value="dark">Dark</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps) {
+  return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Manage Connections</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh]">
-          <div className="space-y-4 pr-4">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin" />
-              </div>
-            ) : connections.length === 0 && !isAdding ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p className="mb-4">No connections configured</p>
-                <Button onClick={() => setIsAdding(true)} data-testid="button-add-first-connection">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Your First Connection
-                </Button>
-              </div>
-            ) : (
-              <>
-                {connections.map((connection) => (
-                  <Card key={connection.id} className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium truncate">{connection.name}</span>
-                          {connection.isDefault && (
-                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                              Default
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {providerLabels[connection.provider as ProviderType]}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {connection.endpoint}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <ConnectionHealth connectionId={connection.id} />
-                        {!connection.isDefault && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setDefaultMutation.mutate(connection.id)}
-                            data-testid={`button-set-default-${connection.id}`}
-                          >
-                            Set Default
-                          </Button>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deleteMutation.mutate(connection.id)}
-                          data-testid={`button-delete-connection-${connection.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
+        <Tabs defaultValue="connections">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="connections" className="gap-1.5" data-testid="tab-connections">
+              <Server className="h-3.5 w-3.5" />
+              Connections
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="gap-1.5" data-testid="tab-settings">
+              <SettingsIcon className="h-3.5 w-3.5" />
+              Settings
+            </TabsTrigger>
+          </TabsList>
 
-                {!isAdding && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => setIsAdding(true)}
-                    data-testid="button-add-connection"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Connection
-                  </Button>
-                )}
-              </>
-            )}
+          <TabsContent value="connections" className="mt-4">
+            <ConnectionsTab />
+          </TabsContent>
 
-            {isAdding && (
-              <Card className="p-4">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Name</Label>
-                    <Input
-                      id="name"
-                      value={newConnection.name}
-                      onChange={(e) => setNewConnection({ ...newConnection, name: e.target.value })}
-                      placeholder="My Local Ollama"
-                      data-testid="input-connection-name"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="provider">Provider</Label>
-                    <Select
-                      value={newConnection.provider}
-                      onValueChange={(v) => handleProviderChange(v as ProviderType)}
-                    >
-                      <SelectTrigger data-testid="select-provider">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ollama">Ollama (Local)</SelectItem>
-                        <SelectItem value="lmstudio">LM Studio (Local)</SelectItem>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="custom">Custom API</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="endpoint">Endpoint URL</Label>
-                    <Input
-                      id="endpoint"
-                      value={newConnection.endpoint}
-                      onChange={(e) => setNewConnection({ ...newConnection, endpoint: e.target.value })}
-                      placeholder="http://localhost:11434"
-                      data-testid="input-connection-endpoint"
-                    />
-                  </div>
-
-                  {(newConnection.provider === "openai" || newConnection.provider === "custom") && (
-                    <div className="space-y-2">
-                      <Label htmlFor="apiKey">API Key (optional)</Label>
-                      <Input
-                        id="apiKey"
-                        type="password"
-                        value={newConnection.apiKey}
-                        onChange={(e) => setNewConnection({ ...newConnection, apiKey: e.target.value })}
-                        placeholder="sk-..."
-                        data-testid="input-connection-apikey"
-                      />
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="defaultModel">Default Model</Label>
-                    <Input
-                      id="defaultModel"
-                      value={newConnection.defaultModel}
-                      onChange={(e) => setNewConnection({ ...newConnection, defaultModel: e.target.value })}
-                      placeholder="llama3.2"
-                      data-testid="input-connection-model"
-                    />
-                  </div>
-
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setIsAdding(false);
-                        resetForm();
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={createMutation.isPending}
-                      data-testid="button-save-connection"
-                    >
-                      {createMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
-                      Save Connection
-                    </Button>
-                  </div>
-                </form>
-              </Card>
-            )}
-          </div>
-        </ScrollArea>
+          <TabsContent value="settings" className="mt-4">
+            <SettingsTab />
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
