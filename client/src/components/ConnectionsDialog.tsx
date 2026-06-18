@@ -306,10 +306,12 @@ function SettingsTab() {
   });
 
   const [rootFolder, setRootFolder] = useState<string>("");
+  const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
 
   if (settings && !initialized) {
     setRootFolder(settings.rootFolder || "");
+    setWhisperEndpoint(settings.whisperEndpoint || "");
     setInitialized(true);
   }
 
@@ -361,6 +363,41 @@ function SettingsTab() {
         {rootFolder && (
           <p className="text-xs text-green-600 dark:text-green-400">
             Filesystem tools will operate within: <span className="font-mono">{rootFolder}</span>
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Whisper Endpoint */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Whisper Endpoint</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Local whisper.cpp server for audio transcription. Leave empty if you don't need audio transcription.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="http://localhost:8080/v1"
+            value={whisperEndpoint}
+            onChange={(e) => setWhisperEndpoint(e.target.value)}
+            className="font-mono text-sm"
+            data-testid="input-whisper-endpoint"
+          />
+          <Button
+            onClick={() => updateMutation.mutate({ whisperEndpoint: whisperEndpoint || undefined })}
+            disabled={updateMutation.isPending}
+            size="sm"
+            data-testid="button-save-whisper-endpoint"
+          >
+            {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+        </div>
+        {whisperEndpoint && (
+          <p className="text-xs text-green-600 dark:text-green-400">
+            Audio transcription will use: <span className="font-mono">{whisperEndpoint}</span>
           </p>
         )}
       </div>

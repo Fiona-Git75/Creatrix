@@ -4,7 +4,6 @@ import { AppSidebar } from "../AppSidebar";
 
 export default function AppSidebarExample() {
   const [activeId, setActiveId] = useState<string | null>("1");
-  const [model, setModel] = useState("gpt-4o");
   const [conversations, setConversations] = useState([
     { id: "1", title: "What is React?" },
     { id: "2", title: "Help me write a poem" },
@@ -17,8 +16,6 @@ export default function AppSidebarExample() {
         <AppSidebar
           conversations={conversations}
           activeConversationId={activeId}
-          selectedModel={model}
-          selectedConnectionId={null}
           selectedProjectId={null}
           morningOrientationEnabled={false}
           onNewChat={() => console.log("New chat")}
@@ -26,8 +23,6 @@ export default function AppSidebarExample() {
           onDeleteConversation={(id) => {
             setConversations((prev) => prev.filter((c) => c.id !== id));
           }}
-          onModelChange={setModel}
-          onConnectionChange={() => {}}
           onProjectChange={() => {}}
         />
         <div className="flex-1 bg-background p-4">

@@ -8,6 +8,8 @@ import { mediaCapabilities } from "./media";
 export interface CapabilityContext {
   rootFolder?: string;
   storageRef?: import("../storage").IStorage;
+  connection?: import("@shared/schema").Connection;
+  model?: string;
 }
 
 export type CapabilityHandler = (

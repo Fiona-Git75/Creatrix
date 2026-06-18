@@ -685,6 +685,7 @@ export class DatabaseStorage implements IStorage {
       theme: (s.theme as Settings["theme"]) ?? "system",
       rootFolder: s.rootFolder ?? undefined,
       morningOrientationEnabled: s.morningOrientationEnabled ?? false,
+      whisperEndpoint: s.whisperEndpoint ?? undefined,
     };
   }
   async updateSettings(updates: Partial<Settings>): Promise<Settings> {
@@ -697,6 +698,7 @@ export class DatabaseStorage implements IStorage {
       theme: merged.theme ?? "system",
       rootFolder: merged.rootFolder ?? null,
       morningOrientationEnabled: merged.morningOrientationEnabled ?? false,
+      whisperEndpoint: merged.whisperEndpoint ?? null,
     };
     await this.db.insert(settings).values(dbRow).onConflictDoUpdate({ target: settings.id, set: dbRow });
     return merged;

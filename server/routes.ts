@@ -487,7 +487,7 @@ export async function registerRoutes(
             // Invoke the capability — project folderPath takes priority over global rootFolder
             const invocation = await invokeCapability(
               toolName, toolArgs,
-              { rootFolder: project?.folderPath || settings.rootFolder, storageRef: storage }
+              { rootFolder: project?.folderPath || settings.rootFolder, storageRef: storage, connection, model: selectedModel }
             );
 
             // Auto-journal
@@ -744,10 +744,13 @@ export async function registerRoutes(
       if (!capability) return res.status(400).json({ error: "capability is required" });
 
       const settings = await storage.getSettings();
+      const capConnection = settings.defaultConnectionId
+        ? await storage.getConnection(settings.defaultConnectionId)
+        : undefined;
       const result = await invokeCapability(
         capability as CapabilityName,
         args || {},
-        { rootFolder: settings.rootFolder, storageRef: storage }
+        { rootFolder: settings.rootFolder, storageRef: storage, connection: capConnection ?? undefined }
       );
 
       // Auto-log successful invocations to the journal

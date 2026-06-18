@@ -73,6 +73,7 @@ export const settings = pgTable("settings", {
   theme: varchar("theme", { length: 10 }).default("system"),
   rootFolder: text("root_folder"),
   morningOrientationEnabled: boolean("morning_orientation_enabled").default(false),
+  whisperEndpoint: text("whisper_endpoint"),
 });
 
 // ─── Phase 2: Library ────────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ export const settingsSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).default("system"),
   rootFolder: z.string().optional(),
   morningOrientationEnabled: z.boolean().default(false),
+  whisperEndpoint: z.string().optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 

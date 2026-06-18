@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings, FolderOpen, Server } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -14,8 +14,6 @@ import {
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
 import { ConversationItem, type Conversation } from "./ConversationItem";
-import { ModelSelector } from "./ModelSelector";
-import { ConnectionSelector } from "./ConnectionSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import { ConnectionsDialog } from "./ConnectionsDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
@@ -24,30 +22,22 @@ import { MorningOrientation } from "./MorningOrientation";
 interface AppSidebarProps {
   conversations: Conversation[];
   activeConversationId: string | null;
-  selectedModel: string;
-  selectedConnectionId: string | null;
   selectedProjectId: string | null;
   morningOrientationEnabled: boolean;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
-  onModelChange: (modelId: string) => void;
-  onConnectionChange: (connectionId: string) => void;
   onProjectChange: (projectId: string | null) => void;
 }
 
 export function AppSidebar({
   conversations,
   activeConversationId,
-  selectedModel,
-  selectedConnectionId,
   selectedProjectId,
   morningOrientationEnabled,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
-  onModelChange,
-  onConnectionChange,
   onProjectChange,
 }: AppSidebarProps) {
   const [connectionsDialogOpen, setConnectionsDialogOpen] = useState(false);
@@ -81,7 +71,7 @@ export function AppSidebar({
           <SidebarGroup>
             <SidebarGroupLabel className="px-4">Conversations</SidebarGroupLabel>
             <SidebarGroupContent>
-              <ScrollArea className="h-[calc(100vh-380px)] px-2">
+              <ScrollArea className="h-[calc(100vh-260px)] px-2">
                 <SidebarMenu>
                   {filteredConversations.length === 0 ? (
                     <div className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -107,25 +97,7 @@ export function AppSidebar({
 
         {morningOrientationEnabled && <MorningOrientation />}
 
-        <SidebarFooter className="p-4 space-y-3 border-t">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 px-1">
-              <Server className="h-3 w-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Connection</span>
-            </div>
-            <ConnectionSelector
-              selectedConnectionId={selectedConnectionId}
-              onConnectionChange={onConnectionChange}
-              onManageConnections={() => setConnectionsDialogOpen(true)}
-            />
-          </div>
-
-          <ModelSelector
-            selectedModel={selectedModel}
-            connectionId={selectedConnectionId}
-            onModelChange={onModelChange}
-          />
-
+        <SidebarFooter className="p-4 border-t">
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"

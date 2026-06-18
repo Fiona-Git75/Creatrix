@@ -33,8 +33,6 @@ function ChatContent({
   isLoading,
   streamingContent,
   toolEvents,
-  selectedModel,
-  selectedConnectionId,
   selectedProjectId,
   morningOrientationEnabled,
   onNewChat,
@@ -42,8 +40,6 @@ function ChatContent({
   onDeleteConversation,
   onSendMessage,
   onClearChat,
-  onModelChange,
-  onConnectionChange,
   onProjectChange,
 }: {
   conversations: ConversationData[];
@@ -51,8 +47,6 @@ function ChatContent({
   isLoading: boolean;
   streamingContent: string;
   toolEvents: ToolEvent[];
-  selectedModel: string;
-  selectedConnectionId: string | null;
   selectedProjectId: string | null;
   morningOrientationEnabled: boolean;
   onNewChat: () => void;
@@ -60,8 +54,6 @@ function ChatContent({
   onDeleteConversation: (id: string) => void;
   onSendMessage: (message: string) => void;
   onClearChat: () => void;
-  onModelChange: (modelId: string) => void;
-  onConnectionChange: (connectionId: string) => void;
   onProjectChange: (projectId: string | null) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,15 +97,11 @@ function ChatContent({
       <AppSidebar
         conversations={conversations}
         activeConversationId={activeConversation?.id || null}
-        selectedModel={selectedModel}
-        selectedConnectionId={selectedConnectionId}
         selectedProjectId={selectedProjectId}
         morningOrientationEnabled={morningOrientationEnabled}
         onNewChat={onNewChat}
         onSelectConversation={onSelectConversation}
         onDeleteConversation={onDeleteConversation}
-        onModelChange={onModelChange}
-        onConnectionChange={onConnectionChange}
         onProjectChange={onProjectChange}
       />
 
@@ -445,8 +433,6 @@ export default function Chat() {
           isLoading={isLoading}
           streamingContent={streamingContent}
           toolEvents={toolEvents}
-          selectedModel={selectedModel}
-          selectedConnectionId={selectedConnectionId}
           selectedProjectId={selectedProjectId}
           morningOrientationEnabled={settings?.morningOrientationEnabled ?? false}
           onNewChat={createNewChat}
@@ -454,8 +440,6 @@ export default function Chat() {
           onDeleteConversation={handleDeleteConversation}
           onSendMessage={handleSendMessage}
           onClearChat={handleClearChat}
-          onModelChange={setSelectedModel}
-          onConnectionChange={handleConnectionChange}
           onProjectChange={setSelectedProjectId}
         />
       </div>
