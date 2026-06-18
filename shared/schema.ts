@@ -168,11 +168,19 @@ export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: tru
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 
 // Messages within conversations
+export const sourceSchema = z.object({
+  type: z.enum(["file", "url", "web", "notion", "youtube"]),
+  label: z.string(),
+  detail: z.string().optional(),
+});
+export type Source = z.infer<typeof sourceSchema>;
+
 export const messageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   createdAt: z.string().optional(),
+  sources: z.array(sourceSchema).optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

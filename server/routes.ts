@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { chatRequestSchema, type Message, type CapabilityName } from "@shared/schema";
+import { chatRequestSchema, type Message, type CapabilityName, type Source } from "@shared/schema";
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
@@ -11,6 +11,56 @@ import fs from "fs/promises";
 import path from "path";
 
 const SERVER_START = Date.now();
+
+function makeSource(
+  toolName: CapabilityName,
+  toolArgs: Record<string, unknown>,
+  result: unknown,
+  rootFolder?: string
+): Source | null {
+  const r = result as Record<string, unknown> | null;
+  switch (toolName) {
+    case "read_file":
+    case "write_file":
+    case "append_file":
+    case "create_note":
+    case "ocr_image":
+    case "analyze_image":
+    case "transcribe_audio": {
+      const fullPath = String((r?.path ?? toolArgs.path) || "");
+      if (!fullPath) return null;
+      const resolved = rootFolder ? path.resolve(rootFolder) : null;
+      const label = resolved && fullPath.startsWith(resolved)
+        ? fullPath.slice(resolved.length).replace(/^[\\/]/, "")
+        : path.basename(fullPath);
+      return { type: "file", label, detail: fullPath };
+    }
+    case "retrieve_url": {
+      const url = String(toolArgs.url || "");
+      if (!url) return null;
+      let label = url;
+      try { label = new URL(url).hostname; } catch { label = url.slice(0, 40); }
+      return { type: "url", label, detail: url };
+    }
+    case "get_youtube_transcript": {
+      const url = String(toolArgs.url || "");
+      if (!url) return null;
+      return { type: "youtube", label: "YouTube", detail: url };
+    }
+    case "web_search": {
+      const q = String(toolArgs.query || "");
+      return q ? { type: "web", label: q.slice(0, 48) } : null;
+    }
+    case "notion_search":
+    case "notion_get_page":
+    case "notion_query_database": {
+      const label = String(toolArgs.query || toolArgs.pageId || toolArgs.databaseId || "Notion");
+      return { type: "notion", label: label.slice(0, 48) };
+    }
+    default:
+      return null;
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -430,6 +480,7 @@ export async function registerRoutes(
 
       const assistantMessageId = randomUUID();
       let fullContent = "";
+      const sources: Source[] = [];
 
       try {
         const provider = createProvider(connection);
@@ -490,7 +541,7 @@ export async function registerRoutes(
               { rootFolder: project?.folderPath || settings.rootFolder, storageRef: storage, connection, model: selectedModel }
             );
 
-            // Auto-journal
+            // Auto-journal + provenance collection
             if (invocation.status === "success") {
               const jTypeMap: Record<string, string> = {
                 read_file: "read", write_file: "created", create_note: "created",
@@ -505,6 +556,15 @@ export async function registerRoutes(
                 relatedPath: (toolArgs.path || toolArgs.destination) as string | undefined,
                 resolved: false,
               });
+
+              // Collect provenance source (deduplicated by detail/label)
+              const src = makeSource(toolName, toolArgs, invocation.result, project?.folderPath || settings.rootFolder);
+              if (src) {
+                const key = src.detail || src.label;
+                if (!sources.some(s => (s.detail || s.label) === key)) {
+                  sources.push(src);
+                }
+              }
             }
 
             // Send result to client
@@ -527,11 +587,12 @@ export async function registerRoutes(
           }
         }
 
-        // Save complete assistant message
+        // Save complete assistant message (with provenance sources)
         const assistantMessage: Message = {
           id: assistantMessageId,
           role: "assistant",
           content: fullContent,
+          ...(sources.length > 0 ? { sources } : {}),
         };
         await storage.addMessageToConversation(currentConversationId, assistantMessage);
 

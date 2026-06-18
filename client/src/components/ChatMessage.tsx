@@ -1,18 +1,49 @@
-import { Bot, User, Copy, Check } from "lucide-react";
+import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import type { Source } from "@shared/schema";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  sources?: Source[];
 }
 
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+}
+
+const SOURCE_ICONS: Record<Source["type"], React.ElementType> = {
+  file: FileText,
+  url: Globe,
+  youtube: PlayCircle,
+  web: Search,
+  notion: BookOpen,
+};
+
+function SourceCitations({ sources }: { sources: Source[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-3">
+      {sources.map((source, i) => {
+        const Icon = SOURCE_ICONS[source.type] ?? FileText;
+        return (
+          <span
+            key={i}
+            title={source.detail || source.label}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted border border-border/50 text-xs text-muted-foreground font-mono cursor-default select-text"
+            data-testid={`source-citation-${i}`}
+          >
+            <Icon className="h-3 w-3 shrink-0 opacity-60" />
+            {source.label}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
@@ -61,6 +92,10 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
               <span className="inline-block w-2 h-4 ml-1 bg-current animate-pulse" />
             )}
           </div>
+
+          {!isUser && !isStreaming && message.sources && message.sources.length > 0 && (
+            <SourceCitations sources={message.sources} />
+          )}
 
           {!isUser && !isStreaming && (
             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
