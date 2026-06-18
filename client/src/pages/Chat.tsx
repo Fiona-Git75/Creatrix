@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +33,83 @@ import type { CapabilityName } from "@shared/schema";
 interface ConversationData extends Conversation {
   messages: Message[];
   model: string;
+}
+
+interface ModelEntry { id: string; name: string; }
+interface ModelsResponse { status: string; message?: string; models: ModelEntry[]; }
+
+function ConnectionGroup({
+  conn,
+  selectedConnectionId,
+  selectedModel,
+  onSelectConnection,
+}: {
+  conn: Connection;
+  selectedConnectionId: string | null;
+  selectedModel: string;
+  onSelectConnection: (connectionId: string, model: string) => void;
+}) {
+  const { data, isLoading } = useQuery<ModelsResponse>({
+    queryKey: ["/api/connections", conn.id, "models"],
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const models = data?.models ?? [];
+  const isOffline = data?.status === "offline" || data?.status === "error";
+  const isReady = data?.status === "ok" || data?.status === "empty";
+
+  const dotClass = isLoading
+    ? "bg-yellow-400 animate-pulse"
+    : isReady
+    ? "bg-green-500"
+    : isOffline
+    ? "bg-red-400"
+    : "bg-muted-foreground/30";
+
+  const displayModels: ModelEntry[] =
+    models.length > 0
+      ? models
+      : conn.defaultModel
+      ? [{ id: conn.defaultModel, name: conn.defaultModel }]
+      : [];
+
+  return (
+    <>
+      <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-2 py-1.5">
+        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
+        {conn.name}
+      </DropdownMenuLabel>
+      {isLoading ? (
+        <DropdownMenuItem disabled className="pl-5">
+          <Loader2 className="h-3 w-3 animate-spin mr-2 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Checking…</span>
+        </DropdownMenuItem>
+      ) : isOffline ? (
+        <DropdownMenuItem disabled className="pl-5">
+          <span className="text-xs text-muted-foreground">Offline — check connection in Settings</span>
+        </DropdownMenuItem>
+      ) : displayModels.length === 0 ? (
+        <DropdownMenuItem disabled className="pl-5">
+          <span className="text-xs text-muted-foreground">No models found</span>
+        </DropdownMenuItem>
+      ) : (
+        displayModels.map(m => (
+          <DropdownMenuItem
+            key={m.id}
+            onClick={() => onSelectConnection(conn.id, m.id)}
+            className="pl-5 flex items-center justify-between gap-2"
+            data-testid={`model-option-${conn.id}-${m.id}`}
+          >
+            <span className="text-sm truncate">{m.name}</span>
+            {selectedConnectionId === conn.id && selectedModel === m.id && (
+              <Check className="h-3 w-3 shrink-0 text-primary" />
+            )}
+          </DropdownMenuItem>
+        ))
+      )}
+    </>
+  );
 }
 
 function ChatContent({
@@ -134,31 +213,29 @@ function ChatContent({
                   data-testid="button-connection-selector"
                 >
                   <Cpu className="h-3 w-3" />
-                  <span className="max-w-[140px] truncate">
-                    {connections.find(c => c.id === selectedConnectionId)?.name ?? "No connection"}
+                  <span className="max-w-[160px] truncate">
+                    {selectedModel || "Select a model"}
                   </span>
                   <ChevronDown className="h-3 w-3 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-60">
-                {connections.map(conn => (
-                  <DropdownMenuItem
-                    key={conn.id}
-                    onClick={() => onSelectConnection(conn.id, conn.defaultModel)}
-                    className="flex items-center justify-between gap-2"
-                    data-testid={`connection-option-${conn.id}`}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{conn.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{conn.defaultModel}</div>
-                    </div>
-                    {selectedConnectionId === conn.id && <Check className="h-3 w-3 shrink-0 text-primary" />}
-                  </DropdownMenuItem>
-                ))}
-                {connections.length === 0 && (
+              <DropdownMenuContent align="start" className="w-64">
+                {connections.length === 0 ? (
                   <DropdownMenuItem disabled>
-                    <span className="text-xs text-muted-foreground">No connections configured</span>
+                    <span className="text-xs text-muted-foreground">No connections configured — add one in Settings</span>
                   </DropdownMenuItem>
+                ) : (
+                  connections.map((conn, i) => (
+                    <div key={conn.id}>
+                      {i > 0 && <DropdownMenuSeparator />}
+                      <ConnectionGroup
+                        conn={conn}
+                        selectedConnectionId={selectedConnectionId}
+                        selectedModel={selectedModel}
+                        onSelectConnection={onSelectConnection}
+                      />
+                    </div>
+                  ))
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
