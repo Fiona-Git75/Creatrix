@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import AdmZip from "adm-zip";
 import type { CapabilityDefinition } from "./index";
 
 const PLAIN_TEXT_EXTENSIONS = new Set([
@@ -55,9 +56,60 @@ async function readFileContent(filePath: string): Promise<{ content: string; for
   }
 
   if (ext === ".epub") {
-    throw new Error(
-      "EPUB reading is not yet enabled. Install adm-zip (npm install adm-zip) to add EPUB support."
-    );
+    const zip = new AdmZip(filePath);
+
+    // Step 1: Locate the OPF package file via META-INF/container.xml
+    const containerXml = zip.readAsText("META-INF/container.xml");
+    const opfMatch = containerXml.match(/full-path="([^"]+\.opf)"/i);
+    if (!opfMatch) throw new Error("Invalid EPUB: could not find OPF package file.");
+    const opfPath = opfMatch[1];
+    const opfDir = path.posix.dirname(opfPath).replace(/^\.$/, "");
+
+    // Step 2: Parse manifest (id → href) and spine (reading order)
+    const opfXml = zip.readAsText(opfPath);
+
+    const manifestMap = new Map<string, string>();
+    Array.from(opfXml.matchAll(/<item\s[^>]*\bid="([^"]+)"[^>]*\bhref="([^"]+)"/gi)).forEach((m) => {
+      manifestMap.set(m[1], m[2]);
+    });
+
+    const spineIds = Array.from(opfXml.matchAll(/<itemref\s[^>]*\bidref="([^"]+)"/gi)).map((m) => m[1]);
+
+    // Step 3: Extract and clean text from each chapter in spine order
+    const stripHtml = (html: string): string =>
+      html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<h[1-6][^>]*>/gi, "\n\n")
+        .replace(/<\/p>/gi, "\n\n")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&nbsp;|&#160;/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
+    const chapters: string[] = [];
+    for (const id of spineIds) {
+      const href = manifestMap.get(id);
+      if (!href) continue;
+      const entryPath = opfDir ? `${opfDir}/${href}` : href;
+      try {
+        const html = zip.readAsText(entryPath);
+        const text = stripHtml(html);
+        if (text.length > 50) chapters.push(text);
+      } catch {
+        // skip unreadable entries silently
+      }
+    }
+
+    if (chapters.length === 0) throw new Error("Could not extract any readable text from this EPUB.");
+    return { content: chapters.join("\n\n---\n\n"), format: "EPUB" };
   }
 
   if (PLAIN_TEXT_EXTENSIONS.has(ext)) {
