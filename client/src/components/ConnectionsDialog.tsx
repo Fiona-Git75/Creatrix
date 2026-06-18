@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -307,13 +307,31 @@ function SettingsTab() {
 
   const [rootFolder, setRootFolder] = useState<string>("");
   const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
+  const [libraryPaths, setLibraryPaths] = useState<string[]>([]);
+  const [newPath, setNewPath] = useState("");
   const [initialized, setInitialized] = useState(false);
 
   if (settings && !initialized) {
     setRootFolder(settings.rootFolder || "");
     setWhisperEndpoint(settings.whisperEndpoint || "");
+    setLibraryPaths(settings.libraryPaths || []);
     setInitialized(true);
   }
+
+  const addLibraryPath = () => {
+    const trimmed = newPath.trim();
+    if (!trimmed || libraryPaths.includes(trimmed)) return;
+    const updated = [...libraryPaths, trimmed];
+    setLibraryPaths(updated);
+    setNewPath("");
+    updateMutation.mutate({ libraryPaths: updated });
+  };
+
+  const removeLibraryPath = (index: number) => {
+    const updated = libraryPaths.filter((_, i) => i !== index);
+    setLibraryPaths(updated);
+    updateMutation.mutate({ libraryPaths: updated.length > 0 ? updated : undefined });
+  };
 
   const updateMutation = useMutation({
     mutationFn: (updates: Partial<Settings>) => apiRequest("PATCH", "/api/settings", updates),
@@ -365,6 +383,54 @@ function SettingsTab() {
             Filesystem tools will operate within: <span className="font-mono">{rootFolder}</span>
           </p>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Library Paths */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Additional Library Paths</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Add multiple folders the resident can access. Each path is an independent access root — files anywhere inside will be readable.
+        </p>
+        <div className="space-y-2">
+          {libraryPaths.map((p, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="flex-1 font-mono text-xs text-muted-foreground bg-muted rounded px-2 py-1 truncate" title={p}>{p}</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0"
+                onClick={() => removeLibraryPath(i)}
+                data-testid={`button-remove-library-path-${i}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Input
+              placeholder="/home/user/research"
+              value={newPath}
+              onChange={(e) => setNewPath(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addLibraryPath()}
+              className="font-mono text-sm"
+              data-testid="input-new-library-path"
+            />
+            <Button
+              onClick={addLibraryPath}
+              disabled={updateMutation.isPending || !newPath.trim()}
+              size="sm"
+              variant="outline"
+              data-testid="button-add-library-path"
+            >
+              Add
+            </Button>
+          </div>
+        </div>
       </div>
 
       <Separator />

@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity } from "lucide-react";
+import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -35,12 +41,16 @@ function ChatContent({
   toolEvents,
   selectedProjectId,
   morningOrientationEnabled,
+  connections,
+  selectedConnectionId,
+  selectedModel,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
   onSendMessage,
   onClearChat,
   onProjectChange,
+  onSelectConnection,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -49,12 +59,16 @@ function ChatContent({
   toolEvents: ToolEvent[];
   selectedProjectId: string | null;
   morningOrientationEnabled: boolean;
+  connections: Connection[];
+  selectedConnectionId: string | null;
+  selectedModel: string;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onSendMessage: (message: string) => void;
   onClearChat: () => void;
   onProjectChange: (projectId: string | null) => void;
+  onSelectConnection: (connectionId: string, model: string) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useSidebar();
@@ -111,6 +125,43 @@ function ChatContent({
             <SidebarTrigger data-testid="button-sidebar-toggle">
               <Menu className="h-4 w-4" />
             </SidebarTrigger>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs text-muted-foreground px-2"
+                  data-testid="button-connection-selector"
+                >
+                  <Cpu className="h-3 w-3" />
+                  <span className="max-w-[140px] truncate">
+                    {connections.find(c => c.id === selectedConnectionId)?.name ?? "No connection"}
+                  </span>
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-60">
+                {connections.map(conn => (
+                  <DropdownMenuItem
+                    key={conn.id}
+                    onClick={() => onSelectConnection(conn.id, conn.defaultModel)}
+                    className="flex items-center justify-between gap-2"
+                    data-testid={`connection-option-${conn.id}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{conn.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{conn.defaultModel}</div>
+                    </div>
+                    {selectedConnectionId === conn.id && <Check className="h-3 w-3 shrink-0 text-primary" />}
+                  </DropdownMenuItem>
+                ))}
+                {connections.length === 0 && (
+                  <DropdownMenuItem disabled>
+                    <span className="text-xs text-muted-foreground">No connections configured</span>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {hasMessages && (
               <span className="text-sm font-medium truncate max-w-[200px]">
                 {activeConversation?.title}
@@ -435,12 +486,16 @@ export default function Chat() {
           toolEvents={toolEvents}
           selectedProjectId={selectedProjectId}
           morningOrientationEnabled={settings?.morningOrientationEnabled ?? false}
+          connections={connections}
+          selectedConnectionId={selectedConnectionId}
+          selectedModel={selectedModel}
           onNewChat={createNewChat}
           onSelectConversation={setActiveConversationId}
           onDeleteConversation={handleDeleteConversation}
           onSendMessage={handleSendMessage}
           onClearChat={handleClearChat}
           onProjectChange={setSelectedProjectId}
+          onSelectConnection={(id, model) => { setSelectedConnectionId(id); setSelectedModel(model); }}
         />
       </div>
     </SidebarProvider>

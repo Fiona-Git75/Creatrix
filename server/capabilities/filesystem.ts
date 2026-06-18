@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import AdmZip from "adm-zip";
-import type { CapabilityDefinition } from "./index";
+import type { CapabilityDefinition, CapabilityContext } from "./index";
 
 const PLAIN_TEXT_EXTENSIONS = new Set([
   ".md", ".txt", ".rtf", ".odt",
@@ -11,13 +11,15 @@ const PLAIN_TEXT_EXTENSIONS = new Set([
   ".sh", ".env",
 ]);
 
-function sanitizePath(filePath: string, rootFolder?: string): string {
+function sanitizePath(filePath: string, ctx: Pick<CapabilityContext, "rootFolder" | "libraryPaths">): string {
   const resolved = path.resolve(filePath);
-  if (rootFolder) {
-    const root = path.resolve(rootFolder);
-    if (!resolved.startsWith(root)) {
-      throw new Error(`Path "${filePath}" is outside the configured root folder.`);
-    }
+  const allRoots = [
+    ...(ctx.rootFolder ? [path.resolve(ctx.rootFolder)] : []),
+    ...(ctx.libraryPaths || []).map(p => path.resolve(p)),
+  ];
+  if (allRoots.length > 0 && !allRoots.some(root => resolved.startsWith(root))) {
+    const rootList = allRoots.join(", ");
+    throw new Error(`Path "${filePath}" is outside all configured library paths (${rootList}).`);
   }
   return resolved;
 }
@@ -58,14 +60,12 @@ async function readFileContent(filePath: string): Promise<{ content: string; for
   if (ext === ".epub") {
     const zip = new AdmZip(filePath);
 
-    // Step 1: Locate the OPF package file via META-INF/container.xml
     const containerXml = zip.readAsText("META-INF/container.xml");
     const opfMatch = containerXml.match(/full-path="([^"]+\.opf)"/i);
     if (!opfMatch) throw new Error("Invalid EPUB: could not find OPF package file.");
     const opfPath = opfMatch[1];
     const opfDir = path.posix.dirname(opfPath).replace(/^\.$/, "");
 
-    // Step 2: Parse manifest (id → href) and spine (reading order)
     const opfXml = zip.readAsText(opfPath);
 
     const manifestMap = new Map<string, string>();
@@ -75,7 +75,6 @@ async function readFileContent(filePath: string): Promise<{ content: string; for
 
     const spineIds = Array.from(opfXml.matchAll(/<itemref\s[^>]*\bidref="([^"]+)"/gi)).map((m) => m[1]);
 
-    // Step 3: Extract and clean text from each chapter in spine order
     const stripHtml = (html: string): string =>
       html
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -130,7 +129,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       path: { type: "string", description: "Absolute or root-relative path to the file", required: true },
     },
     async handler(args, ctx) {
-      const filePath = sanitizePath(args.path as string, ctx.rootFolder);
+      const filePath = sanitizePath(args.path as string, ctx);
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) throw new Error("Path is not a file.");
       const { content, format } = await readFileContent(filePath);
@@ -147,7 +146,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       content: { type: "string", description: "Text content to write", required: true },
     },
     async handler(args, ctx) {
-      const filePath = sanitizePath(args.path as string, ctx.rootFolder);
+      const filePath = sanitizePath(args.path as string, ctx);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, args.content as string, "utf-8");
       return { path: filePath, written: true };
@@ -162,7 +161,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       content: { type: "string", description: "Text to append", required: true },
     },
     async handler(args, ctx) {
-      const filePath = sanitizePath(args.path as string, ctx.rootFolder);
+      const filePath = sanitizePath(args.path as string, ctx);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.appendFile(filePath, args.content as string, "utf-8");
       const stat = await fs.stat(filePath);
@@ -179,12 +178,12 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       folder: { type: "string", description: "Subfolder relative to root (optional)" },
     },
     async handler(args, ctx) {
-      const root = ctx.rootFolder || process.cwd();
+      const root = ctx.rootFolder || (ctx.libraryPaths?.[0]) || process.cwd();
       const subfolder = args.folder ? path.join(root, args.folder as string) : root;
       await fs.mkdir(subfolder, { recursive: true });
       const filename =
         (args.title as string).replace(/[^a-zA-Z0-9\s\-_]/g, "").trim().replace(/\s+/g, "-") + ".md";
-      const filePath = sanitizePath(path.join(subfolder, filename), ctx.rootFolder);
+      const filePath = sanitizePath(path.join(subfolder, filename), ctx);
       const timestamp = new Date().toISOString();
       const noteContent = `# ${args.title}\n\n*Created: ${timestamp}*\n\n${args.content}`;
       await fs.writeFile(filePath, noteContent, "utf-8");
@@ -199,7 +198,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       path: { type: "string", description: "Path of the folder to create", required: true },
     },
     async handler(args, ctx) {
-      const folderPath = sanitizePath(args.path as string, ctx.rootFolder);
+      const folderPath = sanitizePath(args.path as string, ctx);
       await fs.mkdir(folderPath, { recursive: true });
       return { path: folderPath, created: true };
     },
@@ -213,8 +212,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       destination: { type: "string", description: "Destination path", required: true },
     },
     async handler(args, ctx) {
-      const src = sanitizePath(args.source as string, ctx.rootFolder);
-      const dest = sanitizePath(args.destination as string, ctx.rootFolder);
+      const src = sanitizePath(args.source as string, ctx);
+      const dest = sanitizePath(args.destination as string, ctx);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.copyFile(src, dest);
       return { source: src, destination: dest, copied: true };
@@ -230,8 +229,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       destination: { type: "string", description: "Destination path", required: true },
     },
     async handler(args, ctx) {
-      const src = sanitizePath(args.source as string, ctx.rootFolder);
-      const dest = sanitizePath(args.destination as string, ctx.rootFolder);
+      const src = sanitizePath(args.source as string, ctx);
+      const dest = sanitizePath(args.destination as string, ctx);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(src, dest);
       return { source: src, destination: dest, moved: true };
@@ -246,7 +245,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       path: { type: "string", description: "Path to the file to delete", required: true },
     },
     async handler(args, ctx) {
-      const filePath = sanitizePath(args.path as string, ctx.rootFolder);
+      const filePath = sanitizePath(args.path as string, ctx);
       await fs.unlink(filePath);
       return { path: filePath, deleted: true };
     },

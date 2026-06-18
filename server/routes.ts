@@ -538,7 +538,7 @@ export async function registerRoutes(
             // Invoke the capability — project folderPath takes priority over global rootFolder
             const invocation = await invokeCapability(
               toolName, toolArgs,
-              { rootFolder: project?.folderPath || settings.rootFolder, storageRef: storage, connection, model: selectedModel }
+              { rootFolder: project?.folderPath || settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection, model: selectedModel }
             );
 
             // Auto-journal + provenance collection
@@ -811,7 +811,7 @@ export async function registerRoutes(
       const result = await invokeCapability(
         capability as CapabilityName,
         args || {},
-        { rootFolder: settings.rootFolder, storageRef: storage, connection: capConnection ?? undefined }
+        { rootFolder: settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection: capConnection ?? undefined }
       );
 
       // Auto-log successful invocations to the journal

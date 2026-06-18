@@ -72,6 +72,7 @@ export const settings = pgTable("settings", {
   defaultProjectId: varchar("default_project_id", { length: 36 }),
   theme: varchar("theme", { length: 10 }).default("system"),
   rootFolder: text("root_folder"),
+  libraryPaths: text("library_paths").array(),
   morningOrientationEnabled: boolean("morning_orientation_enabled").default(false),
   whisperEndpoint: text("whisper_endpoint"),
 });
@@ -262,6 +263,7 @@ export const settingsSchema = z.object({
   defaultProjectId: z.string().optional(),
   theme: z.enum(["light", "dark", "system"]).default("system"),
   rootFolder: z.string().optional(),
+  libraryPaths: z.array(z.string()).optional(),
   morningOrientationEnabled: z.boolean().default(false),
   whisperEndpoint: z.string().optional(),
 });

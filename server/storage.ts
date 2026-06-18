@@ -684,6 +684,7 @@ export class DatabaseStorage implements IStorage {
       defaultProjectId: s.defaultProjectId ?? undefined,
       theme: (s.theme as Settings["theme"]) ?? "system",
       rootFolder: s.rootFolder ?? undefined,
+      libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
       morningOrientationEnabled: s.morningOrientationEnabled ?? false,
       whisperEndpoint: s.whisperEndpoint ?? undefined,
     };
@@ -697,6 +698,7 @@ export class DatabaseStorage implements IStorage {
       defaultProjectId: merged.defaultProjectId ?? null,
       theme: merged.theme ?? "system",
       rootFolder: merged.rootFolder ?? null,
+      libraryPaths: merged.libraryPaths ?? null,
       morningOrientationEnabled: merged.morningOrientationEnabled ?? false,
       whisperEndpoint: merged.whisperEndpoint ?? null,
     };

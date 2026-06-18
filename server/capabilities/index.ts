@@ -7,6 +7,7 @@ import { mediaCapabilities } from "./media";
 
 export interface CapabilityContext {
   rootFolder?: string;
+  libraryPaths?: string[];
   storageRef?: import("../storage").IStorage;
   connection?: import("@shared/schema").Connection;
   model?: string;
