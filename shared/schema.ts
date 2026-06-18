@@ -313,9 +313,10 @@ export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
 
 // Filesystem capability — supported readable extensions
 export const readableExtensions = [
-  ".md", ".txt", ".docx", ".pdf", ".rtf", ".odt",
-  ".py", ".js", ".ts", ".tsx", ".json", ".yaml", ".yml",
-  ".toml", ".ini", ".xml", ".css", ".html", ".csv", ".xlsx",
+  ".md", ".txt", ".docx", ".pdf", ".rtf", ".odt", ".epub",
+  ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml",
+  ".toml", ".ini", ".xml", ".css", ".html", ".htm", ".csv", ".xlsx",
+  ".sh", ".env",
 ] as const;
 export type ReadableExtension = typeof readableExtensions[number];
 
@@ -341,6 +342,7 @@ export const capabilityNames = [
   "transcribe_audio",
   "ocr_image",
   "analyze_image",
+  "append_file",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

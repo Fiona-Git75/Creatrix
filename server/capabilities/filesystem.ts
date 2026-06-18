@@ -2,11 +2,12 @@ import fs from "fs/promises";
 import path from "path";
 import type { CapabilityDefinition } from "./index";
 
-const READABLE_EXTENSIONS = new Set([
+const PLAIN_TEXT_EXTENSIONS = new Set([
   ".md", ".txt", ".rtf", ".odt",
   ".py", ".js", ".ts", ".tsx", ".jsx",
   ".json", ".yaml", ".yml", ".toml", ".ini", ".xml",
-  ".css", ".html", ".htm", ".csv", ".sh", ".env",
+  ".css", ".html", ".htm", ".csv",
+  ".sh", ".env",
 ]);
 
 function sanitizePath(filePath: string, rootFolder?: string): string {
@@ -20,19 +21,59 @@ function sanitizePath(filePath: string, rootFolder?: string): string {
   return resolved;
 }
 
-async function readTextFile(filePath: string): Promise<string> {
+async function readFileContent(filePath: string): Promise<{ content: string; format: string }> {
   const ext = path.extname(filePath).toLowerCase();
-  if (!READABLE_EXTENSIONS.has(ext) && ext !== ".docx" && ext !== ".pdf") {
-    throw new Error(`Unsupported file type: ${ext}`);
+
+  if (ext === ".pdf") {
+    const pdfModule = await import("pdf-parse");
+    const pdfParse: (buf: Buffer) => Promise<{ text: string }> =
+      (pdfModule as any).default ?? pdfModule;
+    const buffer = await fs.readFile(filePath);
+    const data = await pdfParse(buffer);
+    return { content: data.text.trim(), format: "PDF" };
   }
-  const content = await fs.readFile(filePath, "utf-8");
-  return content;
+
+  if (ext === ".docx") {
+    const mammoth = await import("mammoth");
+    const buffer = await fs.readFile(filePath);
+    const result = await mammoth.extractRawText({ buffer: buffer as any });
+    if (result.messages.length > 0 && !result.value) {
+      throw new Error(`Could not extract text from docx: ${result.messages[0]?.message}`);
+    }
+    return { content: result.value.trim(), format: "DOCX" };
+  }
+
+  if (ext === ".xlsx" || ext === ".xls") {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.readFile(filePath);
+    const sheets = workbook.SheetNames.map((name) => {
+      const sheet = workbook.Sheets[name];
+      const csv = XLSX.utils.sheet_to_csv(sheet);
+      return `## Sheet: ${name}\n${csv}`;
+    });
+    return { content: sheets.join("\n\n"), format: "XLSX" };
+  }
+
+  if (ext === ".epub") {
+    throw new Error(
+      "EPUB reading is not yet enabled. Install adm-zip (npm install adm-zip) to add EPUB support."
+    );
+  }
+
+  if (PLAIN_TEXT_EXTENSIONS.has(ext)) {
+    const content = await fs.readFile(filePath, "utf-8");
+    return { content, format: ext.slice(1).toUpperCase() };
+  }
+
+  throw new Error(
+    `Unsupported file type: ${ext}. Supported: .md .txt .pdf .docx .xlsx .epub .py .js .ts .json .yaml .csv .html and more.`
+  );
 }
 
 export const filesystemCapabilities: CapabilityDefinition[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file. Supports .md, .txt, .py, .js, .ts, .json, .yaml, .csv and more.",
+    description: "Read the contents of a file. Supports .md, .txt, .pdf, .docx, .xlsx, .py, .js, .ts, .json, .yaml, .csv, .html and many more.",
     argsSchema: {
       path: { type: "string", description: "Absolute or root-relative path to the file", required: true },
     },
@@ -40,15 +81,15 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       const filePath = sanitizePath(args.path as string, ctx.rootFolder);
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) throw new Error("Path is not a file.");
-      const content = await readTextFile(filePath);
+      const { content, format } = await readFileContent(filePath);
       const lines = content.split("\n").length;
-      return { path: filePath, content, lines, size: stat.size };
+      return { path: filePath, format, content, lines, size: stat.size };
     },
   },
 
   {
     name: "write_file",
-    description: "Write or overwrite a text file at the given path.",
+    description: "Write or overwrite a text file at the given path. Use append_file to add to an existing file without overwriting.",
     argsSchema: {
       path: { type: "string", description: "Path to write to", required: true },
       content: { type: "string", description: "Text content to write", required: true },
@@ -58,6 +99,22 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, args.content as string, "utf-8");
       return { path: filePath, written: true };
+    },
+  },
+
+  {
+    name: "append_file",
+    description: "Append text to the end of an existing file without overwriting it. Creates the file if it does not exist.",
+    argsSchema: {
+      path: { type: "string", description: "Path to the file to append to", required: true },
+      content: { type: "string", description: "Text to append", required: true },
+    },
+    async handler(args, ctx) {
+      const filePath = sanitizePath(args.path as string, ctx.rootFolder);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.appendFile(filePath, args.content as string, "utf-8");
+      const stat = await fs.stat(filePath);
+      return { path: filePath, appended: true, size: stat.size };
     },
   },
 
@@ -73,7 +130,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
       const root = ctx.rootFolder || process.cwd();
       const subfolder = args.folder ? path.join(root, args.folder as string) : root;
       await fs.mkdir(subfolder, { recursive: true });
-      const filename = (args.title as string).replace(/[^a-zA-Z0-9\s\-_]/g, "").trim().replace(/\s+/g, "-") + ".md";
+      const filename =
+        (args.title as string).replace(/[^a-zA-Z0-9\s\-_]/g, "").trim().replace(/\s+/g, "-") + ".md";
       const filePath = sanitizePath(path.join(subfolder, filename), ctx.rootFolder);
       const timestamp = new Date().toISOString();
       const noteContent = `# ${args.title}\n\n*Created: ${timestamp}*\n\n${args.content}`;
@@ -97,7 +155,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "copy_file",
-    description: "Copy a file or folder to a new location.",
+    description: "Copy a file to a new location.",
     argsSchema: {
       source: { type: "string", description: "Source path", required: true },
       destination: { type: "string", description: "Destination path", required: true },
@@ -113,7 +171,7 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "move_file",
-    description: "Move a file or folder to a new location. Always requires user confirmation.",
+    description: "Move or rename a file or folder. Always requires user confirmation.",
     requiresConfirmation: true,
     argsSchema: {
       source: { type: "string", description: "Source path", required: true },

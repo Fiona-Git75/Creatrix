@@ -32,6 +32,7 @@ const LABELS: Partial<Record<CapabilityName, string>> = {
   transcribe_audio: "Listening to audio",
   ocr_image: "Reading image",
   analyze_image: "Looking at image",
+  append_file: "Appending to file",
 };
 
 function argHint(capability: CapabilityName, args: Record<string, unknown>): string {
