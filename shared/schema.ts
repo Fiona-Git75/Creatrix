@@ -335,6 +335,10 @@ export const capabilityNames = [
   "notion_create_page",
   "notion_query_database",
   "notion_append_block",
+  "get_youtube_transcript",
+  "transcribe_audio",
+  "ocr_image",
+  "analyze_image",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

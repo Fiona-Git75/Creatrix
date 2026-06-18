@@ -3,6 +3,7 @@ import { filesystemCapabilities } from "./filesystem";
 import { webCapabilities } from "./web";
 import { libraryCapabilities } from "./library";
 import { notionCapabilities } from "./notion";
+import { mediaCapabilities } from "./media";
 
 export interface CapabilityContext {
   rootFolder?: string;
@@ -29,7 +30,7 @@ function register(def: CapabilityDefinition) {
 }
 
 // Register all capabilities
-for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities]) {
+for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities]) {
   register(cap);
 }
 
