@@ -1,4 +1,4 @@
-import { useEffect, useState, RefObject } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 interface StatusResponse {
@@ -44,78 +44,76 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
-        <p className="text-sm text-muted-foreground font-mono">Looking around…</p>
+        <p className="text-sm text-muted-foreground font-mono tracking-wide">Scanning…</p>
       </div>
     );
   }
 
-  const checks = [
-    data?.localAI.found
-      ? { ok: true, text: `${data.localAI.name} — ${data.localAI.models.length} ${data.localAI.models.length === 1 ? "model" : "models"} ready`, action: null }
-      : { ok: false, text: "No local AI found", action: onOpenSettings ? { label: "Open Settings", fn: onOpenSettings } : null },
-    ...(data?.library.available ? [{ ok: true, text: "Notes available" }] : []),
-  ];
-
-  const allHealthy = checks.length > 0 && checks.every(c => c.ok);
+  const aiFound = data?.localAI.found;
+  const aiName = data?.localAI.name;
+  const modelCount = data?.localAI.models.length ?? 0;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-4">
-      <div className="w-full max-w-xs space-y-5 font-mono text-sm" data-testid="empty-state-briefing">
-        <p>{data?.greeting}.</p>
+    <div className="flex flex-col items-center justify-center h-full px-4" data-testid="empty-state-briefing">
+      <div className="w-full max-w-sm space-y-8">
+
+        <p className="text-2xl font-light tracking-tight">{data?.greeting}.</p>
 
         {modelChange ? (
-          <div className="space-y-4">
-            <p className="text-muted-foreground">Something changed.</p>
-            <div className="space-y-3 text-xs">
-              <div className="space-y-0.5">
-                <p className="text-muted-foreground mb-1">Yesterday:</p>
+          <div className="space-y-4 font-mono text-sm">
+            <p className="text-muted-foreground">Model list changed since last session.</p>
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="space-y-1">
+                <p className="text-muted-foreground uppercase tracking-widest text-[10px]">Before</p>
                 {modelChange.before.map(m => (
-                  <p key={m} className="text-muted-foreground">• {m}</p>
+                  <p key={m} className="text-muted-foreground">· {m}</p>
                 ))}
               </div>
-              <div className="space-y-0.5">
-                <p className="text-muted-foreground mb-1">Today:</p>
+              <div className="space-y-1">
+                <p className="text-muted-foreground uppercase tracking-widest text-[10px]">Now</p>
                 {modelChange.now.map(m => (
-                  <p key={m}>• {m}</p>
+                  <p key={m}>· {m}</p>
                 ))}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">I updated the model list.</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <p className="text-muted-foreground">I looked around.</p>
-            <div className="space-y-1.5">
-              {checks.map((c, i) => (
-                <div key={i} className="space-y-0.5">
-                  <p className={c.ok ? "" : "text-muted-foreground"}>
-                    {c.ok ? "✓" : "○"} {c.text}
-                  </p>
-                  {!c.ok && c.action && (
-                    <button
-                      onClick={c.action.fn}
-                      className="text-xs text-foreground underline underline-offset-2 hover:opacity-60 transition-opacity ml-4"
-                      data-testid="button-open-settings-from-briefing"
-                    >
-                      {c.action.label}
-                    </button>
-                  )}
+          <div className="space-y-2 font-mono text-sm">
+            {aiFound ? (
+              <div className="flex items-baseline gap-2">
+                <span className="text-green-500 text-xs">✓</span>
+                <span>{aiName} — {modelCount} {modelCount === 1 ? "model" : "models"} ready</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-muted-foreground text-xs">○</span>
+                  <span className="text-muted-foreground">No local AI found</span>
                 </div>
-              ))}
-            </div>
-            {allHealthy && (
-              <p className="text-muted-foreground">Everything looks good.</p>
+                {onOpenSettings && (
+                  <button
+                    onClick={onOpenSettings}
+                    className="ml-4 text-xs underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                    data-testid="button-open-settings-from-briefing"
+                  >
+                    Add a connection
+                  </button>
+                )}
+              </div>
+            )}
+            {data?.library.available && (
+              <div className="flex items-baseline gap-2">
+                <span className="text-green-500 text-xs">✓</span>
+                <span>Notes available</span>
+              </div>
             )}
           </div>
         )}
 
-        <button
-          onClick={onStartChatting}
-          className="text-foreground underline underline-offset-4 hover:opacity-60 transition-opacity text-left"
-          data-testid="button-start-chatting"
-        >
-          [Start chatting]
-        </button>
+        <p className="text-xs text-muted-foreground font-mono">
+          {aiFound ? "Ready." : "Start Ollama or LM Studio, then reload."}
+        </p>
+
       </div>
     </div>
   );

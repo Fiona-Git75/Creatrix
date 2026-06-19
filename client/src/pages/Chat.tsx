@@ -388,7 +388,7 @@ export default function Chat() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
-  const [selectedModel, setSelectedModel] = useState("llama3.2");
+  const [selectedModel, setSelectedModel] = useState("");
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -457,11 +457,11 @@ export default function Chat() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          conversationId: activeConversationId,
-          projectId: selectedProjectId,
-          connectionId: selectedConnectionId,
+          conversationId: activeConversationId ?? undefined,
+          projectId: selectedProjectId ?? undefined,
+          connectionId: selectedConnectionId ?? undefined,
           message: content,
-          model: selectedModel,
+          model: selectedModel || undefined,
         }),
       });
 
