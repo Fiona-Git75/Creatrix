@@ -405,13 +405,24 @@ export default function Chat() {
     queryKey: ["/api/settings"],
   });
 
+  const { data: providerStatus } = useQuery<{
+    providers: { connectionId: string; name: string; status: "online" | "offline"; models: { id: string; name: string }[] }[];
+  }>({
+    queryKey: ["/api/providers/status"],
+    staleTime: 30_000,
+  });
+
+  // Init: pick the first online provider + its first live model — no stored defaults
   useEffect(() => {
-    if (connections.length > 0 && !selectedConnectionId) {
-      const defaultConnection = connections.find((c) => c.isDefault) || connections[0];
-      setSelectedConnectionId(defaultConnection.id);
-      setSelectedModel(defaultConnection.defaultModel);
+    if (selectedConnectionId) return;
+    if (!providerStatus?.providers?.length) return;
+    const firstOnline = providerStatus.providers.find(p => p.status === "online");
+    if (!firstOnline) return;
+    setSelectedConnectionId(firstOnline.connectionId);
+    if (!selectedModel && firstOnline.models.length > 0) {
+      setSelectedModel(firstOnline.models[0].id);
     }
-  }, [connections, selectedConnectionId]);
+  }, [providerStatus?.providers, selectedConnectionId]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
 
@@ -437,14 +448,6 @@ export default function Chat() {
     setActiveConversationId(null);
     setStreamingContent("");
     setToolEvents([]);
-  };
-
-  const handleConnectionChange = (connectionId: string) => {
-    setSelectedConnectionId(connectionId);
-    const connection = connections.find((c) => c.id === connectionId);
-    if (connection) {
-      setSelectedModel(connection.defaultModel);
-    }
   };
 
   const handleSendMessage = async (content: string) => {

@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
 import { listCapabilities, invokeCapability } from "./capabilities";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
+import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider } from "./providers/discovery";
 import fs from "fs/promises";
 import path from "path";
 
@@ -80,6 +81,7 @@ export async function registerRoutes(
   setLogPersist((entry) => { storage.addSystemLog(entry).catch(() => {}); });
   storage.pruneSystemLogs(7).catch(() => {});
   syslog("info", "system", "Server started");
+  startBackgroundRefresh();
 
   // === Connections ===
   app.get("/api/connections", async (_req: Request, res: Response) => {
@@ -208,41 +210,49 @@ export async function registerRoutes(
     res.json({ providers: discovered });
   });
 
-  // System status — scans local AI, library, and connections on every launch
+  // Unified provider status — all configured connections scanned live, plus auto-discovered local providers
+  app.get("/api/providers/status", async (_req: Request, res: Response) => {
+    try {
+      const status = await getProvidersStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Force-refresh the providers cache
+  app.post("/api/providers/refresh", async (_req: Request, res: Response) => {
+    try {
+      const status = await getProvidersStatus(true);
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // System status — uses discovery pipeline, preserves backward-compat shape for EmptyState
   app.get("/api/status", async (_req: Request, res: Response) => {
     const hour = new Date().getHours();
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const settings = await storage.getSettings();
-    const connections = await storage.getConnections();
 
-    const probe = async (url: string, parse: (d: any) => string[]): Promise<string[] | null> => {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 2000);
-      try {
-        const r = await fetch(url, { signal: controller.signal });
-        clearTimeout(t);
-        if (!r.ok) return null;
-        return parse(await r.json());
-      } catch { clearTimeout(t); return null; }
-    };
+    const providerStatus = await getProvidersStatus();
+    const onlineProviders = providerStatus.providers.filter(p => p.status === "online");
+    const allModels = onlineProviders.flatMap(p => p.models.map(m => m.id));
+    const firstOnline = onlineProviders[0];
 
-    const [ollamaModels, lmModels] = await Promise.all([
-      probe("http://localhost:11434/api/tags", (d) => (d.models || []).map((m: any) => m.name || m.id).filter(Boolean)),
-      probe("http://localhost:1234/v1/models", (d) => (d.data || []).map((m: any) => m.id).filter(Boolean)),
-    ]);
-
-    const localAI = ollamaModels !== null
-      ? { found: true, name: "Ollama", models: ollamaModels }
-      : lmModels !== null
-      ? { found: true, name: "LM Studio", models: lmModels }
+    const localAI = firstOnline
+      ? { found: true, name: firstOnline.name, models: allModels }
+      : providerStatus.suggested.length > 0
+      ? { found: true, name: providerStatus.suggested[0].name, models: providerStatus.suggested[0].models }
       : { found: false, name: null, models: [] };
 
     let libraryAvailable = false;
     if (settings.rootFolder) {
-      try { const { access } = await import("fs/promises"); await access(settings.rootFolder); libraryAvailable = true; } catch {}
+      try { await fs.access(settings.rootFolder); libraryAvailable = true; } catch {}
     }
 
-    res.json({ greeting, localAI, library: { available: libraryAvailable }, connectionsCount: connections.length });
+    res.json({ greeting, localAI, library: { available: libraryAvailable }, connectionsCount: providerStatus.providers.length });
   });
 
   // Pull/download a model (Ollama only)

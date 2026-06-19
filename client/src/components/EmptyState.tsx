@@ -1,11 +1,31 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+interface ProviderStatusItem {
+  connectionId: string;
+  name: string;
+  type: string;
+  endpoint: string;
+  status: "online" | "offline";
+  models: { id: string; name: string; size?: string }[];
+}
+
+interface SuggestedProvider {
+  name: string;
+  type: string;
+  endpoint: string;
+  models: string[];
+}
+
+interface ProvidersStatusResponse {
+  providers: ProviderStatusItem[];
+  suggested: SuggestedProvider[];
+  scannedAt: string;
+}
+
 interface StatusResponse {
   greeting: string;
-  localAI: { found: boolean; name: string | null; models: string[] };
   library: { available: boolean };
-  connectionsCount: number;
 }
 
 interface EmptyStateProps {
@@ -16,8 +36,14 @@ interface EmptyStateProps {
 const STORAGE_KEY = "resident:last-models";
 
 export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps) {
-  const { data, isLoading } = useQuery<StatusResponse>({
+  const { data: status, isLoading: statusLoading } = useQuery<StatusResponse>({
     queryKey: ["/api/status"],
+    retry: false,
+    staleTime: 0,
+  });
+
+  const { data: providerStatus, isLoading: providersLoading } = useQuery<ProvidersStatusResponse>({
+    queryKey: ["/api/providers/status"],
     retry: false,
     staleTime: 0,
   });
@@ -25,8 +51,10 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
   const [modelChange, setModelChange] = useState<{ before: string[]; now: string[] } | null>(null);
 
   useEffect(() => {
-    if (!data?.localAI) return;
-    const now = data.localAI.models;
+    if (!providerStatus) return;
+    const now = providerStatus.providers
+      .filter(p => p.status === "online")
+      .flatMap(p => p.models.map(m => m.id));
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -39,7 +67,9 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
       }
     } catch {}
     localStorage.setItem(STORAGE_KEY, JSON.stringify(now));
-  }, [data]);
+  }, [providerStatus]);
+
+  const isLoading = statusLoading || providersLoading;
 
   if (isLoading) {
     return (
@@ -49,15 +79,16 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
     );
   }
 
-  const aiFound = data?.localAI.found;
-  const aiName = data?.localAI.name;
-  const modelCount = data?.localAI.models.length ?? 0;
+  const onlineProviders = providerStatus?.providers.filter(p => p.status === "online") ?? [];
+  const offlineProviders = providerStatus?.providers.filter(p => p.status === "offline") ?? [];
+  const suggested = providerStatus?.suggested ?? [];
+  const anyOnline = onlineProviders.length > 0;
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-4" data-testid="empty-state-briefing">
       <div className="w-full max-w-sm space-y-8">
 
-        <p className="text-2xl font-light tracking-tight">{data?.greeting}.</p>
+        <p className="text-2xl font-light tracking-tight">{status?.greeting}.</p>
 
         {modelChange ? (
           <div className="space-y-4 font-mono text-sm">
@@ -79,16 +110,44 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
           </div>
         ) : (
           <div className="space-y-2 font-mono text-sm">
-            {aiFound ? (
-              <div className="flex items-baseline gap-2">
+            {onlineProviders.map(p => (
+              <div key={p.connectionId} className="flex items-baseline gap-2">
                 <span className="text-green-500 text-xs">✓</span>
-                <span>{aiName} — {modelCount} {modelCount === 1 ? "model" : "models"} ready</span>
+                <span>
+                  {p.name} — {p.models.length} {p.models.length === 1 ? "model" : "models"} ready
+                </span>
               </div>
-            ) : (
+            ))}
+            {offlineProviders.map(p => (
+              <div key={p.connectionId} className="flex items-baseline gap-2">
+                <span className="text-muted-foreground text-xs">○</span>
+                <span className="text-muted-foreground">{p.name} — offline</span>
+              </div>
+            ))}
+            {suggested.map(s => (
+              <div key={s.endpoint} className="space-y-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-yellow-500 text-xs">△</span>
+                  <span className="text-muted-foreground">
+                    {s.name} found — {s.models.length} {s.models.length === 1 ? "model" : "models"}, not configured
+                  </span>
+                </div>
+                {onOpenSettings && (
+                  <button
+                    onClick={onOpenSettings}
+                    className="ml-4 text-xs underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                    data-testid="button-open-settings-from-briefing"
+                  >
+                    Add connection
+                  </button>
+                )}
+              </div>
+            ))}
+            {!anyOnline && suggested.length === 0 && (
               <div className="space-y-2">
                 <div className="flex items-baseline gap-2">
                   <span className="text-muted-foreground text-xs">○</span>
-                  <span className="text-muted-foreground">No local AI found</span>
+                  <span className="text-muted-foreground">No AI found</span>
                 </div>
                 {onOpenSettings && (
                   <button
@@ -101,7 +160,7 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
                 )}
               </div>
             )}
-            {data?.library.available && (
+            {status?.library.available && (
               <div className="flex items-baseline gap-2">
                 <span className="text-green-500 text-xs">✓</span>
                 <span>Notes available</span>
@@ -111,7 +170,7 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
         )}
 
         <p className="text-xs text-muted-foreground font-mono">
-          {aiFound ? "Ready." : "Start Ollama or LM Studio, then reload."}
+          {anyOnline ? "Ready." : "Start Ollama or LM Studio, then reload."}
         </p>
 
       </div>
