@@ -419,7 +419,7 @@ export async function registerRoutes(
     try {
       const conversation = await storage.createConversation({
         title: req.body.title || "New Chat",
-        model: req.body.model || "llama3.2",
+        model: req.body.model || "",
         projectId: req.body.projectId,
         connectionId: req.body.connectionId,
       });

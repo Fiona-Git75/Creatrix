@@ -120,20 +120,20 @@ function DiscoveryPanel({ onUse, onManual }: {
 
 const defaultModels: Record<ProviderType, string> = {
   openai: "gpt-4o",
-  ollama: "mistral:latest",
-  lmstudio: "local-model",
-  custom: "default",
+  ollama: "",
+  lmstudio: "",
+  custom: "",
 };
 
 function detectProvider(url: string): { provider: ProviderType; name: string; model: string } {
   if (url.includes("api.openai.com")) return { provider: "openai", name: "OpenAI", model: "gpt-4o" };
-  if (url.includes("localhost:11434") || url.includes("127.0.0.1:11434")) return { provider: "ollama", name: "Ollama", model: "mistral:latest" };
-  if (url.includes("localhost:1234") || url.includes("127.0.0.1:1234")) return { provider: "lmstudio", name: "LM Studio", model: "local-model" };
+  if (url.includes("localhost:11434") || url.includes("127.0.0.1:11434")) return { provider: "ollama", name: "Ollama", model: "" };
+  if (url.includes("localhost:1234") || url.includes("127.0.0.1:1234")) return { provider: "lmstudio", name: "LM Studio", model: "" };
   try {
     const hostname = new URL(url).hostname;
-    return { provider: "custom", name: hostname || "Remote AI", model: "default" };
+    return { provider: "custom", name: hostname || "Remote AI", model: "" };
   } catch {
-    return { provider: "custom", name: "Remote AI", model: "default" };
+    return { provider: "custom", name: "Remote AI", model: "" };
   }
 }
 

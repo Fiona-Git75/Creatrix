@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Sparkles, Loader2, Download, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,14 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
   const currentModel = models.find((m) => m.id === selectedModel) 
     || models.find((m) => m.id === activeConnection?.defaultModel)
     || models[0];
+
+  // Self-correct: if stored selectedModel isn't in the live list, adopt the resolved model
+  useEffect(() => {
+    if (!models.length || !currentModel) return;
+    if (currentModel.id !== selectedModel) {
+      onModelChange(currentModel.id);
+    }
+  }, [models.length, currentModel?.id]);
 
   const handleDownloadModel = async (modelId: string) => {
     if (!activeConnection) return;
