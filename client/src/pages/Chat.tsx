@@ -13,6 +13,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ConnectionsDialog } from "@/components/ConnectionsDialog";
 import { ChatMessage, type Message } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
@@ -130,6 +131,7 @@ function ChatContent({
   onClearChat,
   onProjectChange,
   onSelectConnection,
+  onOpenSettings,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -148,6 +150,7 @@ function ChatContent({
   onClearChat: () => void;
   onProjectChange: (projectId: string | null) => void;
   onSelectConnection: (connectionId: string, model: string) => void;
+  onOpenSettings: () => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -197,6 +200,7 @@ function ChatContent({
         onSelectConversation={onSelectConversation}
         onDeleteConversation={onDeleteConversation}
         onProjectChange={onProjectChange}
+        onOpenSettings={onOpenSettings}
       />
 
       <div className="flex flex-col flex-1 h-screen">
@@ -367,7 +371,7 @@ function ChatContent({
           ) : (
             <div className="flex-1 flex flex-col">
               <div className="flex-1">
-                <EmptyState onStartChatting={() => chatInputRef.current?.focus()} />
+                <EmptyState onStartChatting={() => chatInputRef.current?.focus()} onOpenSettings={onOpenSettings} />
               </div>
               <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} />
             </div>
@@ -381,6 +385,7 @@ function ChatContent({
 export default function Chat() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [selectedModel, setSelectedModel] = useState("llama3.2");
@@ -574,8 +579,10 @@ export default function Chat() {
           onClearChat={handleClearChat}
           onProjectChange={setSelectedProjectId}
           onSelectConnection={(id, model) => { setSelectedConnectionId(id); setSelectedModel(model); }}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       </div>
+      <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </SidebarProvider>
   );
 }

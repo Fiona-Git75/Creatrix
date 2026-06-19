@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/sidebar";
 import { ConversationItem, type Conversation } from "./ConversationItem";
 import { ProjectSelector } from "./ProjectSelector";
-import { ConnectionsDialog } from "./ConnectionsDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 import { MorningOrientation } from "./MorningOrientation";
 
@@ -28,6 +27,7 @@ interface AppSidebarProps {
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onProjectChange: (projectId: string | null) => void;
+  onOpenSettings: () => void;
 }
 
 export function AppSidebar({
@@ -39,8 +39,8 @@ export function AppSidebar({
   onSelectConversation,
   onDeleteConversation,
   onProjectChange,
+  onOpenSettings,
 }: AppSidebarProps) {
-  const [connectionsDialogOpen, setConnectionsDialogOpen] = useState(false);
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
 
   const filteredConversations = selectedProjectId
@@ -101,7 +101,7 @@ export function AppSidebar({
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"
-            onClick={() => setConnectionsDialogOpen(true)}
+            onClick={onOpenSettings}
             data-testid="button-settings"
           >
             <Settings className="h-4 w-4" />
@@ -109,11 +109,6 @@ export function AppSidebar({
           </Button>
         </SidebarFooter>
       </Sidebar>
-
-      <ConnectionsDialog
-        open={connectionsDialogOpen}
-        onOpenChange={setConnectionsDialogOpen}
-      />
 
       <ProjectsDialog
         open={projectsDialogOpen}

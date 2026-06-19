@@ -10,11 +10,12 @@ interface StatusResponse {
 
 interface EmptyStateProps {
   onStartChatting: () => void;
+  onOpenSettings?: () => void;
 }
 
 const STORAGE_KEY = "resident:last-models";
 
-export function EmptyState({ onStartChatting }: EmptyStateProps) {
+export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps) {
   const { data, isLoading } = useQuery<StatusResponse>({
     queryKey: ["/api/status"],
     retry: false,
@@ -50,8 +51,8 @@ export function EmptyState({ onStartChatting }: EmptyStateProps) {
 
   const checks = [
     data?.localAI.found
-      ? { ok: true, text: `${data.localAI.name} — ${data.localAI.models.length} ${data.localAI.models.length === 1 ? "model" : "models"} ready` }
-      : { ok: false, text: "No local AI found" },
+      ? { ok: true, text: `${data.localAI.name} — ${data.localAI.models.length} ${data.localAI.models.length === 1 ? "model" : "models"} ready`, action: null }
+      : { ok: false, text: "No local AI found", action: onOpenSettings ? { label: "Open Settings", fn: onOpenSettings } : null },
     ...(data?.library.available ? [{ ok: true, text: "Notes available" }] : []),
   ];
 
@@ -86,9 +87,20 @@ export function EmptyState({ onStartChatting }: EmptyStateProps) {
             <p className="text-muted-foreground">I looked around.</p>
             <div className="space-y-1.5">
               {checks.map((c, i) => (
-                <p key={i} className={c.ok ? "" : "text-muted-foreground"}>
-                  {c.ok ? "✓" : "○"} {c.text}
-                </p>
+                <div key={i} className="space-y-0.5">
+                  <p className={c.ok ? "" : "text-muted-foreground"}>
+                    {c.ok ? "✓" : "○"} {c.text}
+                  </p>
+                  {!c.ok && c.action && (
+                    <button
+                      onClick={c.action.fn}
+                      className="text-xs text-foreground underline underline-offset-2 hover:opacity-60 transition-opacity ml-4"
+                      data-testid="button-open-settings-from-briefing"
+                    >
+                      {c.action.label}
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
             {allHealthy && (

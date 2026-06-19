@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,6 +22,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Connection, ProviderType, Settings } from "@shared/schema";
@@ -117,19 +118,24 @@ function DiscoveryPanel({ onUse, onManual }: {
   );
 }
 
-const defaultEndpoints: Record<ProviderType, string> = {
-  openai: "https://api.openai.com/v1",
-  ollama: "http://localhost:11434",
-  lmstudio: "http://localhost:1234/v1",
-  custom: "",
-};
-
 const defaultModels: Record<ProviderType, string> = {
   openai: "gpt-4o",
   ollama: "mistral:latest",
   lmstudio: "local-model",
   custom: "default",
 };
+
+function detectProvider(url: string): { provider: ProviderType; name: string; model: string } {
+  if (url.includes("api.openai.com")) return { provider: "openai", name: "OpenAI", model: "gpt-4o" };
+  if (url.includes("localhost:11434") || url.includes("127.0.0.1:11434")) return { provider: "ollama", name: "Ollama", model: "mistral:latest" };
+  if (url.includes("localhost:1234") || url.includes("127.0.0.1:1234")) return { provider: "lmstudio", name: "LM Studio", model: "local-model" };
+  try {
+    const hostname = new URL(url).hostname;
+    return { provider: "custom", name: hostname || "Remote AI", model: "default" };
+  } catch {
+    return { provider: "custom", name: "Remote AI", model: "default" };
+  }
+}
 
 function ConnectionsTab() {
   const { toast } = useToast();
@@ -184,27 +190,36 @@ function ConnectionsTab() {
     setNewConnection({
       name: "",
       provider: "ollama",
-      endpoint: defaultEndpoints.ollama,
+      endpoint: "",
       apiKey: "",
-      defaultModel: defaultModels.ollama,
+      defaultModel: "",
       isDefault: false,
     });
   };
 
   const handleProviderChange = (provider: ProviderType) => {
-    setNewConnection({
-      ...newConnection,
-      provider,
-      endpoint: defaultEndpoints[provider],
-      defaultModel: defaultModels[provider],
-    });
+    setNewConnection({ ...newConnection, provider, defaultModel: defaultModels[provider] });
+  };
+
+  const handleEndpointChange = (url: string) => {
+    const detected = detectProvider(url);
+    setNewConnection(prev => ({
+      ...prev,
+      endpoint: url,
+      provider: detected.provider,
+      name: prev.name || detected.name,
+      defaultModel: prev.defaultModel || detected.model,
+    }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newConnection.name || !newConnection.endpoint) return;
+    if (!newConnection.endpoint) return;
+    const detected = detectProvider(newConnection.endpoint);
     createMutation.mutate({
       ...newConnection,
+      name: newConnection.name || detected.name,
+      defaultModel: newConnection.defaultModel || detected.model,
       isDefault: connections.length === 0,
     });
   };
@@ -294,48 +309,25 @@ function ConnectionsTab() {
           <Card className="p-4">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={newConnection.name}
-                  onChange={(e) => setNewConnection({ ...newConnection, name: e.target.value })}
-                  placeholder="My Local Ollama"
-                  data-testid="input-connection-name"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="provider">Provider</Label>
-                <Select
-                  value={newConnection.provider}
-                  onValueChange={(v) => handleProviderChange(v as ProviderType)}
-                >
-                  <SelectTrigger data-testid="select-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ollama">Ollama (Local)</SelectItem>
-                    <SelectItem value="lmstudio">LM Studio (Local)</SelectItem>
-                    <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="custom">Custom API</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="endpoint">Endpoint URL</Label>
+                <Label htmlFor="endpoint">URL</Label>
                 <Input
                   id="endpoint"
                   value={newConnection.endpoint}
-                  onChange={(e) => setNewConnection({ ...newConnection, endpoint: e.target.value })}
-                  placeholder="http://localhost:11434"
+                  onChange={(e) => handleEndpointChange(e.target.value)}
+                  placeholder="https://api.openai.com/v1  or  http://my-server:11434"
+                  autoFocus
                   data-testid="input-connection-endpoint"
                 />
+                {newConnection.endpoint && (
+                  <p className="text-xs text-muted-foreground">
+                    Detected: {providerLabels[newConnection.provider]}
+                  </p>
+                )}
               </div>
 
               {(newConnection.provider === "openai" || newConnection.provider === "custom") && (
                 <div className="space-y-2">
-                  <Label htmlFor="apiKey">API Key (optional)</Label>
+                  <Label htmlFor="apiKey">API Key</Label>
                   <Input
                     id="apiKey"
                     type="password"
@@ -347,16 +339,51 @@ function ConnectionsTab() {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="defaultModel">Default Model</Label>
-                <Input
-                  id="defaultModel"
-                  value={newConnection.defaultModel}
-                  onChange={(e) => setNewConnection({ ...newConnection, defaultModel: e.target.value })}
-                  placeholder="llama3.2"
-                  data-testid="input-connection-model"
-                />
-              </div>
+              <details className="group">
+                <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
+                  <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                  Advanced
+                </summary>
+                <div className="pt-3 space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name</Label>
+                    <Input
+                      id="name"
+                      value={newConnection.name}
+                      onChange={(e) => setNewConnection({ ...newConnection, name: e.target.value })}
+                      placeholder={detectProvider(newConnection.endpoint).name || "My AI"}
+                      data-testid="input-connection-name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="provider">Provider type</Label>
+                    <Select
+                      value={newConnection.provider}
+                      onValueChange={(v) => handleProviderChange(v as ProviderType)}
+                    >
+                      <SelectTrigger data-testid="select-provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ollama">Ollama</SelectItem>
+                        <SelectItem value="lmstudio">LM Studio</SelectItem>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="defaultModel">Default model</Label>
+                    <Input
+                      id="defaultModel"
+                      value={newConnection.defaultModel}
+                      onChange={(e) => setNewConnection({ ...newConnection, defaultModel: e.target.value })}
+                      placeholder={detectProvider(newConnection.endpoint).model || "model-name"}
+                      data-testid="input-connection-model"
+                    />
+                  </div>
+                </div>
+              </details>
 
               <div className="flex gap-2 justify-end">
                 <Button
@@ -368,11 +395,11 @@ function ConnectionsTab() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || !newConnection.endpoint}
                   data-testid="button-save-connection"
                 >
                   {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Save Connection
+                  Connect
                 </Button>
               </div>
             </form>
@@ -630,7 +657,7 @@ export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps
 }
 
 function ConnectionHealth({ connectionId }: { connectionId: string }) {
-  const { data, isLoading } = useQuery<{ healthy: boolean }>({
+  const { data, isLoading } = useQuery<{ healthy: boolean; reason: string | null }>({
     queryKey: ["/api/connections", connectionId, "health"],
     staleTime: 60000,
   });
@@ -639,9 +666,20 @@ function ConnectionHealth({ connectionId }: { connectionId: string }) {
     return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
   }
 
-  return data?.healthy ? (
-    <CheckCircle className="h-4 w-4 text-green-500" />
-  ) : (
-    <XCircle className="h-4 w-4 text-destructive" />
+  if (data?.healthy) {
+    return <CheckCircle className="h-4 w-4 text-green-500" />;
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <XCircle className="h-4 w-4 text-destructive cursor-help" />
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          <p className="text-xs">{data?.reason || "Not responding"}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

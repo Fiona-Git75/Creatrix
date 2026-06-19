@@ -62,6 +62,15 @@ function makeSource(
   }
 }
 
+function humanizeError(msg: string): string {
+  if (msg.includes("ECONNREFUSED")) return "Lost contact with the AI. Is it still running?";
+  if (msg.includes("ENOTFOUND")) return "Couldn't reach the AI at this address.";
+  if (msg.includes("ETIMEDOUT") || msg.includes("timed out")) return "The AI took too long to respond. Try again.";
+  if (msg.includes("aborted") || msg.includes("abort")) return "The request was cancelled.";
+  if (msg.includes("fetch failed")) return "Lost contact with the AI. Is it still running?";
+  return msg;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -137,12 +146,23 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Connection not found" });
       }
       const provider = createProvider(connection);
-      const healthy = await provider.healthCheck();
-      syslog(healthy ? "info" : "warn", "connection", `Health check: ${connection.name}`, healthy ? "healthy" : "offline");
-      res.json({ healthy });
+      let healthy = false;
+      let reason: string | null = null;
+      try {
+        healthy = await provider.healthCheck();
+        if (!healthy) reason = "Not responding at this address";
+      } catch (err: any) {
+        const m = err?.message || "";
+        reason = m.includes("ECONNREFUSED") ? "Nothing is running at this address" :
+                 m.includes("ENOTFOUND") ? "Address not found" :
+                 m.includes("ETIMEDOUT") || m.includes("timed out") ? "Connection timed out" :
+                 "Not responding";
+      }
+      syslog(healthy ? "info" : "warn", "connection", `Health check: ${connection.name}`, healthy ? "healthy" : reason || "offline");
+      res.json({ healthy, reason });
     } catch (error: any) {
       syslog("error", "connection", "Health check failed", error?.message);
-      res.json({ healthy: false });
+      res.json({ healthy: false, reason: "Health check failed" });
     }
   });
 
@@ -575,7 +595,7 @@ export async function registerRoutes(
           });
 
           if (streamError) {
-            res.write(`data: ${JSON.stringify({ type: "error", message: streamError })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError) })}\n\n`);
             res.end();
             return;
           }
@@ -674,7 +694,7 @@ export async function registerRoutes(
         res.end();
       } catch (streamError: any) {
         syslog("error", "chat", "Streaming error", streamError?.message);
-        res.write(`data: ${JSON.stringify({ type: "error", message: streamError.message || "Failed to get AI response" })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError.message || "Failed to get AI response") })}\n\n`);
         res.end();
       }
     } catch (error: any) {
