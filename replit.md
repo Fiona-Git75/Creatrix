@@ -82,3 +82,23 @@ Providers implement streaming for real-time response delivery.
 - esbuild for server bundling (production)
 - tsx for TypeScript execution in development
 - Replit-specific plugins for development overlay and cartographer
+
+## Known Audit Warnings
+
+These items appear in `npm audit` and have been consciously left in place. They are documented here so anyone deploying or forking the project can make an informed decision.
+
+### xlsx (HIGH — no fix available)
+**Advisory:** Prototype Pollution and ReDoS in SheetJS.
+**Why it's here:** Used in `server/capabilities/filesystem.ts` to let the AI read `.xlsx` and `.xls` files from your notes folder.
+**Why it's acceptable:** The vulnerability requires a maliciously crafted spreadsheet file. In a self-hosted personal environment where you control your own files, this attack vector does not exist. If you accept files from untrusted sources, consider removing xlsx support or replacing the library.
+**To disable:** Remove the `.xlsx`/`.xls` branch in `server/capabilities/filesystem.ts`.
+
+### drizzle-orm < 0.45.2 (HIGH)
+**Advisory:** SQL injection via improperly escaped SQL identifiers.
+**Why it's here:** Current version is 0.39.3. Upgrading to 0.45.2 is a breaking change across six minor versions of a library with frequent breaking changes.
+**Why it's acceptable:** The vulnerability affects dynamic SQL identifiers (table/column names supplied at runtime). This application uses only static, schema-defined identifiers from `shared/schema.ts`. User input is passed exclusively as parameterized values, never as identifiers. The attack vector does not apply.
+**To fix:** Run `npm audit fix --force` and test schema/query behaviour thoroughly after the upgrade.
+
+### esbuild ≤ 0.24.2 / Vite ≤ 6.4.2 (MODERATE)
+**Advisory:** esbuild's development server allows cross-origin requests.
+**Why it's acceptable:** This is a development-server-only vulnerability with no production impact. Fixing it would require upgrading to Vite 8, a major breaking change. Safe to leave unless you expose your dev server to untrusted networks.
