@@ -32,19 +32,23 @@ interface ConnectionsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-interface DiscoveredProvider { name: string; provider: string; endpoint: string; models: string[]; }
+interface SuggestedProvider { name: string; type: string; endpoint: string; models: string[]; }
+interface ProvidersStatusResponse {
+  providers: { connectionId: string; name: string; type: string; status: "online" | "offline"; models: { id: string }[] }[];
+  suggested: SuggestedProvider[];
+}
 
 function DiscoveryPanel({ onUse, onManual }: {
-  onUse: (name: string, provider: ProviderType, endpoint: string, model: string) => void;
+  onUse: (name: string, provider: ProviderType, endpoint: string) => void;
   onManual: () => void;
 }) {
-  const { data, isLoading, refetch } = useQuery<{ providers: DiscoveredProvider[] }>({
-    queryKey: ["/api/discover"],
+  const { data, isLoading, refetch } = useQuery<ProvidersStatusResponse>({
+    queryKey: ["/api/providers/status"],
     retry: false,
     staleTime: 0,
   });
 
-  const found = data?.providers ?? [];
+  const found = data?.suggested ?? [];
 
   return (
     <div className="space-y-5 py-2">
@@ -93,8 +97,8 @@ function DiscoveryPanel({ onUse, onManual }: {
             <div className="flex items-center justify-between gap-2">
               <Button
                 size="sm"
-                onClick={() => onUse(p.name, p.provider as ProviderType, p.endpoint, p.models[0] || "")}
-                data-testid={`button-use-${p.provider}`}
+                onClick={() => onUse(p.name, p.type as ProviderType, p.endpoint)}
+                data-testid={`button-use-${p.type}`}
               >
                 Use this
               </Button>
@@ -240,8 +244,8 @@ function ConnectionsTab() {
           </div>
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
-            onUse={(name, provider, endpoint, model) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel: model, isDefault: true });
+            onUse={(name, provider, endpoint) => {
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel: "", isDefault: true });
             }}
             onManual={() => setIsAdding(true)}
           />
@@ -657,17 +661,30 @@ export function ConnectionsDialog({ open, onOpenChange }: ConnectionsDialogProps
 }
 
 function ConnectionHealth({ connectionId }: { connectionId: string }) {
-  const { data, isLoading } = useQuery<{ healthy: boolean; reason: string | null }>({
-    queryKey: ["/api/connections", connectionId, "health"],
-    staleTime: 60000,
+  const { data, isLoading } = useQuery<ProvidersStatusResponse>({
+    queryKey: ["/api/providers/status"],
+    staleTime: 30_000,
   });
 
-  if (isLoading) {
-    return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
-  }
+  if (isLoading) return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
 
-  if (data?.healthy) {
-    return <CheckCircle className="h-4 w-4 text-green-500" />;
+  const provider = data?.providers.find(p => p.connectionId === connectionId);
+  if (!provider) return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+
+  if (provider.status === "online") {
+    const count = provider.models.length;
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <CheckCircle className="h-4 w-4 text-green-500 cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            <p className="text-xs">{count} {count === 1 ? "model" : "models"} available</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
 
   return (
@@ -677,7 +694,7 @@ function ConnectionHealth({ connectionId }: { connectionId: string }) {
           <XCircle className="h-4 w-4 text-destructive cursor-help" />
         </TooltipTrigger>
         <TooltipContent side="left">
-          <p className="text-xs">{data?.reason || "Not responding"}</p>
+          <p className="text-xs">Offline — not responding</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

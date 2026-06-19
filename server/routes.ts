@@ -475,8 +475,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error });
       }
 
-      const { conversationId, projectId, connectionId, message, model } = parsed.data;
-      
+      const {
+        conversationId: _cid, projectId: _pid, connectionId: _connid, message, model: _model,
+      } = parsed.data;
+      // Normalize null → undefined so storage functions receive string | undefined
+      const conversationId = _cid ?? undefined;
+      const projectId      = _pid ?? undefined;
+      const connectionId   = _connid ?? undefined;
+      const model          = _model ?? undefined;
+
       // Get connection
       let connection;
       if (connectionId) {

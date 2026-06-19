@@ -1,0 +1,20 @@
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+12:49:51 AM [express] GET /api/projects 304 in 1ms :: []
+12:49:51 AM [express] GET /api/status 304 in 9ms :: {"greeting":"Good morning","localAI":{"found":true,"name":"Ollama","models":["olmo-3:7b-instruct-q4_K_M","qwen2.5:3b"]},"library":{"available":false},"connectionsCount":1}
+12:49:51 AM [express] GET /api/conversations 304 in 0ms :: []
+12:49:51 AM [express] GET /api/connections 304 in 0ms :: [{"id":"default-ollama","name":"Local Ollama","provider":"ollama","endpoint":"http://localhost:11434","defaultModel":"llama3.2","isDefault":true}]
+12:49:51 AM [express] GET /api/settings 304 in 0ms :: {"theme":"system","morningOrientationEnabled":false}
+12:49:57 AM [express] GET /api/connections/default-ollama/models 304 in 2ms :: {"status":"ok","models":[{"id":"olmo-3:7b-instruct-q4_K_M","name":"olmo-3:7b-instruct-q4_K_M","provider":"ollama","size":"4.5GB"},{"id":"qwen2.5:3b","name":"qwen2.5:3b","provider":"ollama","size":"1.9GB"}]}
+12:50:19 AM [express] GET /api/projects 304 in 0ms :: []
+12:50:19 AM [express] GET /api/status 304 in 2ms :: {"greeting":"Good morning","localAI":{"found":true,"name":"Ollama","models":["olmo-3:7b-instruct-q4_K_M","qwen2.5:3b"]},"library":{"available":false},"connectionsCount":1}
+12:50:19 AM [express] GET /api/conversations 304 in 1ms :: []
+12:50:19 AM [express] GET /api/connections 304 in 0ms :: [{"id":"default-ollama","name":"Local Ollama","provider":"ollama","endpoint":"http://localhost:11434","defaultModel":"llama3.2","isDefault":true}]
+12:50:19 AM [express] GET /api/settings 304 in 0ms :: {"theme":"system","morningOrientationEnabled":false}
+12:50:29 AM [express] GET /api/memory 304 in 0ms :: []
+12:50:37 AM [express] GET /api/projects 304 in 1ms :: []
+12:50:37 AM [express] GET /api/status 304 in 2ms :: {"greeting":"Good morning","localAI":{"found":true,"name":"Ollama","models":["olmo-3:7b-instruct-q4_K_M","qwen2.5:3b"]},"library":{"available":false},"connectionsCount":1}
+12:50:37 AM [express] GET /api/conversations 304 in 0ms :: []
+12:50:37 AM [express] GET /api/connections 304 in 0ms :: [{"id":"default-ollama","name":"Local Ollama","provider":"ollama","endpoint":"http://localhost:11434","defaultModel":"llama3.2","isDefault":true}]
+12:50:37 AM [express] GET /api/settings 304 in 0ms :: {"theme":"system","morningOrientationEnabled":false}
+12:50:45 AM [express] GET /api/connections/default-ollama/models 200 in 2ms :: {"status":"ok","models":[{"id":"olmo-3:7b-instruct-q4_K_M","name":"olmo-3:7b-instruct-q4_K_M","provider":"ollama","size":"4.5GB"},{"id":"qwen2.5:3b","name":"qwen2.5:3b","provider":"ollama","size":"1.9GB"}]}
+12:51:02 AM [express] POST /api/chat 400 in 1ms :: {"error":"Invalid request","details":{"issues":[{"code":"invalid_type","expected":"string","received":"null","path":["conversationId"],"message":"Expected string, received null"},{"code":"invalid_type","expected":"string","received":"null","path":["projectId"],"message":"Expected string, received null"}],"name":"ZodError"}}

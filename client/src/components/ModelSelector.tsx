@@ -57,22 +57,31 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
     queryKey: ["/api/connections"],
   });
 
-  const activeConnection = connectionId 
-    ? connections.find((c) => c.id === connectionId)
-    : connections.find((c) => c.isDefault) || connections[0];
-
-  const { data: modelsResponse, isLoading, refetch } = useQuery<ModelsResponse>({
-    queryKey: ["/api/connections", activeConnection?.id, "models"],
-    enabled: !!activeConnection?.id,
+  const { data: providerStatus, isLoading, refetch } = useQuery<{
+    providers: { connectionId: string; name: string; type: string; status: "online" | "offline"; models: Model[] }[];
+  }>({
+    queryKey: ["/api/providers/status"],
+    staleTime: 30_000,
   });
 
   const { data: catalog = [] } = useQuery<CatalogModel[]>({
     queryKey: ["/api/models/catalog"],
   });
 
-  const status = modelsResponse?.status || "offline";
-  const models = modelsResponse?.models || [];
-  const statusMessage = modelsResponse?.message || "";
+  const activeConnection = connectionId
+    ? connections.find((c) => c.id === connectionId)
+    : connections.find((c) => c.isDefault) || connections[0];
+
+  const activeProvider = providerStatus?.providers.find(
+    p => p.connectionId === (connectionId ?? activeConnection?.id)
+  );
+
+  const status: "ok" | "offline" | "empty" | "error" =
+    !activeProvider ? "offline" :
+    activeProvider.status === "offline" ? "offline" :
+    activeProvider.models.length === 0 ? "empty" : "ok";
+  const models: Model[] = activeProvider?.models ?? [];
+  const statusMessage = "";
 
   const currentModel = models.find((m) => m.id === selectedModel) 
     || models.find((m) => m.id === activeConnection?.defaultModel)
@@ -127,7 +136,7 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
               
               if (data.status === "success") {
                 setDownloadProgress({ status: "Download complete!", percent: 100 });
-                queryClient.invalidateQueries({ queryKey: ["/api/connections", activeConnection.id, "models"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/providers/status"] });
                 onModelChange(modelId);
                 setTimeout(() => {
                   setDownloadDialogOpen(false);

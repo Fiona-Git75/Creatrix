@@ -260,11 +260,11 @@ export type SystemLog = typeof systemLogs.$inferSelect;
 
 // Chat request schema
 export const chatRequestSchema = z.object({
-  conversationId: z.string().optional(),
-  projectId: z.string().optional(),
-  connectionId: z.string().optional(),
+  conversationId: z.string().nullish(),
+  projectId: z.string().nullish(),
+  connectionId: z.string().nullish(),
   message: z.string().min(1),
-  model: z.string().optional(),
+  model: z.string().nullish(),
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
