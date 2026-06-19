@@ -83,6 +83,42 @@ Providers implement streaming for real-time response delivery.
 - tsx for TypeScript execution in development
 - Replit-specific plugins for development overlay and cartographer
 
+## Keeping Your Local Copy Up to Date
+
+The project is hosted on GitHub at **https://github.com/Fiona-Git75/Creatrix**. Replit pushes every checkpoint there automatically.
+
+### First-time setup (one time only)
+
+If you downloaded the files manually, open a terminal in your project folder on your desktop and run:
+
+```bash
+git init
+git remote add origin https://github.com/Fiona-Git75/Creatrix.git
+git fetch origin
+git reset --hard origin/main
+```
+
+> **Note:** `git reset --hard` will overwrite your local files with the version from GitHub. Only do this if you haven't made local edits you want to keep.
+
+### Getting future updates
+
+After the first-time setup, every future update is just:
+
+```bash
+git pull origin main
+```
+
+Then restart your local server (`npm run dev`) and hard-refresh your browser.
+
+### If you want a clean install instead
+
+```bash
+git clone https://github.com/Fiona-Git75/Creatrix.git
+cd Creatrix
+npm install
+npm run dev
+```
+
 ## Known Audit Warnings
 
 These items appear in `npm audit` and have been consciously left in place. They are documented here so anyone deploying or forking the project can make an informed decision.
