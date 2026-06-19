@@ -2,3 +2,4 @@
 - [Server startup order](server-startup-order.md) — httpServer.listen must be called BEFORE setupVite, with a 200 placeholder for "/" while Vite initializes, so the runner's health check can pass.
 - [Project folderPath in capabilities](project-foldepath-capability.md) — project.folderPath should override settings.rootFolder when invoking capabilities in the chat route.
 - [Design philosophy](design-philosophy.md) — system accountability over user configuration; remaining friction points catalogued there.
+- [Provider discovery architecture](provider-discovery-arch.md) — connectionId is the provider boundary; defaultModel is a hint only; live scan is authoritative.
