@@ -143,9 +143,9 @@ function ConnectionsTab() {
   const [newConnection, setNewConnection] = useState({
     name: "",
     provider: "ollama" as ProviderType,
-    endpoint: defaultEndpoints.ollama,
+    endpoint: "",
     apiKey: "",
-    defaultModel: defaultModels.ollama,
+    defaultModel: "",
     isDefault: false,
   });
 
