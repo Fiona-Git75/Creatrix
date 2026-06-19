@@ -150,6 +150,7 @@ function ChatContent({
   onSelectConnection: (connectionId: string, model: string) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const { isMobile } = useSidebar();
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
@@ -361,14 +362,14 @@ function ChatContent({
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
-              <ChatInput onSend={onSendMessage} isLoading={isLoading} />
+              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} />
             </>
           ) : (
             <div className="flex-1 flex flex-col">
               <div className="flex-1">
-                <EmptyState onSelectPrompt={onSendMessage} />
+                <EmptyState onStartChatting={() => chatInputRef.current?.focus()} />
               </div>
-              <ChatInput onSend={onSendMessage} isLoading={isLoading} />
+              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} />
             </div>
           )}
         </main>

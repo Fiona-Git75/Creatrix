@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, KeyboardEvent, RefObject } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,11 +7,13 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   isLoading?: boolean;
   placeholder?: string;
+  inputRef?: RefObject<HTMLTextAreaElement>;
 }
 
-export function ChatInput({ onSend, isLoading, placeholder = "Send a message..." }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, placeholder = "Send a message...", inputRef }: ChatInputProps) {
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = inputRef ?? internalRef;
 
   useEffect(() => {
     if (textareaRef.current) {

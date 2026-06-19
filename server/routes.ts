@@ -183,6 +183,43 @@ export async function registerRoutes(
     res.json({ providers: discovered });
   });
 
+  // System status — scans local AI, library, and connections on every launch
+  app.get("/api/status", async (_req: Request, res: Response) => {
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const settings = await storage.getSettings();
+    const connections = await storage.getConnections();
+
+    const probe = async (url: string, parse: (d: any) => string[]): Promise<string[] | null> => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 2000);
+      try {
+        const r = await fetch(url, { signal: controller.signal });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        return parse(await r.json());
+      } catch { clearTimeout(t); return null; }
+    };
+
+    const [ollamaModels, lmModels] = await Promise.all([
+      probe("http://localhost:11434/api/tags", (d) => (d.models || []).map((m: any) => m.name || m.id).filter(Boolean)),
+      probe("http://localhost:1234/v1/models", (d) => (d.data || []).map((m: any) => m.id).filter(Boolean)),
+    ]);
+
+    const localAI = ollamaModels !== null
+      ? { found: true, name: "Ollama", models: ollamaModels }
+      : lmModels !== null
+      ? { found: true, name: "LM Studio", models: lmModels }
+      : { found: false, name: null, models: [] };
+
+    let libraryAvailable = false;
+    if (settings.rootFolder) {
+      try { const { access } = await import("fs/promises"); await access(settings.rootFolder); libraryAvailable = true; } catch {}
+    }
+
+    res.json({ greeting, localAI, library: { available: libraryAvailable }, connectionsCount: connections.length });
+  });
+
   // Pull/download a model (Ollama only)
   app.post("/api/connections/:id/models/pull", async (req: Request, res: Response) => {
     try {

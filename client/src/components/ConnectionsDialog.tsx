@@ -46,50 +46,50 @@ function DiscoveryPanel({ onUse, onManual }: {
   const found = data?.providers ?? [];
 
   return (
-    <div className="space-y-4 py-2">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 py-2">
+      {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          {isLoading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Searching for local providers…
-            </>
-          ) : (
-            <span>{found.length > 0 ? `${found.length} provider${found.length > 1 ? "s" : ""} found` : "No local providers found"}</span>
-          )}
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Scanning local AI…
         </div>
-        {!isLoading && (
-          <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs text-muted-foreground h-7" data-testid="button-rescan">
+      ) : found.length > 0 ? (
+        <p className="text-sm font-medium">Local AI detected</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">No local AI found.</p>
+          <p className="text-xs text-muted-foreground">
+            Start Ollama or LM Studio, then scan again.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-rescan">
             Scan again
           </Button>
-        )}
-      </div>
-
-      {!isLoading && found.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          Checked Ollama (port 11434) and LM Studio (port 1234). Neither responded. Make sure your local model server is running, then scan again.
-        </p>
+        </div>
       )}
 
       <div className="space-y-3">
         {found.map(p => (
-          <Card key={p.endpoint} className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                  <span className="font-medium">{p.name}</span>
+          <Card key={p.endpoint} className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+              <span className="font-medium">{p.name}</span>
+            </div>
+
+            {p.models.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  {p.models.length} {p.models.length === 1 ? "model" : "models"} available
+                </p>
+                <div className="space-y-0.5">
+                  {p.models.map(m => (
+                    <p key={m} className="text-sm">{m}</p>
+                  ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 font-mono">{p.endpoint}</p>
-                {p.models.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1.5">
-                    {p.models.join(" · ")}
-                  </p>
-                )}
-                {p.models.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1.5 italic">No models installed yet</p>
-                )}
               </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No models installed yet</p>
+            )}
+
+            <div className="flex items-center justify-between gap-2">
               <Button
                 size="sm"
                 onClick={() => onUse(p.name, p.provider as ProviderType, p.endpoint, p.models[0] || "")}
@@ -97,6 +97,11 @@ function DiscoveryPanel({ onUse, onManual }: {
               >
                 Use this
               </Button>
+              {!isLoading && (
+                <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs text-muted-foreground h-7" data-testid="button-rescan">
+                  Scan again
+                </Button>
+              )}
             </div>
           </Card>
         ))}
@@ -105,7 +110,7 @@ function DiscoveryPanel({ onUse, onManual }: {
       <div className="pt-1 border-t">
         <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onManual} data-testid="button-configure-manually">
           <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Configure manually
+          Connect to a remote or custom AI
         </Button>
       </div>
     </div>
