@@ -9,9 +9,11 @@ import {
   type LibraryFolder, type InsertLibraryFolder,
   type LibraryItem, type InsertLibraryItem,
   type JournalEntry, type InsertJournalEntry,
+  type SystemLog,
   users, connections, projects, conversations, memoryEntries, knowledgeDocuments, settings,
-  libraryFolders, libraryItems, journalEntries,
+  libraryFolders, libraryItems, journalEntries, systemLogs,
 } from "@shared/schema";
+import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, and, like, or, desc, sql } from "drizzle-orm";
@@ -92,6 +94,12 @@ export interface IStorage {
   createJournalEntry(entry: InsertJournalEntry): Promise<JournalEntry>;
   updateJournalEntry(id: string, updates: Partial<InsertJournalEntry>): Promise<JournalEntry | undefined>;
   getJournalEntriesSince(since: string): Promise<JournalEntry[]>;
+
+  // ─── System Logs ───────────────────────────────────────────────────────────
+  addSystemLog(entry: { level: string; category: string; message: string; detail?: string }): Promise<void>;
+  getSystemLogs(opts?: { level?: string; category?: string; limit?: number }): Promise<SystemLog[]>;
+  clearSystemLogs(): Promise<void>;
+  pruneSystemLogs(olderThanDays: number): Promise<void>;
 }
 
 // ─── In-Memory Implementation ────────────────────────────────────────────────
@@ -459,6 +467,26 @@ export class MemStorage implements IStorage {
     return Array.from(this._journalEntries.values())
       .filter(e => new Date(e.createdAt).getTime() >= sinceTime)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async addSystemLog(_entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {
+    // In-memory mode: syslog buffer already holds the entry
+  }
+  async getSystemLogs(opts?: { level?: string; category?: string; limit?: number }): Promise<SystemLog[]> {
+    return getLogs(opts).map(e => ({
+      id: parseInt(e.id),
+      timestamp: new Date(e.timestamp),
+      level: e.level,
+      category: e.category,
+      message: e.message,
+      detail: e.detail ?? null,
+    }));
+  }
+  async clearSystemLogs(): Promise<void> {
+    clearLogs();
+  }
+  async pruneSystemLogs(_olderThanDays: number): Promise<void> {
+    // In-memory mode: no persistence to prune
   }
 }
 
@@ -853,6 +881,32 @@ export class DatabaseStorage implements IStorage {
   }
   private _mapJournalEntry(e: typeof journalEntries.$inferSelect): JournalEntry {
     return { ...e, type: e.type as JournalEntry["type"], detail: e.detail ?? undefined, relatedPath: e.relatedPath ?? undefined, relatedLibraryItemId: e.relatedLibraryItemId ?? undefined, relatedConversationId: e.relatedConversationId ?? undefined, resolved: e.resolved ?? false };
+  }
+
+  async addSystemLog(entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {
+    await this.db.insert(systemLogs).values(entry);
+  }
+  async getSystemLogs(opts?: { level?: string; category?: string; limit?: number }): Promise<SystemLog[]> {
+    const limit = opts?.limit ?? 200;
+    let rows = await this.db.select().from(systemLogs)
+      .orderBy(desc(systemLogs.timestamp))
+      .limit(limit * 4); // over-fetch to allow client-side filter
+    if (opts?.level && opts.level !== "all") {
+      if (opts.level === "issues") {
+        rows = rows.filter(r => r.level === "warn" || r.level === "error");
+      } else {
+        rows = rows.filter(r => r.level === opts.level);
+      }
+    }
+    if (opts?.category) rows = rows.filter(r => r.category === opts.category);
+    return rows.slice(0, limit);
+  }
+  async clearSystemLogs(): Promise<void> {
+    await this.db.delete(systemLogs);
+  }
+  async pruneSystemLogs(olderThanDays: number): Promise<void> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    await this.db.delete(systemLogs).where(sql`${systemLogs.timestamp} < ${cutoff}`);
   }
 }
 

@@ -105,7 +105,7 @@ function HealthBar({ health }: { health: HealthStatus }) {
 }
 
 export function SystemLogPanel({ open, onOpenChange }: SystemLogPanelProps) {
-  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [levelFilter, setLevelFilter] = useState<string>("issues");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const { toast } = useToast();
 
@@ -167,6 +167,7 @@ export function SystemLogPanel({ open, onOpenChange }: SystemLogPanelProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="issues">Warnings &amp; Errors</SelectItem>
               <SelectItem value="all">All levels</SelectItem>
               <SelectItem value="info">Info</SelectItem>
               <SelectItem value="warn">Warn</SelectItem>
@@ -216,9 +217,9 @@ export function SystemLogPanel({ open, onOpenChange }: SystemLogPanelProps) {
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No log entries yet</p>
-              <p className="text-xs mt-1">Events will appear here as you use the app.</p>
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">{levelFilter === "issues" ? "All clear." : "No log entries yet"}</p>
+              <p className="text-xs mt-1">{levelFilter === "issues" ? "No warnings or errors recorded." : "Events will appear here as you use the app."}</p>
             </div>
           ) : (
             <div className="space-y-0.5 font-mono text-xs pr-2">

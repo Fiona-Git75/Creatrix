@@ -14,6 +14,13 @@ const MAX_ENTRIES = 500;
 const _log: LogEntry[] = [];
 let _seq = 0;
 
+type PersistFn = (entry: { level: string; category: string; message: string; detail?: string }) => void;
+let _persist: PersistFn | null = null;
+
+export function setLogPersist(fn: PersistFn): void {
+  _persist = fn;
+}
+
 export function syslog(
   level: LogLevel,
   category: LogCategory,
@@ -32,7 +39,10 @@ export function syslog(
   _log.push(entry);
   if (_log.length > MAX_ENTRIES) _log.shift();
 
-  // Mirror to console
+  if (_persist) {
+    try { _persist({ level, category, message, detail }); } catch {}
+  }
+
   const prefix = `[${category}]`;
   if (level === "error") console.error(prefix, message, detail ?? "");
   else if (level === "warn") console.warn(prefix, message, detail ?? "");
@@ -40,13 +50,19 @@ export function syslog(
 }
 
 export function getLogs(opts?: {
-  level?: LogLevel;
+  level?: string;
   category?: LogCategory;
   limit?: number;
 }): LogEntry[] {
-  let entries = [..._log].reverse(); // newest first
-  if (opts?.level) entries = entries.filter((e) => e.level === opts.level);
-  if (opts?.category) entries = entries.filter((e) => e.category === opts.category);
+  let entries = [..._log].reverse();
+  if (opts?.level && opts.level !== "all") {
+    if (opts.level === "issues") {
+      entries = entries.filter(e => e.level === "warn" || e.level === "error");
+    } else {
+      entries = entries.filter(e => e.level === opts.level);
+    }
+  }
+  if (opts?.category) entries = entries.filter(e => e.category === opts.category);
   return entries.slice(0, opts?.limit ?? 200);
 }
 

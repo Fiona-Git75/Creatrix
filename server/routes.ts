@@ -6,7 +6,7 @@ import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
 import { listCapabilities, invokeCapability } from "./capabilities";
-import { syslog, getLogs, clearLogs } from "./syslog";
+import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import fs from "fs/promises";
 import path from "path";
 
@@ -75,7 +75,12 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  // Wire log persistence to DB and prune entries older than 7 days
+  setLogPersist((entry) => { storage.addSystemLog(entry).catch(() => {}); });
+  storage.pruneSystemLogs(7).catch(() => {});
+  syslog("info", "system", "Server started");
+
   // === Connections ===
   app.get("/api/connections", async (_req: Request, res: Response) => {
     try {
@@ -456,6 +461,7 @@ export async function registerRoutes(
     try {
       const parsed = chatRequestSchema.safeParse(req.body);
       if (!parsed.success) {
+        syslog("warn", "chat", "Chat request rejected — invalid body", parsed.error.issues.map(i => i.message).join("; "));
         return res.status(400).json({ error: "Invalid request", details: parsed.error });
       }
 
@@ -470,6 +476,7 @@ export async function registerRoutes(
       }
 
       if (!connection) {
+        syslog("warn", "chat", "Chat attempted with no connection configured");
         return res.status(400).json({ error: "No connection configured" });
       }
 
@@ -1151,20 +1158,16 @@ export async function registerRoutes(
   });
 
   // === System Logs & Health ===
-  app.get("/api/system/logs", (req: Request, res: Response) => {
+  app.get("/api/system/logs", async (req: Request, res: Response) => {
     const level = req.query.level as string | undefined;
     const category = req.query.category as string | undefined;
     const limit = req.query.limit ? Number(req.query.limit) : 200;
-    const entries = getLogs({
-      level: level as any,
-      category: category as any,
-      limit,
-    });
+    const entries = await storage.getSystemLogs({ level, category: category as any, limit });
     res.json(entries);
   });
 
-  app.delete("/api/system/logs", (_req: Request, res: Response) => {
-    clearLogs();
+  app.delete("/api/system/logs", async (_req: Request, res: Response) => {
+    await storage.clearSystemLogs();
     syslog("info", "system", "Logs cleared by user");
     res.json({ ok: true });
   });
@@ -1177,11 +1180,12 @@ export async function registerRoutes(
     } catch {}
 
     const uptimeSeconds = Math.floor((Date.now() - SERVER_START) / 1000);
-    const allLogs = getLogs({ limit: 500 });
-    const recentErrors = allLogs.filter(
+    const recentLogs = await storage.getSystemLogs({ level: "issues", limit: 500 });
+    const recentErrors = recentLogs.filter(
       (e) => e.level === "error" && Date.now() - new Date(e.timestamp).getTime() < 5 * 60 * 1000
     ).length;
 
+    const allLogs = await storage.getSystemLogs({ limit: 500 });
     const status = !dbOk ? "error" : recentErrors > 5 ? "degraded" : "ok";
     res.json({ status, db: dbOk, uptime: uptimeSeconds, logCount: allLogs.length, recentErrors });
   });

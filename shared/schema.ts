@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, jsonb, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, jsonb, timestamp, boolean, integer, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -246,6 +246,17 @@ export const insertKnowledgeDocumentSchema = knowledgeDocumentSchema.omit({
   chunks: true,
 });
 export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
+
+// System logs
+export const systemLogs = pgTable("system_logs", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  level: varchar("level", { length: 10 }).notNull(),
+  category: varchar("category", { length: 20 }).notNull(),
+  message: text("message").notNull(),
+  detail: text("detail"),
+});
+export type SystemLog = typeof systemLogs.$inferSelect;
 
 // Chat request schema
 export const chatRequestSchema = z.object({
