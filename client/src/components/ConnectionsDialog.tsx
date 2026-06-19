@@ -31,6 +31,87 @@ interface ConnectionsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface DiscoveredProvider { name: string; provider: string; endpoint: string; models: string[]; }
+
+function DiscoveryPanel({ onUse, onManual }: {
+  onUse: (name: string, provider: ProviderType, endpoint: string, model: string) => void;
+  onManual: () => void;
+}) {
+  const { data, isLoading, refetch } = useQuery<{ providers: DiscoveredProvider[] }>({
+    queryKey: ["/api/discover"],
+    retry: false,
+    staleTime: 0,
+  });
+
+  const found = data?.providers ?? [];
+
+  return (
+    <div className="space-y-4 py-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {isLoading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Searching for local providers…
+            </>
+          ) : (
+            <span>{found.length > 0 ? `${found.length} provider${found.length > 1 ? "s" : ""} found` : "No local providers found"}</span>
+          )}
+        </div>
+        {!isLoading && (
+          <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs text-muted-foreground h-7" data-testid="button-rescan">
+            Scan again
+          </Button>
+        )}
+      </div>
+
+      {!isLoading && found.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Checked Ollama (port 11434) and LM Studio (port 1234). Neither responded. Make sure your local model server is running, then scan again.
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {found.map(p => (
+          <Card key={p.endpoint} className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+                  <span className="font-medium">{p.name}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 font-mono">{p.endpoint}</p>
+                {p.models.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    {p.models.join(" · ")}
+                  </p>
+                )}
+                {p.models.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1.5 italic">No models installed yet</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                onClick={() => onUse(p.name, p.provider as ProviderType, p.endpoint, p.models[0] || "")}
+                data-testid={`button-use-${p.provider}`}
+              >
+                Use this
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <div className="pt-1 border-t">
+        <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onManual} data-testid="button-configure-manually">
+          <Plus className="h-3.5 w-3.5 mr-1.5" />
+          Configure manually
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 const defaultEndpoints: Record<ProviderType, string> = {
   openai: "https://api.openai.com/v1",
   ollama: "http://localhost:11434",
@@ -138,13 +219,12 @@ function ConnectionsTab() {
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : connections.length === 0 && !isAdding ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <p className="mb-4">No connections configured</p>
-            <Button onClick={() => setIsAdding(true)} data-testid="button-add-first-connection">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Your First Connection
-            </Button>
-          </div>
+          <DiscoveryPanel
+            onUse={(name, provider, endpoint, model) => {
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel: model, isDefault: true });
+            }}
+            onManual={() => setIsAdding(true)}
+          />
         ) : (
           <>
             {connections.map((connection) => (

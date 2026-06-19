@@ -146,6 +146,43 @@ export async function registerRoutes(
     }
   });
 
+  // Discover local providers by probing well-known ports
+  app.get("/api/discover", async (_req: Request, res: Response) => {
+    const discovered: Array<{ name: string; provider: string; endpoint: string; models: string[] }> = [];
+
+    const probe = async (url: string, parseModels: (data: any) => string[]): Promise<string[]> => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) return [];
+        return parseModels(await resp.json());
+      } catch {
+        clearTimeout(timeout);
+        return [];
+      }
+    };
+
+    const ollamaModels = await probe(
+      "http://localhost:11434/api/tags",
+      (d) => (d.models || []).map((m: any) => m.name || m.id).filter(Boolean)
+    );
+    if (ollamaModels !== null) {
+      discovered.push({ name: "Ollama", provider: "ollama", endpoint: "http://localhost:11434", models: ollamaModels });
+    }
+
+    const lmModels = await probe(
+      "http://localhost:1234/v1/models",
+      (d) => (d.data || []).map((m: any) => m.id).filter(Boolean)
+    );
+    if (lmModels.length > 0) {
+      discovered.push({ name: "LM Studio", provider: "lmstudio", endpoint: "http://localhost:1234/v1", models: lmModels });
+    }
+
+    res.json({ providers: discovered });
+  });
+
   // Pull/download a model (Ollama only)
   app.post("/api/connections/:id/models/pull", async (req: Request, res: Response) => {
     try {
