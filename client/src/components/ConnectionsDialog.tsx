@@ -421,6 +421,16 @@ function SettingsTab() {
     queryKey: ["/api/settings"],
   });
 
+  const { data: substrateHealth } = useQuery<{
+    coherence: "green" | "amber" | "red";
+    substrates: Record<string, { status: "up" | "down" | "unknown"; latencyMs: number | null; endpoint: string | null }>;
+    issues: string[];
+  }>({
+    queryKey: ["/api/substrate/health"],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
   const [rootFolder, setRootFolder] = useState<string>("");
   const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
   const [searchEndpoint, setSearchEndpoint] = useState<string>("");
@@ -579,11 +589,20 @@ function SettingsTab() {
             {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
           </Button>
         </div>
-        {whisperEndpoint && (
-          <p className="text-xs text-green-600 dark:text-green-400">
-            Audio transcription will use: <span className="font-mono">{whisperEndpoint}</span>
-          </p>
-        )}
+        {whisperEndpoint && (() => {
+          const s = substrateHealth?.substrates?.whisper;
+          const dotColor = !s ? "bg-muted-foreground/30" : s.status === "up" ? "bg-green-500" : s.status === "down" ? "bg-red-500" : "bg-amber-400 animate-pulse";
+          const label = !s ? "checking…" : s.status === "up" ? `up · ${s.latencyMs}ms` : s.status === "down" ? "unreachable" : "probing…";
+          const textColor = !s ? "text-muted-foreground" : s.status === "up" ? "text-green-600 dark:text-green-400" : s.status === "down" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
+          return (
+            <span className={`flex items-center gap-1.5 text-xs ${textColor}`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotColor}`} />
+              <span className="font-mono">{whisperEndpoint}</span>
+              <span className="text-muted-foreground">·</span>
+              {label}
+            </span>
+          );
+        })()}
       </div>
 
       <Separator />
@@ -615,14 +634,24 @@ function SettingsTab() {
             {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
           </Button>
         </div>
-        {searchEndpoint ? (
-          <p className="text-xs text-green-600 dark:text-green-400">
-            web_search will route through: <span className="font-mono">{searchEndpoint}</span>
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            web_search will use DuckDuckGo HTML (no key required, ~10 results).
-          </p>
+        {searchEndpoint ? (() => {
+          const s = substrateHealth?.substrates?.search;
+          const dotColor = !s ? "bg-muted-foreground/30" : s.status === "up" ? "bg-green-500" : s.status === "down" ? "bg-red-500" : "bg-amber-400 animate-pulse";
+          const label = !s ? "checking…" : s.status === "up" ? `up · ${s.latencyMs}ms` : s.status === "down" ? "unreachable — falling back to DuckDuckGo" : "probing…";
+          const textColor = !s ? "text-muted-foreground" : s.status === "up" ? "text-green-600 dark:text-green-400" : s.status === "down" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
+          return (
+            <span className={`flex items-center gap-1.5 text-xs ${textColor}`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotColor}`} />
+              <span className="font-mono">{searchEndpoint}</span>
+              <span className="text-muted-foreground">·</span>
+              {label}
+            </span>
+          );
+        })() : (
+          <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <span className="inline-block h-1.5 w-1.5 rounded-full shrink-0 bg-amber-400" />
+            DuckDuckGo fallback — configure SearXNG for full coverage
+          </span>
         )}
       </div>
 

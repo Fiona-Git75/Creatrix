@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wrench, ChevronDown, ChevronUp, CheckCircle2, AlertCircle } from "lucide-react";
+import { Wrench, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +22,13 @@ interface ToolsStatus {
   inactive: InactiveEntry[];
 }
 
+interface SubstrateHealth {
+  coherence: "green" | "amber" | "red";
+  substrates: Record<string, { status: "up" | "down" | "unknown"; endpoint: string | null; latencyMs: number | null }>;
+  issues: string[];
+  checkedAt: number;
+}
+
 function toolLabel(name: string): string {
   return name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -39,9 +46,24 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
     staleTime: 15_000,
   });
 
-  const activeCount = data?.active.length ?? 0;
-  const inactiveCount = data?.inactive.length ?? 0;
-  const hasInactive = inactiveCount > 0;
+  const { data: health } = useQuery<SubstrateHealth>({
+    queryKey: ["/api/substrate/health"],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  const activeCount   = data?.active.length   ?? 0;
+  const inactiveCount = data?.inactive.length  ?? 0;
+  const hasInactive   = inactiveCount > 0;
+  const coherence     = health?.coherence ?? (hasInactive ? "amber" : "green");
+  const hasIssues     = (health?.issues?.length ?? 0) > 0;
+
+  const badgeColor =
+    coherence === "red"
+      ? "bg-red-500/15 text-red-600 dark:text-red-400"
+      : coherence === "amber" || hasInactive
+      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+      : "bg-green-500/15 text-green-600 dark:text-green-400";
 
   const summary = data
     ? hasInactive
@@ -61,19 +83,12 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
         <Wrench className="h-3.5 w-3.5 shrink-0" />
         <span className="flex-1 text-left font-normal">Tools</span>
         {data && (
-          <span
-            className={cn(
-              "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-              hasInactive
-                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                : "bg-green-500/15 text-green-600 dark:text-green-400"
-            )}
-          >
+          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded-full", badgeColor)}>
             {summary}
           </span>
         )}
         {expanded
-          ? <ChevronUp className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+          ? <ChevronUp   className="h-3 w-3 text-muted-foreground/40 shrink-0" />
           : <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
         }
       </Button>
@@ -81,8 +96,28 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
       {/* Expanded panel */}
       {expanded && data && (
         <div className="mx-1 mb-1 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
-          <ScrollArea className="max-h-72">
+          <ScrollArea className="max-h-80">
             <div className="p-2 space-y-3">
+
+              {/* Truth coherence issues */}
+              {hasIssues && health && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 px-1 mb-1">
+                    System truth
+                  </p>
+                  <div className="space-y-0.5">
+                    {health.issues.map((issue, i) => (
+                      <div key={i} className="flex items-start gap-2 px-1.5 py-1 rounded-md">
+                        <span className={cn(
+                          "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
+                          health.coherence === "red" ? "bg-red-500" : "bg-amber-500"
+                        )} />
+                        <p className="text-[10px] text-muted-foreground/60 leading-tight">{issue}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Active tools */}
               {data.active.length > 0 && (
@@ -150,11 +185,11 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
                 </div>
               )}
 
-              {/* All active, no inactive */}
-              {data.inactive.length === 0 && (
+              {/* All green */}
+              {!hasInactive && !hasIssues && (
                 <div className="flex items-center gap-1.5 px-1.5 py-1 text-[10px] text-green-600/70 dark:text-green-400/60">
                   <CheckCircle2 className="h-3 w-3" />
-                  All tools configured
+                  All tools configured and substrates healthy
                 </div>
               )}
             </div>
