@@ -343,6 +343,29 @@ export const readableExtensions = [
 ] as const;
 export type ReadableExtension = typeof readableExtensions[number];
 
+// ─── Workspace Documents ──────────────────────────────────────────────────────
+
+export const workspaceDocs = pgTable("workspace_docs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  title: text("title").notNull(),
+  content: text("content").notNull().default(""),
+  projectId: varchar("project_id", { length: 36 }),  // null = global scratchpad
+  updatedAt: text("updated_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const workspaceDocSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  content: z.string(),
+  projectId: z.string().optional(),
+  updatedAt: z.string(),
+  createdAt: z.string(),
+});
+export type WorkspaceDoc = z.infer<typeof workspaceDocSchema>;
+export const insertWorkspaceDocSchema = workspaceDocSchema.omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWorkspaceDoc = z.infer<typeof insertWorkspaceDocSchema>;
+
 // Capability invocation (used in chat context to track what tools were called)
 export const capabilityNames = [
   "list_directory",
@@ -368,6 +391,9 @@ export const capabilityNames = [
   "ocr_image",
   "analyze_image",
   "run_command",
+  "list_docs",
+  "write_doc",
+  "edit_doc",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

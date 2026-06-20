@@ -5,6 +5,7 @@ import { libraryCapabilities } from "./library";
 import { notionCapabilities } from "./notion";
 import { mediaCapabilities } from "./media";
 import { terminalCapabilities } from "./terminal";
+import { docsCapabilities } from "./docs";
 
 export interface CapabilityContext {
   rootFolder?: string;
@@ -13,6 +14,7 @@ export interface CapabilityContext {
   connection?: import("@shared/schema").Connection;
   model?: string;
   searchEndpoint?: string;
+  projectId?: string;
 }
 
 export type CapabilityHandler = (
@@ -42,7 +44,7 @@ function register(def: CapabilityDefinition) {
 }
 
 // Register all capabilities
-for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities]) {
+for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities, ...docsCapabilities]) {
   register(cap);
 }
 

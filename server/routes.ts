@@ -758,7 +758,7 @@ export async function registerRoutes(
 
           const invocation = await invokeCapability(
             toolName, toolArgs,
-            { rootFolder: project?.folderPath || settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection, model: selectedModel, searchEndpoint: (settings as any).searchEndpoint }
+            { rootFolder: project?.folderPath || settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection, model: selectedModel, searchEndpoint: (settings as any).searchEndpoint, projectId: project?.id }
           );
 
           if (invocation.status === "success") {
@@ -1085,6 +1085,48 @@ export async function registerRoutes(
       console.error("Error fetching tools status:", error);
       res.status(500).json({ error: "Failed to get tools status" });
     }
+  });
+
+  // === Workspace Documents ===
+  app.get("/api/docs", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.query as { projectId?: string };
+      const docs = await storage.getWorkspaceDocs(projectId === "null" ? null : projectId);
+      res.json(docs);
+    } catch { res.status(500).json({ error: "Failed to list docs" }); }
+  });
+
+  app.get("/api/docs/:id", async (req: Request, res: Response) => {
+    try {
+      const doc = await storage.getWorkspaceDoc(req.params.id);
+      if (!doc) return res.status(404).json({ error: "Not found" });
+      res.json(doc);
+    } catch { res.status(500).json({ error: "Failed to get doc" }); }
+  });
+
+  app.post("/api/docs", async (req: Request, res: Response) => {
+    try {
+      const { title, content = "", projectId } = req.body;
+      if (!title) return res.status(400).json({ error: "title required" });
+      const doc = await storage.createWorkspaceDoc({ title, content, projectId: projectId ?? undefined });
+      res.json(doc);
+    } catch { res.status(500).json({ error: "Failed to create doc" }); }
+  });
+
+  app.patch("/api/docs/:id", async (req: Request, res: Response) => {
+    try {
+      const { title, content } = req.body;
+      const doc = await storage.updateWorkspaceDoc(req.params.id, { ...(title !== undefined && { title }), ...(content !== undefined && { content }) });
+      if (!doc) return res.status(404).json({ error: "Not found" });
+      res.json(doc);
+    } catch { res.status(500).json({ error: "Failed to update doc" }); }
+  });
+
+  app.delete("/api/docs/:id", async (req: Request, res: Response) => {
+    try {
+      const ok = await storage.deleteWorkspaceDoc(req.params.id);
+      res.json({ deleted: ok });
+    } catch { res.status(500).json({ error: "Failed to delete doc" }); }
   });
 
   // === Tool confirmation gate ===

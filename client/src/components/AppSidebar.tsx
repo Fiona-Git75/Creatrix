@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Settings } from "lucide-react";
+import { Plus, Settings, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -29,6 +29,7 @@ interface AppSidebarProps {
   onDeleteConversation: (id: string) => void;
   onProjectChange: (projectId: string | null) => void;
   onOpenSettings: () => void;
+  onOpenDocs: () => void;
 }
 
 export function AppSidebar({
@@ -41,6 +42,7 @@ export function AppSidebar({
   onDeleteConversation,
   onProjectChange,
   onOpenSettings,
+  onOpenDocs,
 }: AppSidebarProps) {
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
 
@@ -100,6 +102,15 @@ export function AppSidebar({
 
         <SidebarFooter className="border-t pt-2 pb-3 px-3 space-y-1">
           <ToolStatusChip onOpenSettings={onOpenSettings} />
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2"
+            onClick={onOpenDocs}
+            data-testid="button-open-docs"
+          >
+            <FileText className="h-4 w-4" />
+            Documents
+          </Button>
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"

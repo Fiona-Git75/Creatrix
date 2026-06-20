@@ -9,9 +9,10 @@ import {
   type LibraryFolder, type InsertLibraryFolder,
   type LibraryItem, type InsertLibraryItem,
   type JournalEntry, type InsertJournalEntry,
+  type WorkspaceDoc, type InsertWorkspaceDoc,
   type SystemLog,
   users, connections, projects, conversations, memoryEntries, knowledgeDocuments, settings,
-  libraryFolders, libraryItems, journalEntries, systemLogs,
+  libraryFolders, libraryItems, journalEntries, systemLogs, workspaceDocs,
 } from "@shared/schema";
 import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
@@ -94,6 +95,14 @@ export interface IStorage {
   createJournalEntry(entry: InsertJournalEntry): Promise<JournalEntry>;
   updateJournalEntry(id: string, updates: Partial<InsertJournalEntry>): Promise<JournalEntry | undefined>;
   getJournalEntriesSince(since: string): Promise<JournalEntry[]>;
+
+  // ─── Workspace Documents ───────────────────────────────────────────────────
+  getWorkspaceDocs(projectId?: string | null): Promise<WorkspaceDoc[]>;
+  getWorkspaceDoc(id: string): Promise<WorkspaceDoc | undefined>;
+  getWorkspaceDocByTitle(title: string, projectId: string | null): Promise<WorkspaceDoc | undefined>;
+  createWorkspaceDoc(doc: InsertWorkspaceDoc): Promise<WorkspaceDoc>;
+  updateWorkspaceDoc(id: string, updates: Partial<Pick<WorkspaceDoc, 'title' | 'content'>>): Promise<WorkspaceDoc | undefined>;
+  deleteWorkspaceDoc(id: string): Promise<boolean>;
 
   // ─── System Logs ───────────────────────────────────────────────────────────
   addSystemLog(entry: { level: string; category: string; message: string; detail?: string }): Promise<void>;
@@ -468,6 +477,37 @@ export class MemStorage implements IStorage {
       .filter(e => new Date(e.createdAt).getTime() >= sinceTime)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
+
+  // ─── Workspace Documents ────────────────────────────────────────────────────
+  private _workspaceDocs = new Map<string, WorkspaceDoc>();
+
+  async getWorkspaceDocs(projectId?: string | null): Promise<WorkspaceDoc[]> {
+    const all = Array.from(this._workspaceDocs.values());
+    if (projectId === null) return all.filter(d => !d.projectId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    if (projectId === undefined) return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return all.filter(d => d.projectId === projectId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  async getWorkspaceDoc(id: string): Promise<WorkspaceDoc | undefined> { return this._workspaceDocs.get(id); }
+  async getWorkspaceDocByTitle(title: string, projectId: string | null): Promise<WorkspaceDoc | undefined> {
+    return Array.from(this._workspaceDocs.values()).find(d =>
+      d.title.toLowerCase() === title.toLowerCase() && (projectId === null ? !d.projectId : d.projectId === projectId)
+    );
+  }
+  async createWorkspaceDoc(doc: InsertWorkspaceDoc): Promise<WorkspaceDoc> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const created: WorkspaceDoc = { ...doc, id, createdAt: now, updatedAt: now, content: doc.content ?? "", projectId: doc.projectId ?? undefined };
+    this._workspaceDocs.set(id, created);
+    return created;
+  }
+  async updateWorkspaceDoc(id: string, updates: Partial<Pick<WorkspaceDoc, 'title' | 'content'>>): Promise<WorkspaceDoc | undefined> {
+    const existing = this._workspaceDocs.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    this._workspaceDocs.set(id, updated);
+    return updated;
+  }
+  async deleteWorkspaceDoc(id: string): Promise<boolean> { return this._workspaceDocs.delete(id); }
 
   async addSystemLog(_entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {
     // In-memory mode: syslog buffer already holds the entry
@@ -883,6 +923,52 @@ export class DatabaseStorage implements IStorage {
   }
   private _mapJournalEntry(e: typeof journalEntries.$inferSelect): JournalEntry {
     return { ...e, type: e.type as JournalEntry["type"], detail: e.detail ?? undefined, relatedPath: e.relatedPath ?? undefined, relatedLibraryItemId: e.relatedLibraryItemId ?? undefined, relatedConversationId: e.relatedConversationId ?? undefined, resolved: e.resolved ?? false };
+  }
+
+  // ─── Workspace Documents ────────────────────────────────────────────────────
+  async getWorkspaceDocs(projectId?: string | null): Promise<WorkspaceDoc[]> {
+    let rows;
+    if (projectId === null) {
+      rows = await this.db.select().from(workspaceDocs).where(sql`${workspaceDocs.projectId} is null`).orderBy(desc(workspaceDocs.updatedAt));
+    } else if (projectId === undefined) {
+      rows = await this.db.select().from(workspaceDocs).orderBy(desc(workspaceDocs.updatedAt));
+    } else {
+      rows = await this.db.select().from(workspaceDocs).where(eq(workspaceDocs.projectId, projectId)).orderBy(desc(workspaceDocs.updatedAt));
+    }
+    return rows.map(r => ({ ...r, projectId: r.projectId ?? undefined }));
+  }
+  async getWorkspaceDoc(id: string): Promise<WorkspaceDoc | undefined> {
+    const rows = await this.db.select().from(workspaceDocs).where(eq(workspaceDocs.id, id));
+    if (!rows[0]) return undefined;
+    return { ...rows[0], projectId: rows[0].projectId ?? undefined };
+  }
+  async getWorkspaceDocByTitle(title: string, projectId: string | null): Promise<WorkspaceDoc | undefined> {
+    let rows;
+    if (projectId === null) {
+      rows = await this.db.select().from(workspaceDocs).where(and(sql`lower(${workspaceDocs.title}) = lower(${title})`, sql`${workspaceDocs.projectId} is null`));
+    } else {
+      rows = await this.db.select().from(workspaceDocs).where(and(sql`lower(${workspaceDocs.title}) = lower(${title})`, eq(workspaceDocs.projectId, projectId)));
+    }
+    if (!rows[0]) return undefined;
+    return { ...rows[0], projectId: rows[0].projectId ?? undefined };
+  }
+  async createWorkspaceDoc(doc: InsertWorkspaceDoc): Promise<WorkspaceDoc> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const row = { id, title: doc.title, content: doc.content ?? "", projectId: doc.projectId ?? null, createdAt: now, updatedAt: now };
+    await this.db.insert(workspaceDocs).values(row);
+    return { ...row, projectId: row.projectId ?? undefined };
+  }
+  async updateWorkspaceDoc(id: string, updates: Partial<Pick<WorkspaceDoc, 'title' | 'content'>>): Promise<WorkspaceDoc | undefined> {
+    const existing = await this.getWorkspaceDoc(id);
+    if (!existing) return undefined;
+    const updatedAt = new Date().toISOString();
+    await this.db.update(workspaceDocs).set({ ...updates, updatedAt }).where(eq(workspaceDocs.id, id));
+    return { ...existing, ...updates, updatedAt };
+  }
+  async deleteWorkspaceDoc(id: string): Promise<boolean> {
+    const result = await this.db.delete(workspaceDocs).where(eq(workspaceDocs.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async addSystemLog(entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {

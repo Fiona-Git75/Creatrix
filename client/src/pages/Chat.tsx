@@ -25,6 +25,7 @@ import { JournalPanel } from "@/components/JournalPanel";
 import { SystemLogPanel } from "@/components/SystemLogPanel";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
+import { DocumentPanel } from "@/components/DocumentPanel";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -127,6 +128,8 @@ function ChatContent({
   onProjectChange,
   onSelectConnection,
   onOpenSettings,
+  openDocId,
+  onDocChange,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -146,6 +149,8 @@ function ChatContent({
   onProjectChange: (projectId: string | null) => void;
   onSelectConnection: (connectionId: string, model: string) => void;
   onOpenSettings: () => void;
+  openDocId: string | null | undefined;
+  onDocChange: (id: string | null | undefined) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -196,9 +201,11 @@ function ChatContent({
         onDeleteConversation={onDeleteConversation}
         onProjectChange={onProjectChange}
         onOpenSettings={onOpenSettings}
+        onOpenDocs={() => onDocChange(null)}
       />
 
-      <div className="flex flex-col flex-1 h-screen">
+      <div className="flex flex-row flex-1 min-w-0">
+      <div className="flex flex-col flex-1 h-screen min-w-0 overflow-hidden">
         <header className="flex items-center justify-between gap-2 p-3 border-b sticky top-0 z-50 bg-background">
           <div className="flex items-center gap-2">
             <SidebarTrigger data-testid="button-sidebar-toggle">
@@ -384,6 +391,17 @@ function ChatContent({
           )}
         </main>
       </div>
+      {openDocId !== undefined && (
+        <div className="w-[420px] shrink-0 h-screen">
+          <DocumentPanel
+            docId={openDocId}
+            projectId={selectedProjectId}
+            onClose={() => onDocChange(undefined)}
+            onDocChange={onDocChange}
+          />
+        </div>
+      )}
+      </div>
     </>
   );
 }
@@ -394,6 +412,7 @@ export default function Chat() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -533,6 +552,9 @@ export default function Chat() {
                     : e
                 ));
               }
+              if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
+                setOpenDocId((data.result as any).id);
+              }
             } else if (data.type === "done") {
               setStreamingContent("");
               setToolEvents([]);
@@ -599,6 +621,8 @@ export default function Chat() {
           onProjectChange={setSelectedProjectId}
           onSelectConnection={(id, model) => { setSelectedConnectionId(id); setSelectedModel(model); }}
           onOpenSettings={() => setSettingsOpen(true)}
+          openDocId={openDocId}
+          onDocChange={setOpenDocId}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
