@@ -17,6 +17,7 @@ import { ConversationItem, type Conversation } from "./ConversationItem";
 import { ProjectSelector } from "./ProjectSelector";
 import { ProjectsDialog } from "./ProjectsDialog";
 import { MorningOrientation } from "./MorningOrientation";
+import { ToolStatusChip } from "./ToolStatusChip";
 
 interface AppSidebarProps {
   conversations: Conversation[];
@@ -97,7 +98,8 @@ export function AppSidebar({
 
         {morningOrientationEnabled && <MorningOrientation />}
 
-        <SidebarFooter className="p-4 border-t">
+        <SidebarFooter className="border-t pt-2 pb-3 px-3 space-y-1">
+          <ToolStatusChip onOpenSettings={onOpenSettings} />
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"

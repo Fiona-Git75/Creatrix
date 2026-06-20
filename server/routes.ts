@@ -1027,6 +1027,50 @@ export async function registerRoutes(
     }
   });
 
+  // === Tool activation status ===
+  app.get("/api/tools/status", async (_req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      const rootFolder = (settings as any).rootFolder as string | undefined;
+      const whisperEndpoint = (settings as any).whisperEndpoint as string | undefined;
+      const notionAvailable = await probeNotionConnected();
+
+      const all = listCapabilities();
+      const activeNames = new Set(
+        all
+          .filter(c => {
+            if (c.requires?.rootFolder && !rootFolder) return false;
+            if (c.requires?.whisperEndpoint && !whisperEndpoint) return false;
+            if (c.requires?.notion && !notionAvailable) return false;
+            return true;
+          })
+          .map(c => c.name)
+      );
+
+      const active = all
+        .filter(c => activeNames.has(c.name))
+        .map(c => ({ name: c.name, description: c.description, requiresConfirmation: !!c.requiresConfirmation }));
+
+      const inactive = all
+        .filter(c => !activeNames.has(c.name))
+        .map(c => {
+          const reasons: string[] = [];
+          if (c.requires?.rootFolder && !rootFolder)
+            reasons.push("root folder not configured — Settings → File Library");
+          if (c.requires?.whisperEndpoint && !whisperEndpoint)
+            reasons.push("Whisper endpoint not configured — Settings → Whisper Endpoint");
+          if (c.requires?.notion && !notionAvailable)
+            reasons.push("Notion not connected — Settings → Integrations → Notion");
+          return { name: c.name, description: c.description, reason: reasons.join("; ") };
+        });
+
+      res.json({ active, inactive });
+    } catch (error) {
+      console.error("Error fetching tools status:", error);
+      res.status(500).json({ error: "Failed to get tools status" });
+    }
+  });
+
   // === Settings ===
   app.get("/api/settings", async (_req: Request, res: Response) => {
     try {
