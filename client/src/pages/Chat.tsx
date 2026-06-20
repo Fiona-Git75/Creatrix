@@ -353,7 +353,18 @@ function ChatContent({
                   {toolEvents.length > 0 && (
                     <div className="px-4 py-1 max-w-3xl mx-auto">
                       {toolEvents.map(event => (
-                        <ToolCallCard key={event.id} event={event} />
+                        <ToolCallCard
+                          key={event.id}
+                          event={event}
+                          onConfirm={event.confirmId ? async (confirmId, approved) => {
+                            setToolEvents(prev => prev.map(e =>
+                              e.id === event.id
+                                ? { ...e, status: approved ? "running" : "cancelled" }
+                                : e
+                            ));
+                            await apiRequest("POST", `/api/confirm/${confirmId}`, { approved });
+                          } : undefined}
+                        />
                       ))}
                     </div>
                   )}
@@ -502,6 +513,16 @@ export default function Chat() {
                 capability: data.capability as CapabilityName,
                 args: data.args || {},
                 status: "running",
+              }]);
+            } else if (data.type === "confirm_required") {
+              const eventId = `tool-${++eventCounter}`;
+              activeToolEvents.set(data.capability, eventId);
+              setToolEvents(prev => [...prev, {
+                id: eventId,
+                capability: data.capability as CapabilityName,
+                args: data.args || {},
+                status: "pending_confirm",
+                confirmId: data.confirmId,
               }]);
             } else if (data.type === "tool_result") {
               const eventId = activeToolEvents.get(data.capability);

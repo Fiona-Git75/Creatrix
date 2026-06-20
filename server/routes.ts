@@ -5,8 +5,9 @@ import { chatRequestSchema, type Message, type CapabilityName, type Source } fro
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
-import { listCapabilities, invokeCapability } from "./capabilities";
+import { listCapabilities, invokeCapability, getCapability } from "./capabilities";
 import { probeNotionConnected } from "./capabilities/notion";
+import { requestConfirmation, resolveConfirmation } from "./confirm";
 import { querySubstrate, computeCoherence } from "./health";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
@@ -739,7 +740,21 @@ export async function registerRoutes(
 
         // Shared tool invocation helper — same execution path for both native and text tool calls
         const runTool = async (toolName: CapabilityName, toolArgs: Record<string, unknown>) => {
-          res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+          const cap = getCapability(toolName);
+
+          if (cap?.requiresConfirmation) {
+            // Gate: send confirm_required and wait for explicit user approval
+            const confirmId = randomUUID();
+            res.write(`data: ${JSON.stringify({ type: "confirm_required", confirmId, capability: toolName, args: toolArgs })}\n\n`);
+            const approved = await requestConfirmation(confirmId);
+            if (!approved) {
+              const cancelled = { cancelled: true, message: "User cancelled this action." };
+              res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: "cancelled", result: cancelled })}\n\n`);
+              return { capability: toolName, args: toolArgs, status: "error" as const, error: "User cancelled.", result: cancelled };
+            }
+          } else {
+            res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+          }
 
           const invocation = await invokeCapability(
             toolName, toolArgs,
@@ -1070,6 +1085,15 @@ export async function registerRoutes(
       console.error("Error fetching tools status:", error);
       res.status(500).json({ error: "Failed to get tools status" });
     }
+  });
+
+  // === Tool confirmation gate ===
+  // Frontend POSTs here after the user clicks Run or Cancel on a confirm_required card.
+  app.post("/api/confirm/:id", (req: Request, res: Response) => {
+    const { id } = req.params;
+    const approved = req.body?.approved !== false; // default true, explicit false = cancel
+    const resolved = resolveConfirmation(id, approved);
+    res.json({ resolved, approved });
   });
 
   // === Substrate health / coherence ===
