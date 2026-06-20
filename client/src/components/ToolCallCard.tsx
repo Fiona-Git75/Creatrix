@@ -34,9 +34,13 @@ const LABELS: Partial<Record<CapabilityName, string>> = {
   ocr_image: "Reading image",
   analyze_image: "Looking at image",
   append_file: "Appending to file",
+  run_command: "Running command",
 };
 
 function argHint(capability: CapabilityName, args: Record<string, unknown>): string {
+  if (capability === "run_command") {
+    return String(args.command ?? "").slice(0, 60);
+  }
   const val = args.path ?? args.query ?? args.url ?? args.source ?? args.title ?? args.pageId ?? "";
   return String(val).split("/").pop()?.slice(0, 48) || "";
 }

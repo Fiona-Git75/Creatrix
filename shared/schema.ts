@@ -367,6 +367,7 @@ export const capabilityNames = [
   "transcribe_audio",
   "ocr_image",
   "analyze_image",
+  "run_command",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 
