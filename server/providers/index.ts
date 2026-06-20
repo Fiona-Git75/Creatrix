@@ -1,9 +1,13 @@
 import { type Connection, type Message } from "@shared/schema";
 
 export interface StreamChunk {
-  type: "content" | "done" | "error";
+  type: "content" | "done" | "error" | "tool_call";
   content?: string;
   error?: string;
+  toolCall?: {
+    name: string;
+    args: Record<string, unknown>;
+  };
 }
 
 export interface ModelInfo {
@@ -26,12 +30,27 @@ export interface PullProgress {
   completed?: number;
 }
 
+// OpenAI-compatible tool definition format (also accepted by Ollama)
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, { type: string; description: string }>;
+      required?: string[];
+    };
+  };
+}
+
 export interface ModelProvider {
   name: string;
   generateStream(
     messages: Array<{ role: string; content: string }>,
     model: string,
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    tools?: ToolDefinition[]
   ): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   listModelsWithStatus(): Promise<ModelsResponse>;
@@ -53,7 +72,8 @@ export class OpenAIProvider implements ModelProvider {
   async generateStream(
     messages: Array<{ role: string; content: string }>,
     model: string,
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    _tools?: ToolDefinition[]
   ): Promise<void> {
     const response = await fetch(`${this.endpoint}/chat/completions`, {
       method: "POST",
@@ -169,17 +189,17 @@ export class OllamaProvider implements ModelProvider {
   async generateStream(
     messages: Array<{ role: string; content: string }>,
     model: string,
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    tools?: ToolDefinition[]
   ): Promise<void> {
     try {
+      const body: Record<string, unknown> = { model, messages, stream: true };
+      if (tools && tools.length > 0) body.tools = tools;
+
       const response = await fetch(`${this.endpoint}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -209,9 +229,27 @@ export class OllamaProvider implements ModelProvider {
           if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line);
+
+            // Native Jinja tool calls — Ollama parses the model's native format
+            // and surfaces them as structured tool_calls (no text parsing needed)
+            if (parsed.message?.tool_calls?.length > 0) {
+              for (const tc of parsed.message.tool_calls) {
+                if (tc.function?.name) {
+                  onChunk({
+                    type: "tool_call",
+                    toolCall: {
+                      name: tc.function.name,
+                      args: tc.function.arguments ?? {},
+                    },
+                  });
+                }
+              }
+            }
+
             if (parsed.message?.content) {
               onChunk({ type: "content", content: parsed.message.content });
             }
+
             if (parsed.done) {
               onChunk({ type: "done" });
               return;
@@ -249,18 +287,18 @@ export class OllamaProvider implements ModelProvider {
         };
       });
       if (models.length === 0) {
-        return { 
-          status: "empty", 
-          message: "Ollama is running but no models are installed. Download a model to get started.", 
-          models: [] 
+        return {
+          status: "empty",
+          message: "Ollama is running but no models are installed. Download a model to get started.",
+          models: [],
         };
       }
       return { status: "ok", models };
     } catch (error: any) {
-      return { 
-        status: "offline", 
-        message: "Cannot connect to Ollama. Make sure Ollama is running on your system.", 
-        models: [] 
+      return {
+        status: "offline",
+        message: "Cannot connect to Ollama. Make sure Ollama is running on your system.",
+        models: [],
       };
     }
   }
@@ -335,9 +373,9 @@ export class LMStudioProvider implements ModelProvider {
   async generateStream(
     messages: Array<{ role: string; content: string }>,
     model: string,
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    tools?: ToolDefinition[]
   ): Promise<void> {
-    // LM Studio uses OpenAI-compatible API
     const openaiProvider = new OpenAIProvider({
       id: "temp",
       name: "temp",
@@ -346,7 +384,7 @@ export class LMStudioProvider implements ModelProvider {
       defaultModel: model,
       isDefault: false,
     });
-    return openaiProvider.generateStream(messages, model, onChunk);
+    return openaiProvider.generateStream(messages, model, onChunk, tools);
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -367,18 +405,18 @@ export class LMStudioProvider implements ModelProvider {
         provider: "lmstudio",
       }));
       if (models.length === 0) {
-        return { 
-          status: "empty", 
-          message: "LM Studio is running but no models are loaded. Load a model in LM Studio to continue.", 
-          models: [] 
+        return {
+          status: "empty",
+          message: "LM Studio is running but no models are loaded. Load a model in LM Studio to continue.",
+          models: [],
         };
       }
       return { status: "ok", models };
     } catch (error: any) {
-      return { 
-        status: "offline", 
-        message: "Cannot connect to LM Studio. Make sure LM Studio is running with the local server enabled.", 
-        models: [] 
+      return {
+        status: "offline",
+        message: "Cannot connect to LM Studio. Make sure LM Studio is running with the local server enabled.",
+        models: [],
       };
     }
   }
@@ -403,7 +441,6 @@ export function createProvider(connection: Connection): ModelProvider {
     case "lmstudio":
       return new LMStudioProvider(connection);
     case "custom":
-      // Custom providers use OpenAI-compatible API by default
       return new OpenAIProvider(connection);
     default:
       throw new Error(`Unknown provider: ${connection.provider}`);

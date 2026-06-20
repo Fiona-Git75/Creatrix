@@ -9,6 +9,7 @@ import { listCapabilities, invokeCapability } from "./capabilities";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
+import type { ToolDefinition } from "./providers/index";
 import fs from "fs/promises";
 import path from "path";
 
@@ -592,62 +593,76 @@ export async function registerRoutes(
       // === Tool capability injection — gated by model profile ===
       const settings = await storage.getSettings();
 
-      // Determine what this model can actually do with tools
       const modelProfile = await fetchModelProfile(connection, model || "");
       const toolSupport: ToolSupport = modelProfile.toolSupport ?? "text";
 
-      if (toolSupport !== "none") {
-        const fsNames = new Set([
-          "read_file", "write_file", "append_file", "create_note",
-          "create_folder", "copy_file", "move_file", "delete_file",
-        ]);
-        const rootFolder = (settings as any).rootFolder as string | undefined;
+      const fsNames = new Set([
+        "read_file", "write_file", "append_file", "create_note",
+        "create_folder", "copy_file", "move_file", "delete_file",
+      ]);
+      const rootFolder = (settings as any).rootFolder as string | undefined;
 
-        // Only offer tools that are actually configured and usable
-        const availableCaps = listCapabilities().filter(c => {
-          if (fsNames.has(c.name as string)) return !!rootFolder;
-          return true;
-        });
+      const availableCaps = toolSupport !== "none"
+        ? listCapabilities().filter(c => {
+            if (fsNames.has(c.name as string)) return !!rootFolder;
+            return true;
+          })
+        : [];
 
-        if (availableCaps.length > 0) {
-          const toolDescriptions = availableCaps.map(c =>
-            `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
-          ).join("\n");
+      // Native Jinja path: Ollama handles template rendering internally.
+      // Pass tools as structured API objects — no text injection, no protocol negotiation.
+      const useNativeToolCalling =
+        toolSupport === "limited" &&
+        connection.provider === "ollama" &&
+        availableCaps.length > 0;
 
-          // Orientation handshake — concrete example first, declarations second
-          const lines = [
-            "## Tool Environment",
-            "",
-            "You are operating inside Creatrix. This environment provides real, executable tools.",
-            "To use a tool, output exactly this format — nothing else on the line:",
-            "",
-            '<tool_call>{"name":"tool_name","args":{"key":"value"}}</tool_call>',
-            "",
-            "The system executes the tool and returns the result. You then continue your response.",
-            "",
-            "Example — searching the web:",
-            '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
-          ];
+      const apiTools: ToolDefinition[] = useNativeToolCalling
+        ? availableCaps.map(c => ({
+            type: "function" as const,
+            function: {
+              name: c.name as string,
+              description: c.description,
+              parameters: {
+                type: "object" as const,
+                properties: Object.fromEntries(
+                  Object.entries(c.argsSchema).map(([k, v]) => [k, { type: v.type, description: v.description }])
+                ),
+                required: Object.entries(c.argsSchema)
+                  .filter(([, v]) => v.required)
+                  .map(([k]) => k),
+              },
+            },
+          }))
+        : [];
 
-          if (toolSupport === "limited") {
-            lines.push("");
-            lines.push(
-              "Important: Your training template uses a different tool syntax (e.g. Jinja). " +
-              "In this session use only the XML format above — not your native template format."
-            );
-          }
+      // Text path: inject orientation handshake for models that speak XML tool protocol.
+      if (!useNativeToolCalling && availableCaps.length > 0) {
+        const toolDescriptions = availableCaps.map(c =>
+          `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
+        ).join("\n");
 
-          lines.push("");
-          lines.push("Available tools:");
-          lines.push(toolDescriptions);
-          lines.push("");
-          lines.push(
-            "Call tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
-            "Answer conversational questions directly without tools."
-          );
+        // Concrete example first — the model needs to see the exact protocol it will use
+        const lines = [
+          "## Tool Environment",
+          "",
+          "You are operating inside Creatrix. This environment provides real, executable tools.",
+          "To use a tool, output exactly this format — nothing else on the line:",
+          "",
+          '<tool_call>{"name":"tool_name","args":{"key":"value"}}</tool_call>',
+          "",
+          "The system executes the tool and returns the result. You then continue your response.",
+          "",
+          "Example — searching the web:",
+          '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
+          "",
+          "Available tools:",
+          toolDescriptions,
+          "",
+          "Call tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
+          "Answer conversational questions directly without tools.",
+        ];
 
-          systemParts.push(lines.join("\n"));
-        }
+        systemParts.push(lines.join("\n"));
       }
 
       // Add system message
@@ -672,18 +687,55 @@ export async function registerRoutes(
         const TOOL_CALL_RE = /<tool_call>([\s\S]*?)<\/tool_call>/;
         const MAX_TOOL_ITERATIONS = 5;
 
+        // Shared tool invocation helper — same execution path for both native and text tool calls
+        const runTool = async (toolName: CapabilityName, toolArgs: Record<string, unknown>) => {
+          res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+
+          const invocation = await invokeCapability(
+            toolName, toolArgs,
+            { rootFolder: project?.folderPath || settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection, model: selectedModel }
+          );
+
+          if (invocation.status === "success") {
+            const jTypeMap: Record<string, string> = {
+              read_file: "read", write_file: "created", create_note: "created",
+              create_folder: "created", copy_file: "action", move_file: "action",
+              delete_file: "action", web_search: "search", retrieve_url: "search",
+              search_library: "search", save_conversation: "created",
+            };
+            await storage.createJournalEntry({
+              type: (jTypeMap[toolName] || "action") as any,
+              title: `${toolName.replace(/_/g, " ")}: ${String(toolArgs.path || toolArgs.query || toolArgs.title || toolArgs.url || "").slice(0, 60)}`,
+              detail: JSON.stringify(invocation.result)?.slice(0, 200),
+              relatedPath: (toolArgs.path || toolArgs.destination) as string | undefined,
+              resolved: false,
+            });
+            const src = makeSource(toolName, toolArgs, invocation.result, project?.folderPath || settings.rootFolder);
+            if (src) {
+              const key = src.detail || src.label;
+              if (!sources.some(s => (s.detail || s.label) === key)) sources.push(src);
+            }
+          }
+
+          res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: invocation.status, result: invocation.result, error: invocation.error })}\n\n`);
+          return invocation;
+        };
+
         for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-          // Buffer the full response from the model
           let buffered = "";
           let streamError: string | null = null;
+          const nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
           await provider.generateStream(modelMessages, selectedModel, (chunk) => {
             if (chunk.type === "content" && chunk.content) {
               buffered += chunk.content;
+            } else if (chunk.type === "tool_call" && chunk.toolCall) {
+              // Native path: Ollama parsed the model's Jinja output into structured tool calls
+              nativeToolCalls.push(chunk.toolCall);
             } else if (chunk.type === "error") {
               streamError = chunk.error || "Unknown stream error";
             }
-          });
+          }, apiTools.length > 0 ? apiTools : undefined);
 
           if (streamError) {
             res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError) })}\n\n`);
@@ -691,11 +743,42 @@ export async function registerRoutes(
             return;
           }
 
-          // Check for a tool call
+          // ── Native Jinja tool call path ──────────────────────────────────────
+          // Ollama parsed the model's native format; we receive clean structured calls.
+          if (nativeToolCalls.length > 0) {
+            // Stream any accompanying text first
+            if (buffered.trim()) {
+              res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
+              fullContent += buffered;
+            }
+
+            // Execute all tool calls and collect results for the next turn
+            const toolResultParts: string[] = [];
+            for (const tc of nativeToolCalls) {
+              const invocation = await runTool(tc.name as CapabilityName, tc.args);
+              const resultText = invocation.status === "success"
+                ? JSON.stringify(invocation.result, null, 2)
+                : `Error: ${invocation.error}`;
+              toolResultParts.push(`[${tc.name}] ${resultText}`);
+            }
+
+            // Push assistant turn (tool calls) + tool results back into message history
+            modelMessages.push({
+              role: "assistant",
+              content: buffered.trim() || "",
+            });
+            modelMessages.push({
+              role: "user",
+              content: toolResultParts.map(r => `<tool_result>${r}</tool_result>`).join("\n\n"),
+            });
+            continue;
+          }
+
+          // ── Text tool call path ──────────────────────────────────────────────
+          // Model emitted <tool_call>{...}</tool_call> in its text output.
           const match = TOOL_CALL_RE.exec(buffered);
 
           if (match) {
-            // Stream the text that came before the tool call
             const toolCallStart = buffered.indexOf("<tool_call>");
             const preText = buffered.slice(0, toolCallStart).trim();
             if (preText) {
@@ -703,7 +786,6 @@ export async function registerRoutes(
               fullContent += preText + "\n\n";
             }
 
-            // Parse the tool call
             let toolName: CapabilityName;
             let toolArgs: Record<string, unknown> = {};
             try {
@@ -711,51 +793,13 @@ export async function registerRoutes(
               toolName = parsed.name as CapabilityName;
               toolArgs = parsed.args || {};
             } catch {
-              // Malformed — emit as plain text and stop
               res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
               fullContent += buffered;
               break;
             }
 
-            // Notify client a tool is running
-            res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+            const invocation = await runTool(toolName, toolArgs);
 
-            // Invoke the capability — project folderPath takes priority over global rootFolder
-            const invocation = await invokeCapability(
-              toolName, toolArgs,
-              { rootFolder: project?.folderPath || settings.rootFolder, libraryPaths: settings.libraryPaths, storageRef: storage, connection, model: selectedModel }
-            );
-
-            // Auto-journal + provenance collection
-            if (invocation.status === "success") {
-              const jTypeMap: Record<string, string> = {
-                read_file: "read", write_file: "created", create_note: "created",
-                create_folder: "created", copy_file: "action", move_file: "action",
-                delete_file: "action", web_search: "search", retrieve_url: "search",
-                search_library: "search", save_conversation: "created",
-              };
-              await storage.createJournalEntry({
-                type: (jTypeMap[toolName] || "action") as any,
-                title: `${toolName.replace(/_/g, " ")}: ${String(toolArgs.path || toolArgs.query || toolArgs.title || toolArgs.url || "").slice(0, 60)}`,
-                detail: JSON.stringify(invocation.result)?.slice(0, 200),
-                relatedPath: (toolArgs.path || toolArgs.destination) as string | undefined,
-                resolved: false,
-              });
-
-              // Collect provenance source (deduplicated by detail/label)
-              const src = makeSource(toolName, toolArgs, invocation.result, project?.folderPath || settings.rootFolder);
-              if (src) {
-                const key = src.detail || src.label;
-                if (!sources.some(s => (s.detail || s.label) === key)) {
-                  sources.push(src);
-                }
-              }
-            }
-
-            // Send result to client
-            res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: invocation.status, result: invocation.result, error: invocation.error })}\n\n`);
-
-            // Add assistant turn + tool result to message history for next iteration
             const assistantTurn = preText ? `${preText}\n\n<tool_call>${match[1]}</tool_call>` : `<tool_call>${match[1]}</tool_call>`;
             modelMessages.push({ role: "assistant", content: assistantTurn });
 
@@ -765,7 +809,7 @@ export async function registerRoutes(
             modelMessages.push({ role: "user", content: resultContent });
 
           } else {
-            // No tool call — stream to client and exit loop
+            // No tool call — final response, stream and exit loop
             res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
             fullContent = (fullContent + buffered).trim();
             break;
