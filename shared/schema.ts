@@ -343,8 +343,10 @@ export type ReadableExtension = typeof readableExtensions[number];
 
 // Capability invocation (used in chat context to track what tools were called)
 export const capabilityNames = [
+  "list_directory",
   "read_file",
   "write_file",
+  "append_file",
   "create_note",
   "create_folder",
   "copy_file",
@@ -363,7 +365,6 @@ export const capabilityNames = [
   "transcribe_audio",
   "ocr_image",
   "analyze_image",
-  "append_file",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

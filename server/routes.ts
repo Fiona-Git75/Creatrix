@@ -6,6 +6,7 @@ import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
 import { listCapabilities, invokeCapability } from "./capabilities";
+import { probeNotionConnected } from "./capabilities/notion";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
@@ -596,18 +597,36 @@ export async function registerRoutes(
       const modelProfile = await fetchModelProfile(connection, model || "");
       const toolSupport: ToolSupport = modelProfile.toolSupport ?? "text";
 
-      const fsNames = new Set([
-        "read_file", "write_file", "append_file", "create_note",
-        "create_folder", "copy_file", "move_file", "delete_file",
-      ]);
       const rootFolder = (settings as any).rootFolder as string | undefined;
+      const whisperEndpoint = (settings as any).whisperEndpoint as string | undefined;
+      const notionAvailable = toolSupport !== "none" ? await probeNotionConnected() : false;
 
-      const availableCaps = toolSupport !== "none"
-        ? listCapabilities().filter(c => {
-            if (fsNames.has(c.name as string)) return !!rootFolder;
-            return true;
-          })
-        : [];
+      // Full capability ontology — the model reasons over all of these.
+      // Only "none"-tier models (too small to use tools) skip this entirely.
+      const allCaps = toolSupport !== "none" ? listCapabilities() : [];
+
+      // Active = wired up and executable right now.
+      const availableCaps = allCaps.filter(c => {
+        if (c.requires?.rootFolder && !rootFolder) return false;
+        if (c.requires?.whisperEndpoint && !whisperEndpoint) return false;
+        if (c.requires?.notion && !notionAvailable) return false;
+        return true;
+      });
+
+      // Inactive = known to the model but not yet configured.
+      // The model can surface these to the user; it cannot execute them.
+      const inactiveCaps = allCaps
+        .filter(c => !availableCaps.includes(c))
+        .map(c => {
+          const reasons: string[] = [];
+          if (c.requires?.rootFolder && !rootFolder)
+            reasons.push("root folder not configured — Settings → File Library");
+          if (c.requires?.whisperEndpoint && !whisperEndpoint)
+            reasons.push("Whisper endpoint not configured — Settings → Whisper Endpoint");
+          if (c.requires?.notion && !notionAvailable)
+            reasons.push("Notion not connected — Settings → Integrations → Notion");
+          return { cap: c, reason: reasons.join("; ") };
+        });
 
       // Native Jinja path: Ollama handles template rendering internally.
       // Pass tools as structured API objects — no text injection, no protocol negotiation.
@@ -636,10 +655,12 @@ export async function registerRoutes(
         : [];
 
       // Text path: inject orientation handshake for models that speak XML tool protocol.
-      if (!useNativeToolCalling && availableCaps.length > 0) {
-        const toolDescriptions = availableCaps.map(c =>
-          `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
-        ).join("\n");
+      if (!useNativeToolCalling && allCaps.length > 0) {
+        const activeDesc = availableCaps.length > 0
+          ? availableCaps.map(c =>
+              `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
+            ).join("\n")
+          : "(none — configure tools in Settings to enable them)";
 
         // Concrete example first — the model needs to see the exact protocol it will use
         const lines = [
@@ -655,14 +676,42 @@ export async function registerRoutes(
           "Example — searching the web:",
           '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
           "",
-          "Available tools:",
-          toolDescriptions,
-          "",
-          "Call tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
-          "Answer conversational questions directly without tools.",
+          "### Active tools (callable now):",
+          activeDesc,
         ];
 
+        if (inactiveCaps.length > 0) {
+          lines.push(
+            "",
+            "### Available but not yet configured (do not attempt to call — surface to user if relevant):",
+            inactiveCaps.map(({ cap, reason }) =>
+              `- **${cap.name}**: ${cap.description} [inactive — ${reason}]`
+            ).join("\n"),
+            "",
+            "If the user's request could be served by an inactive tool, tell them what it does and what they need to configure to enable it."
+          );
+        }
+
+        lines.push(
+          "",
+          "Call active tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
+          "Answer conversational questions directly without tools."
+        );
+
         systemParts.push(lines.join("\n"));
+      }
+
+      // Jinja path: API handles the active tool declarations. Inject inactive tools
+      // separately so the model can still reason about and surface them to the user.
+      if (useNativeToolCalling && inactiveCaps.length > 0) {
+        systemParts.push([
+          "### Tools available but not yet configured (do not call — inform user if relevant):",
+          inactiveCaps.map(({ cap, reason }) =>
+            `- **${cap.name}**: ${cap.description} [inactive — ${reason}]`
+          ).join("\n"),
+          "",
+          "If the user's request could be served by an inactive tool, tell them what it does and what they need to configure to enable it.",
+        ].join("\n"));
       }
 
       // Add system message

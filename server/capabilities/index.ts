@@ -18,10 +18,17 @@ export type CapabilityHandler = (
   ctx: CapabilityContext
 ) => Promise<unknown>;
 
+export interface CapabilityRequirements {
+  rootFolder?: boolean;      // needs settings.rootFolder to be configured
+  whisperEndpoint?: boolean; // needs settings.whisperEndpoint to be configured
+  notion?: boolean;          // needs Notion integration to be connected
+}
+
 export interface CapabilityDefinition {
   name: CapabilityName;
   description: string;
   requiresConfirmation?: boolean;
+  requires?: CapabilityRequirements;
   argsSchema: Record<string, { type: string; description: string; required?: boolean }>;
   handler: CapabilityHandler;
 }

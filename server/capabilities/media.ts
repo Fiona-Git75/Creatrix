@@ -64,7 +64,8 @@ export const mediaCapabilities: CapabilityDefinition[] = [
 
   {
     name: "transcribe_audio",
-    description: "Transcribe an audio file to text using a local Whisper server (whisper.cpp). Requires a whisper endpoint configured in Settings. Provide a URL to an audio file.",
+    description: "Transcribe an audio file to text using a local Whisper server (whisper.cpp). Returns: url, transcript (full text string), and engine. Requires a Whisper endpoint configured in Settings.",
+    requires: { whisperEndpoint: true },
     argsSchema: {
       url: { type: "string", description: "URL to an audio file (mp3, wav, m4a, mp4, webm, ogg)", required: true },
       language: { type: "string", description: "ISO-639-1 language hint, e.g. 'en'. Leave blank for auto-detect." },

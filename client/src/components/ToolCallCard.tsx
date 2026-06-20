@@ -12,6 +12,7 @@ export interface ToolEvent {
 }
 
 const LABELS: Partial<Record<CapabilityName, string>> = {
+  list_directory: "Listing directory",
   read_file: "Reading file",
   write_file: "Writing file",
   create_note: "Creating note",

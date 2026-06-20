@@ -123,8 +123,42 @@ async function readFileContent(filePath: string): Promise<{ content: string; for
 
 export const filesystemCapabilities: CapabilityDefinition[] = [
   {
+    name: "list_directory",
+    description: "List the contents of a directory. Returns each entry's name, type (\"file\" or \"directory\"), size in bytes, and last-modified timestamp. Use this to discover what files are available before reading them.",
+    requires: { rootFolder: true },
+    argsSchema: {
+      path: {
+        type: "string",
+        description: "Directory path to list. Omit to list the root folder.",
+      },
+    },
+    async handler(args, ctx) {
+      const dirPath = args.path
+        ? sanitizePath(args.path as string, ctx)
+        : ctx.rootFolder || process.cwd();
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const items = await Promise.all(
+        entries
+          .filter(e => !e.name.startsWith("."))
+          .map(async e => {
+            const fullPath = path.join(dirPath, e.name);
+            const stat = await fs.stat(fullPath).catch(() => null);
+            return {
+              name: e.name,
+              type: e.isDirectory() ? "directory" : "file",
+              size: stat?.size,
+              modified: stat?.mtime.toISOString(),
+            };
+          })
+      );
+      return { path: dirPath, count: items.length, items };
+    },
+  },
+
+  {
     name: "read_file",
-    description: "Read the contents of a file. Supports .md, .txt, .pdf, .docx, .xlsx, .py, .js, .ts, .json, .yaml, .csv, .html and many more.",
+    description: "Read the full text contents of a file. Returns: path, format, content (as a string), line count, and file size. Supports .md, .txt, .pdf, .docx, .xlsx, .epub, .py, .js, .ts, .json, .yaml, .csv, .html and more.",
+    requires: { rootFolder: true },
     argsSchema: {
       path: { type: "string", description: "Absolute or root-relative path to the file", required: true },
     },
@@ -140,7 +174,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "write_file",
-    description: "Write or overwrite a text file at the given path. Use append_file to add to an existing file without overwriting.",
+    description: "Write or overwrite a text file. Creates parent directories automatically. Returns: path and written: true on success. Use append_file to add to an existing file without overwriting.",
+    requires: { rootFolder: true },
     argsSchema: {
       path: { type: "string", description: "Path to write to", required: true },
       content: { type: "string", description: "Text content to write", required: true },
@@ -155,7 +190,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "append_file",
-    description: "Append text to the end of an existing file without overwriting it. Creates the file if it does not exist.",
+    description: "Append text to the end of a file without overwriting it. Creates the file if it does not exist. Returns: path, appended: true, and the new file size in bytes.",
+    requires: { rootFolder: true },
     argsSchema: {
       path: { type: "string", description: "Path to the file to append to", required: true },
       content: { type: "string", description: "Text to append", required: true },
@@ -171,9 +207,10 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "create_note",
-    description: "Create a new Markdown note in the root folder or a specified subfolder.",
+    description: "Create a new Markdown note in the root folder or a subfolder. Adds a title heading and creation timestamp automatically. Returns: path, filename, and created: true.",
+    requires: { rootFolder: true },
     argsSchema: {
-      title: { type: "string", description: "Note title (used as filename)", required: true },
+      title: { type: "string", description: "Note title (used as the filename)", required: true },
       content: { type: "string", description: "Note body in Markdown", required: true },
       folder: { type: "string", description: "Subfolder relative to root (optional)" },
     },
@@ -193,7 +230,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "create_folder",
-    description: "Create a new folder at the given path.",
+    description: "Create a new directory at the given path (including any missing parent directories). Returns: path and created: true.",
+    requires: { rootFolder: true },
     argsSchema: {
       path: { type: "string", description: "Path of the folder to create", required: true },
     },
@@ -206,7 +244,8 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "copy_file",
-    description: "Copy a file to a new location.",
+    description: "Copy a file from one location to another. Creates destination parent directories automatically. Returns: source, destination, and copied: true.",
+    requires: { rootFolder: true },
     argsSchema: {
       source: { type: "string", description: "Source path", required: true },
       destination: { type: "string", description: "Destination path", required: true },
@@ -222,8 +261,9 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "move_file",
-    description: "Move or rename a file or folder. Always requires user confirmation.",
+    description: "Move or rename a file or folder. Always requires user confirmation before executing. Returns: source, destination, and moved: true.",
     requiresConfirmation: true,
+    requires: { rootFolder: true },
     argsSchema: {
       source: { type: "string", description: "Source path", required: true },
       destination: { type: "string", description: "Destination path", required: true },
@@ -239,8 +279,9 @@ export const filesystemCapabilities: CapabilityDefinition[] = [
 
   {
     name: "delete_file",
-    description: "Delete a file. Always requires explicit confirmation from the user.",
+    description: "Permanently delete a file. Always requires explicit user confirmation. Returns: path and deleted: true.",
     requiresConfirmation: true,
+    requires: { rootFolder: true },
     argsSchema: {
       path: { type: "string", description: "Path to the file to delete", required: true },
     },

@@ -7,6 +7,37 @@ function getConnectors() {
   return new ReplitConnectors();
 }
 
+// ── Connectivity probe (cached 5 min) ─────────────────────────────────────────
+let _notionProbeCache: { connected: boolean; at: number } | null = null;
+const NOTION_PROBE_TTL = 5 * 60_000;
+
+export async function probeNotionConnected(): Promise<boolean> {
+  if (_notionProbeCache && Date.now() - _notionProbeCache.at < NOTION_PROBE_TTL) {
+    return _notionProbeCache.connected;
+  }
+  try {
+    const connectors = getConnectors();
+    const res = await Promise.race([
+      connectors.proxy("notion", "/v1/search", {
+        method: "POST",
+        body: JSON.stringify({ query: "", page_size: 1 }),
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 3000)
+      ),
+    ]);
+    // Any response that isn't a hard auth failure means the integration is wired up
+    const connected = (res as Response).status < 500;
+    _notionProbeCache = { connected, at: Date.now() };
+    return connected;
+  } catch {
+    _notionProbeCache = { connected: false, at: Date.now() };
+    return false;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function extractPageTitle(page: any): string {
   if (!page?.properties) return page?.id ?? "Untitled";
   for (const prop of Object.values(page.properties) as any[]) {
@@ -32,10 +63,13 @@ function blocksToText(blocks: any[]): string {
     .join("\n");
 }
 
+// ── Capabilities ──────────────────────────────────────────────────────────────
+
 export const notionCapabilities: CapabilityDefinition[] = [
   {
     name: "notion_search",
-    description: "Search your Notion workspace for pages and databases by title or content.",
+    description: "Search your Notion workspace for pages and databases by title or content. Returns: query, results array (each with id, type, title, url, lastEdited), and total count.",
+    requires: { notion: true },
     argsSchema: {
       query: { type: "string", description: "Search query", required: true },
       maxResults: { type: "number", description: "Max results to return (default 10)" },
@@ -62,23 +96,21 @@ export const notionCapabilities: CapabilityDefinition[] = [
 
   {
     name: "notion_get_page",
-    description: "Read the full content of a Notion page by its ID or URL.",
+    description: "Read the full content of a Notion page. Returns: id, title, url, lastEdited, content (plain text, up to 12 000 chars), and truncated flag if content was cut.",
+    requires: { notion: true },
     argsSchema: {
-      pageId: { type: "string", description: "Notion page ID or URL", required: true },
+      pageId: { type: "string", description: "Notion page ID or page URL", required: true },
     },
     async handler(args) {
       const connectors = getConnectors();
-      // Extract ID from URL if needed
       let id = (args.pageId as string).trim();
       const urlMatch = id.match(/([a-f0-9]{32})(?:[?#]|$)/i) ?? id.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
       if (urlMatch) id = urlMatch[1].replace(/-/g, "");
 
-      // Fetch page metadata
       const pageRes = await connectors.proxy("notion", `/v1/pages/${id}`, { method: "GET" });
       if (!pageRes.ok) throw new Error(`Failed to get page: ${pageRes.status} ${await pageRes.text()}`);
       const page = await pageRes.json() as any;
 
-      // Fetch blocks (content)
       const blocksRes = await connectors.proxy("notion", `/v1/blocks/${id}/children?page_size=100`, { method: "GET" });
       if (!blocksRes.ok) throw new Error(`Failed to get page content: ${blocksRes.status}`);
       const blocks = await blocksRes.json() as any;
@@ -99,12 +131,13 @@ export const notionCapabilities: CapabilityDefinition[] = [
 
   {
     name: "notion_create_page",
-    description: "Create a new page in Notion under a parent page or database.",
+    description: "Create a new Notion page under a parent page or database. Requires user confirmation. Returns: id, title, and url of the new page.",
     requiresConfirmation: true,
+    requires: { notion: true },
     argsSchema: {
-      parentId: { type: "string", description: "Parent page ID or database ID to create under", required: true },
+      parentId: { type: "string", description: "Parent page ID or database ID", required: true },
       title: { type: "string", description: "Page title", required: true },
-      content: { type: "string", description: "Page body content (plain text, becomes a paragraph block)" },
+      content: { type: "string", description: "Page body (plain text, becomes a paragraph block)" },
     },
     async handler(args) {
       const connectors = getConnectors();
@@ -140,11 +173,12 @@ export const notionCapabilities: CapabilityDefinition[] = [
 
   {
     name: "notion_query_database",
-    description: "Query a Notion database and return its rows/entries.",
+    description: "Query a Notion database and return its rows. Returns: databaseId, rows array (each with id, title, url, lastEdited, and all property values), total count, and hasMore flag.",
+    requires: { notion: true },
     argsSchema: {
       databaseId: { type: "string", description: "Notion database ID", required: true },
       filter: { type: "string", description: "Optional JSON filter string (Notion filter object)" },
-      maxResults: { type: "number", description: "Max results to return (default 20)" },
+      maxResults: { type: "number", description: "Max rows to return (default 20)" },
     },
     async handler(args) {
       const connectors = getConnectors();
@@ -186,11 +220,12 @@ export const notionCapabilities: CapabilityDefinition[] = [
 
   {
     name: "notion_append_block",
-    description: "Append content (text) to an existing Notion page.",
+    description: "Append a paragraph of text to an existing Notion page. Requires user confirmation. Returns: success: true and the pageId.",
     requiresConfirmation: true,
+    requires: { notion: true },
     argsSchema: {
       pageId: { type: "string", description: "Notion page ID to append to", required: true },
-      content: { type: "string", description: "Text content to append as a paragraph", required: true },
+      content: { type: "string", description: "Text to append as a paragraph", required: true },
     },
     async handler(args) {
       const connectors = getConnectors();
