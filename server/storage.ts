@@ -715,6 +715,7 @@ export class DatabaseStorage implements IStorage {
       libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
       morningOrientationEnabled: s.morningOrientationEnabled ?? false,
       whisperEndpoint: s.whisperEndpoint ?? undefined,
+      searchEndpoint: s.searchEndpoint ?? undefined,
     };
   }
   async updateSettings(updates: Partial<Settings>): Promise<Settings> {
@@ -729,6 +730,7 @@ export class DatabaseStorage implements IStorage {
       libraryPaths: merged.libraryPaths ?? null,
       morningOrientationEnabled: merged.morningOrientationEnabled ?? false,
       whisperEndpoint: merged.whisperEndpoint ?? null,
+      searchEndpoint: merged.searchEndpoint ?? null,
     };
     await this.db.insert(settings).values(dbRow).onConflictDoUpdate({ target: settings.id, set: dbRow });
     return merged;

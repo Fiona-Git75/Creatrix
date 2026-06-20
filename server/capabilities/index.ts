@@ -11,6 +11,7 @@ export interface CapabilityContext {
   storageRef?: import("../storage").IStorage;
   connection?: import("@shared/schema").Connection;
   model?: string;
+  searchEndpoint?: string;
 }
 
 export type CapabilityHandler = (

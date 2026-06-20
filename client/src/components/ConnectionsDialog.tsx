@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -423,6 +423,7 @@ function SettingsTab() {
 
   const [rootFolder, setRootFolder] = useState<string>("");
   const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
+  const [searchEndpoint, setSearchEndpoint] = useState<string>("");
   const [libraryPaths, setLibraryPaths] = useState<string[]>([]);
   const [newPath, setNewPath] = useState("");
   const [initialized, setInitialized] = useState(false);
@@ -430,6 +431,7 @@ function SettingsTab() {
   if (settings && !initialized) {
     setRootFolder(settings.rootFolder || "");
     setWhisperEndpoint(settings.whisperEndpoint || "");
+    setSearchEndpoint((settings as any).searchEndpoint || "");
     setLibraryPaths(settings.libraryPaths || []);
     setInitialized(true);
   }
@@ -580,6 +582,46 @@ function SettingsTab() {
         {whisperEndpoint && (
           <p className="text-xs text-green-600 dark:text-green-400">
             Audio transcription will use: <span className="font-mono">{whisperEndpoint}</span>
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Search Endpoint */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Search Endpoint</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          SearXNG instance for private, multi-source web search. Leave empty to use DuckDuckGo as a fallback.
+          Run locally with: <span className="font-mono">docker run -d -p 8888:8080 searxng/searxng</span>
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="http://localhost:8888"
+            value={searchEndpoint}
+            onChange={(e) => setSearchEndpoint(e.target.value)}
+            className="font-mono text-sm"
+            data-testid="input-search-endpoint"
+          />
+          <Button
+            onClick={() => updateMutation.mutate({ searchEndpoint: searchEndpoint || undefined } as any)}
+            disabled={updateMutation.isPending}
+            size="sm"
+            data-testid="button-save-search-endpoint"
+          >
+            {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+        </div>
+        {searchEndpoint ? (
+          <p className="text-xs text-green-600 dark:text-green-400">
+            web_search will route through: <span className="font-mono">{searchEndpoint}</span>
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            web_search will use DuckDuckGo HTML (no key required, ~10 results).
           </p>
         )}
       </div>
