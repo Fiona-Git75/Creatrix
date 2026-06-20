@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Plus, FileText, Eye, Edit3, Trash2, ChevronDown } from "lucide-react";
+import { X, Plus, FileText, Eye, Edit3, Trash2, ChevronDown, Download, Pin, PinOff } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -64,11 +64,13 @@ function renderMarkdown(text: string): string {
 interface DocumentPanelProps {
   docId: string | null;
   projectId?: string | null;
+  pinned?: boolean;
   onClose: () => void;
+  onTogglePin?: () => void;
   onDocChange?: (docId: string) => void;
 }
 
-export function DocumentPanel({ docId, projectId, onClose, onDocChange }: DocumentPanelProps) {
+export function DocumentPanel({ docId, projectId, pinned, onClose, onTogglePin, onDocChange }: DocumentPanelProps) {
   const [preview, setPreview] = useState(false);
   const [localContent, setLocalContent] = useState("");
   const [localTitle, setLocalTitle] = useState("");
@@ -113,7 +115,7 @@ export function DocumentPanel({ docId, projectId, onClose, onDocChange }: Docume
 
   const createMutation = useMutation({
     mutationFn: (data: { title: string; content: string; projectId?: string }) =>
-      apiRequest<WorkspaceDoc>("POST", "/api/docs", data),
+      apiRequest("POST", "/api/docs", data).then(r => r.json() as Promise<WorkspaceDoc>),
     onSuccess: (newDoc) => {
       queryClient.invalidateQueries({ queryKey: ["/api/docs"] });
       onDocChange?.(newDoc.id);
@@ -127,6 +129,17 @@ export function DocumentPanel({ docId, projectId, onClose, onDocChange }: Docume
       onClose();
     },
   });
+
+  const handleExport = () => {
+    const filename = (localTitle || "document").replace(/[^a-z0-9_\-\s]/gi, "").trim() || "document";
+    const blob = new Blob([localContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const scheduleAutoSave = useCallback((id: string, content: string, title: string) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -200,6 +213,30 @@ export function DocumentPanel({ docId, projectId, onClose, onDocChange }: Docume
           >
             {preview ? <Edit3 className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
           </Button>
+          {docId && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={handleExport}
+              title="Download as .md"
+              data-testid="button-doc-export"
+            >
+              <Download className="h-3 w-3" />
+            </Button>
+          )}
+          {onTogglePin && docId && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-6 w-6 ${pinned ? "text-primary" : ""}`}
+              onClick={onTogglePin}
+              title={pinned ? "Unpin document" : "Pin document (keep visible while chatting)"}
+              data-testid="button-doc-pin"
+            >
+              {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+            </Button>
+          )}
           <Button
             size="icon"
             variant="ghost"

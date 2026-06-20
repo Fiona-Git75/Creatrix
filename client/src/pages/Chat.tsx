@@ -130,6 +130,8 @@ function ChatContent({
   onOpenSettings,
   openDocId,
   onDocChange,
+  pinnedDocId,
+  onTogglePin,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -151,6 +153,8 @@ function ChatContent({
   onOpenSettings: () => void;
   openDocId: string | null | undefined;
   onDocChange: (id: string | null | undefined) => void;
+  pinnedDocId: string | null;
+  onTogglePin: (docId: string | null) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -391,12 +395,17 @@ function ChatContent({
           )}
         </main>
       </div>
-      {openDocId !== undefined && (
+      {(openDocId !== undefined || pinnedDocId !== null) && (
         <div className="w-[420px] shrink-0 h-screen">
           <DocumentPanel
-            docId={openDocId}
+            docId={openDocId !== undefined ? openDocId : pinnedDocId}
             projectId={selectedProjectId}
+            pinned={pinnedDocId !== null}
             onClose={() => onDocChange(undefined)}
+            onTogglePin={() => {
+              const current = openDocId !== undefined ? openDocId : pinnedDocId;
+              onTogglePin(pinnedDocId !== null ? null : current);
+            }}
             onDocChange={onDocChange}
           />
         </div>
@@ -413,6 +422,7 @@ export default function Chat() {
   const [streamingContent, setStreamingContent] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
+  const [pinnedDocId, setPinnedDocId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -623,6 +633,8 @@ export default function Chat() {
           onOpenSettings={() => setSettingsOpen(true)}
           openDocId={openDocId}
           onDocChange={setOpenDocId}
+          pinnedDocId={pinnedDocId}
+          onTogglePin={setPinnedDocId}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

@@ -22,6 +22,20 @@ export const docsCapabilities: CapabilityDefinition[] = [
   },
 
   {
+    name: "read_doc",
+    description: "Read the full content of a workspace document by ID. Use list_docs first to find the ID. Returns the title and complete markdown content.",
+    argsSchema: {
+      docId: { type: "string", description: "Document ID (from list_docs)", required: true },
+    },
+    handler: async (args, ctx) => {
+      if (!ctx.storageRef) throw new Error("No storage available");
+      const doc = await ctx.storageRef.getWorkspaceDoc(args.docId as string);
+      if (!doc) throw new Error(`Document not found: ${args.docId}`);
+      return { id: doc.id, title: doc.title, content: doc.content, updatedAt: doc.updatedAt };
+    },
+  },
+
+  {
     name: "write_doc",
     description: "Create or overwrite a workspace document by title. If a doc with that title already exists in the same scope, its content is replaced. Returns the document ID.",
     argsSchema: {

@@ -392,6 +392,7 @@ export const capabilityNames = [
   "analyze_image",
   "run_command",
   "list_docs",
+  "read_doc",
   "write_doc",
   "edit_doc",
 ] as const;
