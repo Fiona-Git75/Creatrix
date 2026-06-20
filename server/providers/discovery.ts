@@ -2,13 +2,27 @@ import { storage } from "../storage";
 import { createProvider } from "./index";
 import type { Connection } from "@shared/schema";
 
+export type ToolSupport = "native" | "text" | "limited" | "none";
+
+export interface ModelEntry {
+  id: string;
+  name: string;
+  size?: string;
+  toolSupport?: ToolSupport;
+  family?: string;
+  parameterSize?: string;
+  quantization?: string;
+  contextLength?: number;
+  notes?: string[];
+}
+
 export interface ProviderStatus {
   connectionId: string;
   name: string;
   type: string;
   endpoint: string;
   status: "online" | "offline";
-  models: { id: string; name: string; size?: string }[];
+  models: ModelEntry[];
 }
 
 export interface SuggestedProvider {
@@ -24,9 +38,114 @@ export interface ProvidersStatusResponse {
   scannedAt: string;
 }
 
-let _cache: ProvidersStatusResponse | null = null;
-let _cacheTime = 0;
-const CACHE_TTL = 30_000;
+// ── Tool support classification ───────────────────────────────────────────────
+
+function parseSizeB(paramSizeStr: string): number {
+  const m = paramSizeStr?.match(/^(\d+(?:\.\d+)?)\s*([BMT])/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  return unit === "T" ? n * 1000 : unit === "B" ? n : n / 1000;
+}
+
+function classifyToolSupport(template: string, paramSizeStr: string): ToolSupport {
+  const sizeB = parseSizeB(paramSizeStr);
+  if (sizeB > 0 && sizeB <= 3) return "none";
+
+  if (!template) return "text";
+
+  const isJinja = /\{%-?\s|{%-/.test(template);
+  const hasToolMarkers = /tool[_\s]?call|ToolCalls|python_tag|\btools\b/i.test(template);
+
+  if (hasToolMarkers && isJinja) return "limited";
+  if (hasToolMarkers) return "text";
+  return "text";
+}
+
+function buildNotes(toolSupport: ToolSupport, isJinja: boolean): string[] {
+  if (toolSupport === "none") {
+    return ["Parameter size too small for reliable tool use — tools disabled for this model"];
+  }
+  if (toolSupport === "limited") {
+    return [
+      "Chat template uses Jinja — Ollama applies a translation layer",
+      "Tool invocations may be less reliable; use a larger native-format model if tools are critical",
+    ];
+  }
+  if (isJinja) {
+    return ["Jinja template — Ollama translates to its internal format"];
+  }
+  return [];
+}
+
+// ── Per-model profile cache ───────────────────────────────────────────────────
+
+const _profileCache = new Map<string, { profile: Partial<ModelEntry>; fetchedAt: number }>();
+const PROFILE_CACHE_TTL = 10 * 60_000;
+
+async function fetchOllamaModelProfile(endpoint: string, modelId: string): Promise<Partial<ModelEntry>> {
+  const key = `${endpoint}::${modelId}`;
+  const cached = _profileCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < PROFILE_CACHE_TTL) return cached.profile;
+
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 4000);
+  try {
+    const r = await fetch(`${endpoint}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelId }),
+      signal: controller.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return {};
+
+    const data = await r.json();
+    const template: string = data.template || "";
+    const details = data.details || {};
+    const paramSize: string = details.parameter_size || "";
+    const quantization: string = details.quantization_level || "";
+    const rawFamilies = details.families ?? (details.family ? [details.family] : []);
+    const family: string = (Array.isArray(rawFamilies) ? rawFamilies[0] : rawFamilies) || "";
+    const contextLength: number =
+      data.model_info?.["general.context_length"] ||
+      data.model_info?.["llama.context_length"] ||
+      0;
+
+    const isJinja = /\{%-?\s|{%-/.test(template);
+    const toolSupport = classifyToolSupport(template, paramSize);
+    const notes = buildNotes(toolSupport, isJinja);
+
+    const profile: Partial<ModelEntry> = {
+      toolSupport,
+      family: family || undefined,
+      parameterSize: paramSize || undefined,
+      quantization: quantization || undefined,
+      contextLength: contextLength || undefined,
+      notes: notes.length > 0 ? notes : undefined,
+    };
+
+    _profileCache.set(key, { profile, fetchedAt: Date.now() });
+    return profile;
+  } catch {
+    clearTimeout(t);
+    return {};
+  }
+}
+
+// Public: unified profile fetch for any connection type
+export async function fetchModelProfile(connection: Connection, modelId: string): Promise<Partial<ModelEntry>> {
+  if (connection.provider === "openai") {
+    return { toolSupport: "native", notes: undefined };
+  }
+  if (connection.provider === "ollama") {
+    return fetchOllamaModelProfile(connection.endpoint, modelId);
+  }
+  // LM Studio / custom: assume text protocol, unknown details
+  return { toolSupport: "text" };
+}
+
+// ── Connection scanner ────────────────────────────────────────────────────────
 
 async function probeEndpoint(url: string, parse: (d: any) => string[]): Promise<string[] | null> {
   const controller = new AbortController();
@@ -47,13 +166,22 @@ async function scanConnection(connection: Connection): Promise<ProviderStatus> {
     const provider = createProvider(connection);
     const result = await provider.listModelsWithStatus();
     const online = result.status === "ok" || result.models.length > 0;
+
+    const models: ModelEntry[] = await Promise.all(
+      result.models.map(async (m): Promise<ModelEntry> => {
+        const base: ModelEntry = { id: m.id, name: m.name, size: m.size };
+        const profile = await fetchModelProfile(connection, m.id);
+        return { ...base, ...profile };
+      })
+    );
+
     return {
       connectionId: connection.id,
       name: connection.name,
       type: connection.provider,
       endpoint: connection.endpoint,
       status: online ? "online" : "offline",
-      models: result.models.map(m => ({ id: m.id, name: m.name, size: m.size })),
+      models,
     };
   } catch {
     return {
@@ -67,15 +195,18 @@ async function scanConnection(connection: Connection): Promise<ProviderStatus> {
   }
 }
 
+// ── Cache + refresh ───────────────────────────────────────────────────────────
+
+let _cache: ProvidersStatusResponse | null = null;
+let _cacheTime = 0;
+const CACHE_TTL = 30_000;
+
 export async function getProvidersStatus(forceRefresh = false): Promise<ProvidersStatusResponse> {
-  if (!forceRefresh && _cache && Date.now() - _cacheTime < CACHE_TTL) {
-    return _cache;
-  }
+  if (!forceRefresh && _cache && Date.now() - _cacheTime < CACHE_TTL) return _cache;
 
   const connections = await storage.getConnections();
   const providers = await Promise.all(connections.map(scanConnection));
 
-  // Auto-discover known local ports not already configured
   const configuredEndpoints = new Set(connections.map(c => c.endpoint.replace(/\/$/, "")));
   const suggested: SuggestedProvider[] = [];
 
@@ -103,11 +234,9 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
   return result;
 }
 
-// C — Resolution layer: given a model id, find which configured connection has it
-export function resolveModelToProvider(
-  modelId: string,
-  providers: ProviderStatus[]
-): ProviderStatus | null {
+// ── Resolution + background refresh ──────────────────────────────────────────
+
+export function resolveModelToProvider(modelId: string, providers: ProviderStatus[]): ProviderStatus | null {
   return providers.find(p => p.status === "online" && p.models.some(m => m.id === modelId)) ?? null;
 }
 

@@ -7,7 +7,8 @@ import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
 import { listCapabilities, invokeCapability } from "./capabilities";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
-import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider } from "./providers/discovery";
+import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
+import type { ToolSupport } from "./providers/discovery";
 import fs from "fs/promises";
 import path from "path";
 
@@ -225,6 +226,20 @@ export async function registerRoutes(
     try {
       const status = await getProvidersStatus(true);
       res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Model profile — tool support classification + metadata for a specific model
+  app.get("/api/providers/:connectionId/models/:modelId/profile", async (req: Request, res: Response) => {
+    try {
+      const { connectionId, modelId } = req.params;
+      const connections = await storage.getConnections();
+      const connection = connections.find(c => c.id === connectionId);
+      if (!connection) return res.status(404).json({ error: "Connection not found" });
+      const profile = await fetchModelProfile(connection, decodeURIComponent(modelId));
+      res.json({ modelId, connectionId, ...profile });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -574,14 +589,66 @@ export async function registerRoutes(
         systemParts.push(`\n## Relevant Knowledge Base Context\nUse the following information to help answer questions:\n\n${docContext}`);
       }
 
-      // === Tool capability injection ===
+      // === Tool capability injection — gated by model profile ===
       const settings = await storage.getSettings();
-      const caps = listCapabilities();
-      const toolDescriptions = caps.map(c =>
-        `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
-      ).join("\n");
 
-      systemParts.push(`\n## Tools\n\nYou have access to tools. To call a tool, output:\n\n<tool_call>{"name":"tool_name","args":{"arg":"value"}}</tool_call>\n\nOutput ONLY the tool call tag — no extra text on that line. Wait; the result will be given back to you. Then continue your response.\n\nAvailable tools:\n${toolDescriptions}\n\nOnly call tools when the user explicitly asks you to read files, search the web, create notes, etc. For general conversation, answer directly without tools.`);
+      // Determine what this model can actually do with tools
+      const modelProfile = await fetchModelProfile(connection, model || "");
+      const toolSupport: ToolSupport = modelProfile.toolSupport ?? "text";
+
+      if (toolSupport !== "none") {
+        const fsNames = new Set([
+          "read_file", "write_file", "append_file", "create_note",
+          "create_folder", "copy_file", "move_file", "delete_file",
+        ]);
+        const rootFolder = (settings as any).rootFolder as string | undefined;
+
+        // Only offer tools that are actually configured and usable
+        const availableCaps = listCapabilities().filter(c => {
+          if (fsNames.has(c.name as string)) return !!rootFolder;
+          return true;
+        });
+
+        if (availableCaps.length > 0) {
+          const toolDescriptions = availableCaps.map(c =>
+            `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
+          ).join("\n");
+
+          // Orientation handshake — concrete example first, declarations second
+          const lines = [
+            "## Tool Environment",
+            "",
+            "You are operating inside Creatrix. This environment provides real, executable tools.",
+            "To use a tool, output exactly this format — nothing else on the line:",
+            "",
+            '<tool_call>{"name":"tool_name","args":{"key":"value"}}</tool_call>',
+            "",
+            "The system executes the tool and returns the result. You then continue your response.",
+            "",
+            "Example — searching the web:",
+            '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
+          ];
+
+          if (toolSupport === "limited") {
+            lines.push("");
+            lines.push(
+              "Important: Your training template uses a different tool syntax (e.g. Jinja). " +
+              "In this session use only the XML format above — not your native template format."
+            );
+          }
+
+          lines.push("");
+          lines.push("Available tools:");
+          lines.push(toolDescriptions);
+          lines.push("");
+          lines.push(
+            "Call tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
+            "Answer conversational questions directly without tools."
+          );
+
+          systemParts.push(lines.join("\n"));
+        }
+      }
 
       // Add system message
       if (systemParts.length > 0) {

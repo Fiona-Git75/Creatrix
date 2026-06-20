@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Sparkles, Loader2, Download, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { ChevronDown, Sparkles, Loader2, Download, AlertCircle, RefreshCw, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,16 +16,98 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { queryClient } from "@/lib/queryClient";
 import type { Connection } from "@shared/schema";
 
+export type ToolSupport = "native" | "text" | "limited" | "none";
+
 export interface Model {
   id: string;
   name: string;
   size?: string;
+  toolSupport?: ToolSupport;
+  family?: string;
+  parameterSize?: string;
+  quantization?: string;
+  contextLength?: number;
+  notes?: string[];
+}
+
+function toolSupportLabel(support?: ToolSupport): { symbol: string; label: string; className: string } {
+  switch (support) {
+    case "native":  return { symbol: "✓", label: "native",   className: "text-green-500" };
+    case "text":    return { symbol: "✓", label: "tools",    className: "text-green-500/70" };
+    case "limited": return { symbol: "⚠", label: "limited",  className: "text-yellow-500" };
+    case "none":    return { symbol: "✗", label: "no tools", className: "text-muted-foreground" };
+    default:        return { symbol: "·", label: "",          className: "text-muted-foreground/40" };
+  }
+}
+
+function ModelProfileCard({ model, connection }: { model: Model; connection: Connection }) {
+  const hostLabel =
+    connection.provider === "ollama"   ? "Ollama (local)" :
+    connection.provider === "lmstudio" ? "LM Studio (local)" :
+    connection.provider === "openai"   ? "OpenAI" :
+    connection.provider;
+
+  const ts = toolSupportLabel(model.toolSupport);
+
+  return (
+    <div className="space-y-3 text-sm" data-testid="model-profile-card">
+      <p className="font-medium truncate">{model.name}</p>
+
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <span className="text-muted-foreground">Host</span>
+        <span>{hostLabel}</span>
+
+        {model.family && (
+          <>
+            <span className="text-muted-foreground">Family</span>
+            <span>{model.family}</span>
+          </>
+        )}
+        {model.parameterSize && (
+          <>
+            <span className="text-muted-foreground">Parameters</span>
+            <span>{model.parameterSize}</span>
+          </>
+        )}
+        {model.quantization && (
+          <>
+            <span className="text-muted-foreground">Quantization</span>
+            <span>{model.quantization}</span>
+          </>
+        )}
+        {model.contextLength ? (
+          <>
+            <span className="text-muted-foreground">Context</span>
+            <span>{model.contextLength.toLocaleString()} tokens</span>
+          </>
+        ) : null}
+
+        <span className="text-muted-foreground">Tools</span>
+        <span className={ts.className}>
+          {ts.symbol} {ts.label || (model.toolSupport ?? "unknown")}
+        </span>
+      </div>
+
+      {model.notes && model.notes.length > 0 && (
+        <div className="space-y-1 border-t pt-2">
+          {model.notes.map((n, i) => (
+            <p key={i} className="text-xs text-muted-foreground leading-snug">↳ {n}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface ModelsResponse {
@@ -305,39 +387,50 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
   // Normal state - show model selector
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            className="w-full justify-between gap-2"
-            data-testid="button-model-selector"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Sparkles className="h-4 w-4 shrink-0" />
-              <span className="text-sm font-medium truncate">{currentModel?.name || selectedModel}</span>
-              {currentModel?.size && (
-                <Badge variant="secondary" className="text-xs shrink-0">{currentModel.size}</Badge>
-              )}
-            </div>
-            <ChevronDown className="h-4 w-4 shrink-0" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto">
-          {models.map((model) => (
-            <DropdownMenuItem
-              key={model.id}
-              onClick={() => onModelChange(model.id)}
-              className="py-2"
-              data-testid={`option-model-${model.id}`}
+      <div className="flex gap-1">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="flex-1 justify-between gap-2 min-w-0"
+              data-testid="button-model-selector"
             >
-              <div className="flex items-center justify-between w-full gap-2">
-                <span className="font-medium truncate">{model.name}</span>
-                {model.size && (
-                  <Badge variant="secondary" className="text-xs shrink-0">{model.size}</Badge>
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium truncate">{currentModel?.name || selectedModel}</span>
+                {currentModel?.size && (
+                  <Badge variant="secondary" className="text-xs shrink-0">{currentModel.size}</Badge>
                 )}
               </div>
-            </DropdownMenuItem>
-          ))}
+              <ChevronDown className="h-4 w-4 shrink-0" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64 max-h-72 overflow-y-auto">
+            {models.map((model) => {
+              const ts = toolSupportLabel(model.toolSupport);
+              return (
+                <DropdownMenuItem
+                  key={model.id}
+                  onClick={() => onModelChange(model.id)}
+                  className="py-2"
+                  data-testid={`option-model-${model.id}`}
+                >
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="min-w-0">
+                      <span className="font-medium truncate block">{model.name}</span>
+                      {model.toolSupport && (
+                        <span className={`text-[10px] ${ts.className}`}>
+                          {ts.symbol} {ts.label}
+                        </span>
+                      )}
+                    </div>
+                    {model.size && (
+                      <Badge variant="secondary" className="text-xs shrink-0">{model.size}</Badge>
+                    )}
+                  </div>
+                </DropdownMenuItem>
+              );
+            })}
           {activeConnection?.provider === "ollama" && (
             <>
               <DropdownMenuSeparator />
@@ -351,8 +444,27 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
               </DropdownMenuItem>
             </>
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {currentModel && activeConnection && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 h-9 w-9"
+                data-testid="button-model-profile"
+              >
+                <Info className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 p-4">
+              <ModelProfileCard model={currentModel} connection={activeConnection} />
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
 
       <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
         <DialogContent className="max-w-md">
