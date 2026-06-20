@@ -68,12 +68,7 @@ function ConnectionGroup({
     ? "bg-red-400"
     : "bg-muted-foreground/30";
 
-  const displayModels: ModelEntry[] =
-    models.length > 0
-      ? models
-      : conn.defaultModel
-      ? [{ id: conn.defaultModel, name: conn.defaultModel }]
-      : [];
+  const displayModels: ModelEntry[] = models;
 
   return (
     <>

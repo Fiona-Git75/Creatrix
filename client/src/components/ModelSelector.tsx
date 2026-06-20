@@ -83,9 +83,7 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
   const models: Model[] = activeProvider?.models ?? [];
   const statusMessage = "";
 
-  const currentModel = models.find((m) => m.id === selectedModel) 
-    || models.find((m) => m.id === activeConnection?.defaultModel)
-    || models[0];
+  const currentModel = models.find((m) => m.id === selectedModel) || models[0];
 
   // Self-correct: if stored selectedModel isn't in the live list, adopt the resolved model
   useEffect(() => {
