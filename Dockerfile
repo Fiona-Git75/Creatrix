@@ -4,16 +4,18 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# npm ci with NODE_ENV=production (ambient from some build environments) silently
-# skips devDependencies even with --include=dev on certain Alpine npm versions.
-# Explicitly unset production mode so tsx and other build tools are always installed.
+# package-lock.json exported from Replit contains resolved URLs pointing at
+# Replit's internal package proxy (http://package-firewall.replit.local/npm/...).
+# Those URLs are only reachable inside Replit infrastructure. Outside Replit they
+# produce ENOTFOUND, causing npm ci to hang on repeated retries and ultimately
+# fail to install anything. Rewrite to the public registry before running npm ci.
+RUN sed -i 's|http://package-firewall.replit.local/npm|https://registry.npmjs.org|g' \
+        package-lock.json
+
 RUN npm_config_production=false npm ci
 
 COPY . .
 
-# Run the build through npm exec rather than a bare shell command.
-# npm exec resolves tsx through npm's full package resolution (same mechanism
-# as npx), so it works even if node_modules/.bin is affected by the above.
 RUN npm exec tsx -- script/build.ts
 
 ENV NODE_ENV=production

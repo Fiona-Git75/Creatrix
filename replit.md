@@ -119,6 +119,19 @@ npm install
 npm run dev
 ```
 
+## Docker Portability Note
+
+`package-lock.json` exported from Replit contains `resolved` URLs pointing at Replit's internal package proxy (`http://package-firewall.replit.local/npm/...`). Those URLs are unreachable outside Replit, causing `npm ci` to hang on DNS retries and ultimately fail — which can look like a missing-binary or PATH problem.
+
+The `Dockerfile` in this repo handles this automatically with a `sed` pass before `npm ci`:
+
+```dockerfile
+RUN sed -i 's|http://package-firewall.replit.local/npm|https://registry.npmjs.org|g' \
+        package-lock.json
+```
+
+If you run `npm ci` locally from an exported copy rather than through Docker, run the same substitution first, or use `npm install` (which re-resolves from your configured registry and ignores the `resolved` field).
+
 ## Known Audit Warnings
 
 These items appear in `npm audit` and have been consciously left in place. They are documented here so anyone deploying or forking the project can make an informed decision.
