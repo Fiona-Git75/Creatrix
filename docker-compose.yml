@@ -17,10 +17,15 @@ services:
       # OPENAI_API_KEY: sk-...          # if you prefer env-var over UI config
       #
       # Local AI notes (Ollama / LM Studio):
-      # If you run Ollama or LM Studio on your host machine, use
-      # host.docker.internal instead of localhost when adding a connection in
-      # the app, e.g. http://host.docker.internal:11434
-      # On Linux you may need your host's LAN IP instead.
+      # The app auto-detects Ollama and LM Studio on the host machine.
+      # host.docker.internal is mapped to the host gateway via extra_hosts below,
+      # so discovery works on Linux, macOS, and Windows without any manual config.
+
+    # Make host.docker.internal resolve to the host machine on Linux.
+    # On macOS/Windows Docker Desktop this is automatic; on Linux it requires
+    # this entry. Requires Docker Engine 20.10+.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     depends_on:
       db:

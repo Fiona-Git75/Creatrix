@@ -161,6 +161,22 @@ async function probeEndpoint(url: string, parse: (d: any) => string[]): Promise<
   }
 }
 
+// Probe multiple candidate URLs in parallel and return the first that responds.
+// Used so the scanner works both natively (localhost) and inside Docker
+// (host.docker.internal, which resolves to the host gateway via extra_hosts).
+async function probeFirstAvailable(
+  urls: string[],
+  parse: (d: any) => string[],
+): Promise<{ endpoint: string; models: string[] } | null> {
+  const results = await Promise.all(
+    urls.map(async url => {
+      const models = await probeEndpoint(url, parse);
+      return models !== null ? { endpoint: url, models } : null;
+    }),
+  );
+  return results.find(r => r !== null) ?? null;
+}
+
 async function scanConnection(connection: Connection): Promise<ProviderStatus> {
   try {
     const provider = createProvider(connection);
@@ -210,22 +226,43 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
   const configuredEndpoints = new Set(connections.map(c => c.endpoint.replace(/\/$/, "")));
   const suggested: SuggestedProvider[] = [];
 
-  const [ollamaModels, lmModels] = await Promise.all([
-    configuredEndpoints.has("http://localhost:11434")
-      ? Promise.resolve(null)
-      : probeEndpoint("http://localhost:11434/api/tags", d =>
-          (d.models || []).map((m: any) => m.name || m.id).filter(Boolean)),
-    configuredEndpoints.has("http://localhost:1234/v1") || configuredEndpoints.has("http://localhost:1234")
-      ? Promise.resolve(null)
-      : probeEndpoint("http://localhost:1234/v1/models", d =>
-          (d.data || []).map((m: any) => m.id).filter(Boolean)),
+  // Probe each candidate address in parallel so discovery works whether the
+  // app is running natively (localhost) or inside Docker (host.docker.internal,
+  // which is mapped to the host gateway via extra_hosts in docker-compose.yml).
+  const ollamaCandidates = [
+    "http://localhost:11434",
+    "http://host.docker.internal:11434",
+  ].filter(ep => !configuredEndpoints.has(ep));
+
+  const lmCandidates = [
+    "http://localhost:1234/v1",
+    "http://host.docker.internal:1234/v1",
+  ].filter(ep => !configuredEndpoints.has(ep) && !configuredEndpoints.has(ep.replace("/v1", "")));
+
+  const [ollamaResult, lmResult] = await Promise.all([
+    ollamaCandidates.length
+      ? probeFirstAvailable(
+          ollamaCandidates.map(ep => `${ep}/api/tags`),
+          d => (d.models || []).map((m: any) => m.name || m.id).filter(Boolean),
+        )
+      : Promise.resolve(null),
+    lmCandidates.length
+      ? probeFirstAvailable(
+          lmCandidates.map(ep => `${ep}/models`),
+          d => (d.data || []).map((m: any) => m.id).filter(Boolean),
+        )
+      : Promise.resolve(null),
   ]);
 
-  if (ollamaModels !== null) {
-    suggested.push({ name: "Ollama", type: "ollama", endpoint: "http://localhost:11434", models: ollamaModels });
+  if (ollamaResult) {
+    // Strip the /api/tags path suffix to get the base endpoint
+    const base = ollamaResult.endpoint.replace("/api/tags", "");
+    suggested.push({ name: "Ollama", type: "ollama", endpoint: base, models: ollamaResult.models });
   }
-  if (lmModels !== null && lmModels.length > 0) {
-    suggested.push({ name: "LM Studio", type: "lmstudio", endpoint: "http://localhost:1234/v1", models: lmModels });
+  if (lmResult && lmResult.models.length > 0) {
+    // Strip /models to get the base v1 endpoint
+    const base = lmResult.endpoint.replace("/models", "");
+    suggested.push({ name: "LM Studio", type: "lmstudio", endpoint: base, models: lmResult.models });
   }
 
   const result: ProvidersStatusResponse = { providers, suggested, scannedAt: new Date().toISOString() };
