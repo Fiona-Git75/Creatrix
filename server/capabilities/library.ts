@@ -3,16 +3,32 @@ import type { CapabilityDefinition } from "./index";
 export const libraryCapabilities: CapabilityDefinition[] = [
   {
     name: "search_library",
-    description: "Search the local library for documents, notes, and files by title, content, or tags.",
+    description: "Search the knowledge base and library for documents, notes, and files. Uses semantic (meaning-based) search when available, falling back to keyword search.",
     argsSchema: {
-      query: { type: "string", description: "Search query", required: true },
+      query: { type: "string", description: "Search query — describe what you're looking for, not just keywords", required: true },
+      projectId: { type: "string", description: "Limit search to a specific project (optional)" },
     },
     async handler(args, ctx) {
       if (!ctx.storageRef) throw new Error("Storage not available");
-      const results = await ctx.storageRef.searchLibraryItems(args.query as string);
+      const query = args.query as string;
+      const projectId = args.projectId as string | undefined;
+
+      // Semantic search over knowledge documents (chunks)
+      const docResults = await ctx.storageRef.searchDocuments(query, projectId, 5);
+
+      // Keyword search over library items (notes, saved files, URLs)
+      const libraryResults = await ctx.storageRef.searchLibraryItems(query);
+
       return {
-        query: args.query,
-        results: results.map(item => ({
+        query,
+        knowledge_documents: docResults.map(({ doc, chunks }) => ({
+          id: doc.id,
+          title: doc.title,
+          source: doc.source,
+          projectId: doc.projectId,
+          excerpts: chunks.map(c => c.content),
+        })),
+        library_items: libraryResults.slice(0, 5).map(item => ({
           id: item.id,
           title: item.title,
           source: item.source,
@@ -22,7 +38,7 @@ export const libraryCapabilities: CapabilityDefinition[] = [
           accessedAt: item.accessedAt,
           createdAt: item.createdAt,
         })),
-        count: results.length,
+        total_found: docResults.length + libraryResults.length,
       };
     },
   },

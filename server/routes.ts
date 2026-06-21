@@ -5,6 +5,7 @@ import { chatRequestSchema, type Message, type CapabilityName, type Source } fro
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
+import { embedChunks } from "./rag/embeddings";
 import { listCapabilities, invokeCapability, getCapability } from "./capabilities";
 import { probeNotionConnected } from "./capabilities/notion";
 import { requestConfirmation, resolveConfirmation } from "./confirm";
@@ -87,6 +88,9 @@ export async function registerRoutes(
   storage.pruneSystemLogs(7).catch(() => {});
   syslog("info", "system", "Server started");
   startBackgroundRefresh();
+
+  // Enable pgvector and create chunk_embeddings table (no-op if already exists or pgvector not installed)
+  storage.initVectorStore?.().catch(() => {});
 
   // === Connections ===
   app.get("/api/connections", async (_req: Request, res: Response) => {
@@ -998,6 +1002,15 @@ export async function registerRoutes(
 
       const updatedDoc = await storage.updateKnowledgeDocument(doc.id, { chunks });
 
+      // Fire-and-forget: embed chunks in the background so the response isn't delayed
+      if (storage.storeChunkEmbeddings) {
+        embedChunks(chunks, storage).then(embedded => {
+          if (embedded.length > 0) {
+            return storage.storeChunkEmbeddings!(doc.id, embedded);
+          }
+        }).catch(() => {});
+      }
+
       res.status(201).json({
         id: updatedDoc?.id || doc.id,
         title: updatedDoc?.title || doc.title,
@@ -1018,6 +1031,8 @@ export async function registerRoutes(
       if (!deleted) {
         return res.status(404).json({ error: "Document not found" });
       }
+      // Clean up chunk embeddings (fire-and-forget, ON DELETE CASCADE not set)
+      storage.deleteChunkEmbeddings?.(req.params.id).catch(() => {});
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting document:", error);

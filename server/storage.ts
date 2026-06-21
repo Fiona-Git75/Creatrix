@@ -109,6 +109,11 @@ export interface IStorage {
   getSystemLogs(opts?: { level?: string; category?: string; limit?: number }): Promise<SystemLog[]>;
   clearSystemLogs(): Promise<void>;
   pruneSystemLogs(olderThanDays: number): Promise<void>;
+
+  // ─── Vector / Semantic Search ──────────────────────────────────────────────
+  initVectorStore?(): Promise<void>;
+  storeChunkEmbeddings?(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void>;
+  deleteChunkEmbeddings?(docId: string): Promise<void>;
 }
 
 // ─── In-Memory Implementation ────────────────────────────────────────────────
@@ -720,6 +725,48 @@ export class DatabaseStorage implements IStorage {
   }
   async searchDocuments(query: string, projectId?: string, topK: number = 3): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]> {
     if (!query?.trim()) return [];
+
+    // Try semantic search first if chunk_embeddings table has data
+    try {
+      const { embedText } = await import("./rag/embeddings");
+      const queryEmbedding = await embedText(query, this);
+      if (queryEmbedding) {
+        const vectorStr = `[${queryEmbedding.join(",")}]`;
+        const rows = await this.db.execute(
+          projectId
+            ? sql`SELECT ce.id as chunk_id, ce.document_id, ce.content,
+                         1 - (ce.embedding <=> ${vectorStr}::vector) as score
+                  FROM chunk_embeddings ce
+                  JOIN knowledge_documents kd ON kd.id = ce.document_id
+                  WHERE kd.project_id = ${projectId}
+                  ORDER BY ce.embedding <=> ${vectorStr}::vector
+                  LIMIT ${topK * 3}`
+            : sql`SELECT ce.id as chunk_id, ce.document_id, ce.content,
+                         1 - (ce.embedding <=> ${vectorStr}::vector) as score
+                  FROM chunk_embeddings ce
+                  ORDER BY ce.embedding <=> ${vectorStr}::vector
+                  LIMIT ${topK * 3}`
+        ) as { rows: { chunk_id: string; document_id: string; content: string; score: number }[] };
+
+        if (rows.rows.length > 0) {
+          const docIds = [...new Set(rows.rows.map(r => r.document_id))].slice(0, topK);
+          const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[] = [];
+          for (const docId of docIds) {
+            const doc = await this.getKnowledgeDocument(docId);
+            if (!doc) continue;
+            const docChunks = rows.rows
+              .filter(r => r.document_id === docId)
+              .map(r => ({ id: r.chunk_id, content: r.content, metadata: {} }));
+            results.push({ doc, chunks: docChunks });
+          }
+          return results;
+        }
+      }
+    } catch {
+      // pgvector not available or embedding failed — fall through to keyword search
+    }
+
+    // Keyword fallback
     const docs = await this.getKnowledgeDocuments(projectId);
     const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
     if (queryTerms.length === 0) return [];
@@ -995,6 +1042,41 @@ export class DatabaseStorage implements IStorage {
   async pruneSystemLogs(olderThanDays: number): Promise<void> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
     await this.db.delete(systemLogs).where(sql`${systemLogs.timestamp} < ${cutoff}`);
+  }
+
+  async initVectorStore(): Promise<void> {
+    try {
+      await this.db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+      await this.db.execute(sql`
+        CREATE TABLE IF NOT EXISTS chunk_embeddings (
+          id VARCHAR(36) PRIMARY KEY,
+          document_id VARCHAR(36) NOT NULL,
+          content TEXT NOT NULL,
+          embedding vector(1536)
+        )
+      `);
+      await this.db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_doc
+        ON chunk_embeddings (document_id)
+      `);
+    } catch {
+      // pgvector not installed — semantic search will fall back to keyword search
+    }
+  }
+
+  async storeChunkEmbeddings(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void> {
+    for (const chunk of chunks) {
+      const vectorStr = `[${chunk.embedding.join(",")}]`;
+      await this.db.execute(sql`
+        INSERT INTO chunk_embeddings (id, document_id, content, embedding)
+        VALUES (${chunk.id}, ${docId}, ${chunk.content}, ${vectorStr}::vector)
+        ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding
+      `);
+    }
+  }
+
+  async deleteChunkEmbeddings(docId: string): Promise<void> {
+    await this.db.execute(sql`DELETE FROM chunk_embeddings WHERE document_id = ${docId}`);
   }
 }
 
