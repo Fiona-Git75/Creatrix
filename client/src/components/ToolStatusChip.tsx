@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wrench, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
+import { Wrench, ChevronDown, ChevronUp, CheckCircle2, Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,6 +32,38 @@ interface SubstrateHealth {
 function toolLabel(name: string): string {
   return name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
+
+// ─── Category groupings ────────────────────────────────────────────────────────
+const GROUPS: { label: string; names: string[] }[] = [
+  {
+    label: "Files & Folders",
+    names: ["list_directory", "read_file", "write_file", "append_file", "create_note", "create_folder", "copy_file", "move_file", "delete_file"],
+  },
+  {
+    label: "Web",
+    names: ["web_search", "retrieve_url"],
+  },
+  {
+    label: "Library",
+    names: ["search_library", "save_conversation"],
+  },
+  {
+    label: "Notion",
+    names: ["notion_search", "notion_get_page", "notion_create_page", "notion_query_database", "notion_append_block"],
+  },
+  {
+    label: "Media",
+    names: ["get_youtube_transcript", "transcribe_audio", "ocr_image", "analyze_image"],
+  },
+  {
+    label: "Documents",
+    names: ["list_docs", "read_doc", "write_doc", "edit_doc"],
+  },
+  {
+    label: "System",
+    names: ["run_command"],
+  },
+];
 
 interface ToolStatusChipProps {
   onOpenSettings: () => void;
@@ -66,10 +98,12 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
       : "bg-green-500/15 text-green-600 dark:text-green-400";
 
   const summary = data
-    ? hasInactive
-      ? `${activeCount} active · ${inactiveCount} inactive`
-      : `${activeCount} active`
+    ? `${activeCount} active · ${inactiveCount} available`
     : "Loading…";
+
+  // Merge all tools into a lookup for quick status checks
+  const activeMap = new Map(data?.active.map(t => [t.name, t]) ?? []);
+  const inactiveMap = new Map(data?.inactive.map(t => [t.name, t]) ?? []);
 
   return (
     <div className="flex flex-col">
@@ -96,20 +130,20 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
       {/* Expanded panel */}
       {expanded && data && (
         <div className="mx-1 mb-1 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
-          <ScrollArea className="max-h-80">
+          <ScrollArea className="max-h-[420px]">
             <div className="p-2 space-y-3">
 
-              {/* Truth coherence issues */}
+              {/* System truth coherence issues */}
               {hasIssues && health && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 px-1 mb-1">
-                    System truth
+                    System
                   </p>
                   <div className="space-y-0.5">
                     {health.issues.map((issue, i) => (
                       <div key={i} className="flex items-start gap-2 px-1.5 py-1 rounded-md">
                         <span className={cn(
-                          "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
+                          "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
                           health.coherence === "red" ? "bg-red-500" : "bg-amber-500"
                         )} />
                         <p className="text-[10px] text-muted-foreground/60 leading-tight">{issue}</p>
@@ -119,79 +153,81 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
                 </div>
               )}
 
-              {/* Active tools */}
-              {data.active.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 px-1 mb-1">
-                    Active
-                  </p>
-                  <div className="space-y-0.5">
-                    {data.active.map(tool => (
-                      <div
-                        key={tool.name}
-                        className="flex items-start gap-2 px-1.5 py-1 rounded-md"
-                        data-testid={`tool-active-${tool.name}`}
-                      >
-                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-foreground/80 leading-tight">
-                            {toolLabel(tool.name)}
-                            {tool.requiresConfirmation && (
-                              <span className="ml-1 text-[10px] text-muted-foreground/50">(confirm)</span>
+              {/* Tool catalog grouped by category */}
+              {GROUPS.map(group => {
+                const tools = group.names.filter(n => activeMap.has(n) || inactiveMap.has(n));
+                if (tools.length === 0) return null;
+                return (
+                  <div key={group.label}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/40 px-1 mb-1">
+                      {group.label}
+                    </p>
+                    <div className="space-y-0.5">
+                      {tools.map(name => {
+                        const active = activeMap.get(name);
+                        const inactive = inactiveMap.get(name);
+                        const entry = active ?? inactive!;
+                        const isActive = !!active;
+                        return (
+                          <div
+                            key={name}
+                            className={cn(
+                              "flex items-start gap-2 px-1.5 py-1.5 rounded-md",
+                              !isActive && "opacity-60"
                             )}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground/50 leading-tight mt-0.5 line-clamp-2">
-                            {tool.description}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                            data-testid={`tool-${isActive ? "active" : "inactive"}-${name}`}
+                          >
+                            <span className={cn(
+                              "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
+                              isActive ? "bg-green-500" : "bg-muted-foreground/25"
+                            )} />
+                            <div className="min-w-0 flex-1">
+                              <p className={cn(
+                                "text-xs font-medium leading-tight",
+                                isActive ? "text-foreground/80" : "text-foreground/50"
+                              )}>
+                                {toolLabel(name)}
+                                {active?.requiresConfirmation && (
+                                  <span className="ml-1 text-[10px] text-muted-foreground/50">(confirm)</span>
+                                )}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/50 leading-tight mt-0.5">
+                                {entry.description}
+                              </p>
+                              {!isActive && inactive?.reason && (
+                                <p className="text-[10px] text-amber-600/70 dark:text-amber-400/60 leading-tight mt-0.5">
+                                  {inactive.reason.split("—")[1]?.trim() ?? inactive.reason}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Inactive tools */}
-              {data.inactive.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 px-1 mb-1">
-                    Not configured
-                  </p>
-                  <div className="space-y-0.5">
-                    {data.inactive.map(tool => (
-                      <div
-                        key={tool.name}
-                        className="flex items-start gap-2 px-1.5 py-1 rounded-md"
-                        data-testid={`tool-inactive-${tool.name}`}
-                      >
-                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground/25 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-foreground/50 leading-tight">
-                            {toolLabel(tool.name)}
-                          </p>
-                          <p className="text-[10px] text-amber-600/70 dark:text-amber-400/60 leading-tight mt-0.5">
-                            {tool.reason.split("—")[1]?.trim() ?? tool.reason}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    className="mt-2 w-full text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors text-left px-1.5"
-                    onClick={() => { setExpanded(false); onOpenSettings(); }}
-                    data-testid="button-tools-open-settings"
-                  >
-                    Open Settings to configure →
-                  </button>
-                </div>
-              )}
+                );
+              })}
 
               {/* All green */}
               {!hasInactive && !hasIssues && (
                 <div className="flex items-center gap-1.5 px-1.5 py-1 text-[10px] text-green-600/70 dark:text-green-400/60">
                   <CheckCircle2 className="h-3 w-3" />
-                  All tools configured and substrates healthy
+                  All tools active and substrates healthy
                 </div>
               )}
+
+              {/* Settings link if anything needs configuring */}
+              {hasInactive && (
+                <button
+                  className="flex items-center gap-1.5 w-full text-[10px] text-muted-foreground/50 hover:text-foreground/60 transition-colors px-1.5 pt-1 border-t border-border/30 mt-1"
+                  onClick={() => { setExpanded(false); onOpenSettings(); }}
+                  data-testid="button-tools-open-settings"
+                >
+                  <Settings className="h-3 w-3" />
+                  Configure in Settings
+                </button>
+              )}
+
             </div>
           </ScrollArea>
         </div>
