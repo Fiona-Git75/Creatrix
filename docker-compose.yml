@@ -1,36 +1,8 @@
 services:
-  app:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      DATABASE_URL: postgresql://creatrix:password@db:5432/creatrix
-      NODE_ENV: production
-
-      # Required — change this to a long random string before running
-      SESSION_SECRET: changeme-use-a-long-random-string-here
-
-      # Optional — AI providers are configured through the UI and stored in the
-      # database. You do NOT need to set these here. They are listed only so you
-      # know they exist.
-      #
-      # OPENAI_API_KEY: sk-...          # if you prefer env-var over UI config
-      #
-      # Local AI notes (Ollama / LM Studio):
-      # The app auto-detects Ollama and LM Studio on the host machine.
-      # host.docker.internal is mapped to the host gateway via extra_hosts below,
-      # so discovery works on Linux, macOS, and Windows without any manual config.
-
-    # Make host.docker.internal resolve to the host machine on Linux.
-    # On macOS/Windows Docker Desktop this is automatic; on Linux it requires
-    # this entry. Requires Docker Engine 20.10+.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
+  # ── Support services ─────────────────────────────────────────────────────────
+  # Creatrix and Ollama run directly on the host (npm start / ollama serve).
+  # This compose file manages only the backing services they depend on.
+  # Start with: docker compose up -d
 
   db:
     image: postgres:15-alpine
@@ -38,9 +10,10 @@ services:
       POSTGRES_DB: creatrix
       POSTGRES_USER: creatrix
       POSTGRES_PASSWORD: password
+    ports:
+      # Exposed so Creatrix running on the host can connect via localhost:5432
+      - "5432:5432"
     volumes:
-      # Postgres data files — managed by Docker (you interact with the DB
-      # through the app, not by browsing these files directly)
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U creatrix"]

@@ -119,6 +119,43 @@ npm install
 npm run dev
 ```
 
+## Running Locally
+
+The intended local architecture is:
+
+```
+Host machine
+├── Creatrix       (npm start / npm run dev)
+├── Ollama         (ollama serve)
+└── Docker
+    ├── Postgres
+    └── other support services (SearXNG, Whisper, OCR, etc.)
+```
+
+Creatrix and Ollama run directly on your machine. Docker manages only the backing services.
+
+### Quick start
+
+```bash
+# 1. Start support services
+docker compose up -d
+
+# 2. Set environment (copy and edit .env.example)
+cp .env.example .env
+
+# 3. Run Creatrix
+npm install
+npm run dev
+```
+
+The `DATABASE_URL` in `.env.example` points to the Dockerised Postgres on `localhost:5432`.
+Creatrix auto-discovers Ollama at `localhost:11434` — no manual connection setup needed.
+
+### Full server deployment (everything in Docker)
+
+If you want to run Creatrix itself in a container (e.g. on a VPS), a `Dockerfile` is included.
+See the **Docker Portability Note** below before running `docker compose` with a custom compose file that includes the app service.
+
 ## Docker Portability Note
 
 `package-lock.json` exported from Replit contains `resolved` URLs pointing at Replit's internal package proxy (`http://package-firewall.replit.local/npm/...`). Those URLs are unreachable outside Replit, causing `npm ci` to hang on DNS retries and ultimately fail — which can look like a missing-binary or PATH problem.
