@@ -5,8 +5,23 @@ services:
       - "5000:5000"
     environment:
       DATABASE_URL: postgresql://creatrix:password@db:5432/creatrix
-      SESSION_SECRET: changeme-use-a-long-random-string-here
       NODE_ENV: production
+
+      # Required — change this to a long random string before running
+      SESSION_SECRET: changeme-use-a-long-random-string-here
+
+      # Optional — AI providers are configured through the UI and stored in the
+      # database. You do NOT need to set these here. They are listed only so you
+      # know they exist.
+      #
+      # OPENAI_API_KEY: sk-...          # if you prefer env-var over UI config
+      #
+      # Local AI notes (Ollama / LM Studio):
+      # If you run Ollama or LM Studio on your host machine, use
+      # host.docker.internal instead of localhost when adding a connection in
+      # the app, e.g. http://host.docker.internal:11434
+      # On Linux you may need your host's LAN IP instead.
+
     depends_on:
       db:
         condition: service_healthy
@@ -19,6 +34,8 @@ services:
       POSTGRES_USER: creatrix
       POSTGRES_PASSWORD: password
     volumes:
+      # Postgres data files — managed by Docker (you interact with the DB
+      # through the app, not by browsing these files directly)
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U creatrix"]
