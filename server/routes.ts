@@ -1025,6 +1025,80 @@ export async function registerRoutes(
     }
   });
 
+  // Bulk-import a folder of .md / .txt files as knowledge documents
+  app.post("/api/documents/import-folder", async (req: Request, res: Response) => {
+    try {
+      const { folderPath, projectId, extensions } = req.body;
+      if (!folderPath || typeof folderPath !== "string") {
+        return res.status(400).json({ error: "folderPath is required" });
+      }
+
+      const allowed = new Set<string>((extensions as string[] | undefined) ?? [".md", ".txt"]);
+      const root = path.resolve(folderPath);
+
+      try {
+        const stat = await fs.stat(root);
+        if (!stat.isDirectory()) return res.status(400).json({ error: "Path is not a directory" });
+      } catch {
+        return res.status(400).json({ error: "Folder not found or not accessible" });
+      }
+
+      async function walk(dir: string, depth = 0): Promise<string[]> {
+        if (depth > 6) return [];
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        const files: string[] = [];
+        for (const e of entries) {
+          if (e.name.startsWith(".")) continue;
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) files.push(...await walk(full, depth + 1));
+          else if (allowed.has(path.extname(e.name).toLowerCase())) files.push(full);
+        }
+        return files;
+      }
+
+      const allFiles = await walk(root);
+      const existing = await storage.getKnowledgeDocuments(projectId);
+      const existingTitles = new Set(existing.map(d => d.title));
+
+      let imported = 0;
+      let skipped = 0;
+      const importedFiles: string[] = [];
+
+      for (const file of allFiles.slice(0, 500)) {
+        const title = path.basename(file, path.extname(file));
+        if (existingTitles.has(title)) { skipped++; continue; }
+
+        const content = await fs.readFile(file, "utf-8").catch(() => null);
+        if (!content || content.trim().length < 20) { skipped++; continue; }
+
+        const relPath = path.relative(root, file);
+        const chunks = chunkText(content.trim(), { chunkSize: 500, chunkOverlap: 50 });
+        const doc = await storage.createKnowledgeDocument({
+          title,
+          source: relPath,
+          content: content.trim(),
+          projectId,
+        });
+        await storage.updateKnowledgeDocument(doc.id, { chunks });
+
+        if (storage.storeChunkEmbeddings) {
+          embedChunks(chunks, storage).then(embedded => {
+            if (embedded.length > 0) return storage.storeChunkEmbeddings!(doc.id, embedded);
+          }).catch(() => {});
+        }
+
+        imported++;
+        importedFiles.push(relPath);
+        existingTitles.add(title);
+      }
+
+      res.json({ imported, skipped, total: allFiles.length, files: importedFiles });
+    } catch (error) {
+      console.error("Error importing folder:", error);
+      res.status(500).json({ error: "Failed to import folder" });
+    }
+  });
+
   app.delete("/api/documents/:id", async (req: Request, res: Response) => {
     try {
       const deleted = await storage.deleteKnowledgeDocument(req.params.id);
