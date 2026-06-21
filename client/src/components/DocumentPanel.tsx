@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Plus, FileText, Eye, Edit3, Trash2, ChevronDown, Download, Pin, PinOff } from "lucide-react";
+import { X, Plus, FileText, Eye, Edit3, Trash2, ChevronDown, Download, Pin, PinOff, Maximize2, Minimize2 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -65,12 +65,14 @@ interface DocumentPanelProps {
   docId: string | null;
   projectId?: string | null;
   pinned?: boolean;
+  focusMode?: boolean;
   onClose: () => void;
   onTogglePin?: () => void;
+  onToggleFocus?: () => void;
   onDocChange?: (docId: string) => void;
 }
 
-export function DocumentPanel({ docId, projectId, pinned, onClose, onTogglePin, onDocChange }: DocumentPanelProps) {
+export function DocumentPanel({ docId, projectId, pinned, focusMode, onClose, onTogglePin, onToggleFocus, onDocChange }: DocumentPanelProps) {
   const [preview, setPreview] = useState(false);
   const [localContent, setLocalContent] = useState("");
   const [localTitle, setLocalTitle] = useState("");
@@ -223,6 +225,18 @@ export function DocumentPanel({ docId, projectId, pinned, onClose, onTogglePin, 
               data-testid="button-doc-export"
             >
               <Download className="h-3 w-3" />
+            </Button>
+          )}
+          {onToggleFocus && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-6 w-6 ${focusMode ? "text-primary" : ""}`}
+              onClick={onToggleFocus}
+              title={focusMode ? "Exit focus mode" : "Focus mode — expand document"}
+              data-testid="button-doc-focus"
+            >
+              {focusMode ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
             </Button>
           )}
           {onTogglePin && docId && (

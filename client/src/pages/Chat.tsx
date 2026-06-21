@@ -165,6 +165,28 @@ function ChatContent({
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [systemLogOpen, setSystemLogOpen] = useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [docPanelWidth, setDocPanelWidth] = useState(480);
+  const [focusMode, setFocusMode] = useState(false);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    const startX = e.clientX;
+    const startWidth = docPanelWidth;
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX;
+      setDocPanelWidth(Math.min(Math.max(startWidth + delta, 320), 1000));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -396,19 +418,31 @@ function ChatContent({
         </main>
       </div>
       {(openDocId !== undefined || pinnedDocId !== null) && (
-        <div className="w-[420px] shrink-0 h-screen">
-          <DocumentPanel
-            docId={openDocId !== undefined ? openDocId : pinnedDocId}
-            projectId={selectedProjectId}
-            pinned={pinnedDocId !== null}
-            onClose={() => onDocChange(undefined)}
-            onTogglePin={() => {
-              const current = openDocId !== undefined ? openDocId : pinnedDocId;
-              onTogglePin(pinnedDocId !== null ? null : current);
-            }}
-            onDocChange={onDocChange}
+        <>
+          <div
+            className="w-1 shrink-0 h-screen cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            onMouseDown={handleDragStart}
+            data-testid="doc-panel-resize-handle"
           />
-        </div>
+          <div
+            className="shrink-0 h-screen"
+            style={focusMode ? { flex: "1" } : { width: `${docPanelWidth}px` }}
+          >
+            <DocumentPanel
+              docId={openDocId !== undefined ? openDocId : pinnedDocId}
+              projectId={selectedProjectId}
+              pinned={pinnedDocId !== null}
+              focusMode={focusMode}
+              onClose={() => onDocChange(undefined)}
+              onTogglePin={() => {
+                const current = openDocId !== undefined ? openDocId : pinnedDocId;
+                onTogglePin(pinnedDocId !== null ? null : current);
+              }}
+              onToggleFocus={() => setFocusMode(v => !v)}
+              onDocChange={onDocChange}
+            />
+          </div>
+        </>
       )}
       </div>
     </>
