@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Wrench, ChevronDown, ChevronUp, CheckCircle2, Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 interface ToolEntry {
@@ -130,7 +129,7 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
       {/* Expanded panel */}
       {expanded && data && (
         <div className="mx-1 mb-1 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
-          <ScrollArea className="max-h-[420px]">
+          <div className="max-h-[420px] overflow-y-auto">
             <div className="p-2 space-y-3">
 
               {/* System truth coherence issues */}
@@ -229,7 +228,7 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
               )}
 
             </div>
-          </ScrollArea>
+          </div>
         </div>
       )}
     </div>
