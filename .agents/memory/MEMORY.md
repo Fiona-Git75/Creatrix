@@ -2,5 +2,6 @@
 - [Server startup order](server-startup-order.md) — httpServer.listen must be called BEFORE setupVite, with a 200 placeholder for "/" while Vite initializes, so the runner's health check can pass.
 - [Project folderPath in capabilities](project-foldepath-capability.md) — project.folderPath should override settings.rootFolder when invoking capabilities in the chat route.
 - [Design philosophy](design-philosophy.md) — system accountability over user configuration; remaining friction points catalogued there.
+- [Replit lockfile portability](replit-lockfile-portability.md) — package-lock.json bakes in internal proxy URLs; breaks npm ci outside Replit; sed fix in Dockerfile; symptoms look like missing binaries.
 - [Docker capability substrate](docker-capability-substrate.md) — Docker services are runtime grounding for capabilities; requires= is contract, Docker is fulfillment; reasoning must not exceed affordance boundary.
 - [Provider discovery architecture](provider-discovery-arch.md) — connectionId is the provider boundary; defaultModel is a hint only; live scan is authoritative.
