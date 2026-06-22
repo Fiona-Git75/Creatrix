@@ -1,45 +1,36 @@
-// Notion integration — dual-path:
-//   1. Inside Replit: uses @replit/connectors-sdk proxy (token refresh automatic)
-//   2. Native / Docker: uses NOTION_TOKEN env var, calls api.notion.com directly
+// Notion integration — calls api.notion.com directly using NOTION_TOKEN.
+// Set NOTION_TOKEN in your .env (local) or Replit Secrets (Replit).
+// Get a token at https://www.notion.so/my-integrations (internal integration).
 import type { CapabilityDefinition } from "./index";
 
 const NOTION_API = "https://api.notion.com";
 const NOTION_VERSION = "2022-06-28";
 
-// ── Transport abstraction ─────────────────────────────────────────────────────
+// ── Transport ─────────────────────────────────────────────────────────────────
+
+function getToken(): string {
+  const token = process.env.NOTION_TOKEN;
+  if (!token) {
+    throw new Error(
+      "NOTION_TOKEN is not set. Add it to your .env file (local) or Replit Secrets.",
+    );
+  }
+  return token;
+}
 
 async function notionFetch(
   path: string,
   options: { method?: string; body?: string } = {},
 ): Promise<Response> {
-  const token = process.env.NOTION_TOKEN;
-
-  if (token) {
-    // Native path: call Notion API directly with the integration token
-    return fetch(`${NOTION_API}${path}`, {
-      method: options.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "Notion-Version": NOTION_VERSION,
-      },
-      body: options.body,
-    });
-  }
-
-  // Replit path: proxy through connectors-sdk (handles token refresh)
-  try {
-    const { ReplitConnectors } = await import("@replit/connectors-sdk");
-    const connectors = new ReplitConnectors();
-    return connectors.proxy("notion", path, {
-      method: options.method ?? "GET",
-      body: options.body,
-    }) as Promise<Response>;
-  } catch {
-    throw new Error(
-      "Notion not configured. Set NOTION_TOKEN in your environment, or connect Notion via Replit Integrations.",
-    );
-  }
+  return fetch(`${NOTION_API}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      "Content-Type": "application/json",
+      "Notion-Version": NOTION_VERSION,
+    },
+    body: options.body,
+  });
 }
 
 // ── Connectivity probe (cached 5 min) ─────────────────────────────────────────
@@ -51,6 +42,12 @@ export async function probeNotionConnected(): Promise<boolean> {
   if (_notionProbeCache && Date.now() - _notionProbeCache.at < NOTION_PROBE_TTL) {
     return _notionProbeCache.connected;
   }
+
+  if (!process.env.NOTION_TOKEN) {
+    _notionProbeCache = { connected: false, at: Date.now() };
+    return false;
+  }
+
   try {
     const res = await Promise.race([
       notionFetch("/v1/search", {
@@ -151,8 +148,7 @@ export const notionCapabilities: CapabilityDefinition[] = [
       const blocksRes = await notionFetch(`/v1/blocks/${id}/children?page_size=100`, {
         method: "GET",
       });
-      if (!blocksRes.ok)
-        throw new Error(`Failed to get page content: ${blocksRes.status}`);
+      if (!blocksRes.ok) throw new Error(`Failed to get page content: ${blocksRes.status}`);
       const blocks = (await blocksRes.json()) as any;
 
       const title = extractPageTitle(page);
