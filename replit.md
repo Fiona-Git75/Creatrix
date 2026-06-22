@@ -85,7 +85,7 @@ Providers implement streaming for real-time response delivery.
 
 ## Keeping Your Local Copy Up to Date
 
-The project is hosted on GitHub at **https://github.com/Fiona-Git75/Creatrix**. Replit pushes every checkpoint there automatically.
+The project is hosted on GitHub at **https://github.com/Kitt-Kaleen/Creatrix-UI**. Replit pushes every checkpoint there automatically.
 
 ### First-time setup (one time only)
 
@@ -93,7 +93,7 @@ If you downloaded the files manually, open a terminal in your project folder on 
 
 ```bash
 git init
-git remote add origin https://github.com/Fiona-Git75/Creatrix.git
+git remote add origin https://github.com/Kitt-Kaleen/Creatrix-UI.git
 git fetch origin
 git reset --hard origin/main
 ```
@@ -113,8 +113,8 @@ Then restart your local server (`npm run dev`) and hard-refresh your browser.
 ### If you want a clean install instead
 
 ```bash
-git clone https://github.com/Fiona-Git75/Creatrix.git
-cd Creatrix
+git clone https://github.com/Kitt-Kaleen/Creatrix-UI.git
+cd Creatrix-UI
 npm install
 npm run dev
 ```
