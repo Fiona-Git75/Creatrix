@@ -36,6 +36,28 @@ MUST NOT: degrade silently, fall back, guess, "helpfully adapt".
 All persistent state lives in local filesystem / repo / explicit database.
 NOT in platform cache, Replit-managed state, hidden connector state, or runtime memory injection.
 
+## Unified database model
+There is exactly one storage implementation at runtime: `DatabaseStorage`, backed by `DATABASE_URL`.
+
+**Forbidden:**
+```typescript
+// This creates two state universes — one persistent, one ephemeral — with no visible difference
+export const storage = process.env.DATABASE_URL ? new DatabaseStorage() : new MemStorage();
+```
+
+**Required:**
+```typescript
+// Fail loudly if config is missing. No fallback. No silent degradation.
+if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
+export const storage = new DatabaseStorage();
+```
+
+`MemStorage` may exist in the codebase for unit tests only. It must never be reachable from the production module graph.
+
+**Why:** A silent in-memory fallback is indistinguishable from a real database to the running app but resets on every restart. This creates two state universes from one codebase, making environment-specific bugs invisible until they manifest as data loss. The rule: same inputs → same behaviour → one DB → explicit crash if missing.
+
+**How to apply:** Any future change that introduces `if (DATABASE_URL)` branching in storage selection is a contract violation. Reject it.
+
 ## Platform independence
 Creatrix must NOT assume: Replit runtime exists, connectors SDK exists, cloud auth proxy exists, hosted filesystem identity exists. If those exist → ignored unless explicitly configured.
 

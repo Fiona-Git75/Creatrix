@@ -1134,5 +1134,14 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Use database storage when DATABASE_URL is set, otherwise in-memory
-export const storage: IStorage = process.env.DATABASE_URL ? new DatabaseStorage() : new MemStorage();
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "[Creatrix] DATABASE_URL is not set.\n" +
+    "  Local:  add DATABASE_URL=postgresql://... to your .env file\n" +
+    "  Replit: the Postgres integration sets this automatically\n" +
+    "  Docker: ensure the db service is running and DATABASE_URL is in your environment\n\n" +
+    "Creatrix requires an explicit database. There is no in-memory fallback."
+  );
+}
+
+export const storage: IStorage = new DatabaseStorage();
