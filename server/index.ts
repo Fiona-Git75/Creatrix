@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -85,6 +86,9 @@ app.use((req, res, next) => {
       });
 
       // Now do the slower work (DB init, route registration, Vite setup)
+      log("Initializing storage…");
+      await storage.initialize?.();
+      log("Storage ready");
       log("Initializing routes…");
       await registerRoutes(httpServer, app);
       log("Routes registered");
@@ -102,6 +106,9 @@ app.use((req, res, next) => {
       appReady = true;
       log("Ready");
     } else {
+      log("Production mode — initializing storage…");
+      await storage.initialize?.();
+      log("Storage ready");
       log("Production mode — registering routes…");
       await registerRoutes(httpServer, app);
       log("Routes registered");

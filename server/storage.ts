@@ -21,6 +21,9 @@ import { eq, and, like, or, desc, sql } from "drizzle-orm";
 import pg from "pg";
 
 export interface IStorage {
+  // Lifecycle
+  initialize?(): Promise<void>;
+
   // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -539,10 +542,52 @@ export class MemStorage implements IStorage {
 
 export class DatabaseStorage implements IStorage {
   private db: ReturnType<typeof drizzle>;
+  private _settings: Settings | null = null;
 
   constructor() {
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
     this.db = drizzle(pool);
+  }
+
+  // Hydrate settings from DB at startup so every subsequent getSettings()
+  // call returns the persisted row, never the hardcoded in-memory default.
+  async initialize(): Promise<void> {
+    try {
+      const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
+      if (!result[0]) {
+        // No row yet — write the canonical default so it exists for all future reads
+        const defaultRow = {
+          id: "default",
+          defaultConnectionId: null,
+          defaultProjectId: null,
+          theme: "system",
+          rootFolder: null,
+          libraryPaths: null,
+          morningOrientationEnabled: false,
+          whisperEndpoint: null,
+          searchEndpoint: null,
+        };
+        await this.db.insert(settings).values(defaultRow).onConflictDoNothing();
+        this._settings = {
+          theme: "system",
+          morningOrientationEnabled: false,
+        };
+      } else {
+        const s = result[0];
+        this._settings = {
+          defaultConnectionId: s.defaultConnectionId ?? undefined,
+          defaultProjectId: s.defaultProjectId ?? undefined,
+          theme: (s.theme as Settings["theme"]) ?? "system",
+          rootFolder: s.rootFolder ?? undefined,
+          libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
+          morningOrientationEnabled: s.morningOrientationEnabled ?? false,
+          whisperEndpoint: s.whisperEndpoint ?? undefined,
+          searchEndpoint: s.searchEndpoint ?? undefined,
+        };
+      }
+    } catch (err: any) {
+      throw new Error(`Failed to initialize settings from database: ${err.message}`);
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -791,10 +836,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSettings(): Promise<Settings> {
+    // Return the in-memory cache populated by initialize().
+    // Fall back to a live DB read only if initialize() was never called
+    // (e.g. tests or MemStorage fallback paths).
+    if (this._settings) return this._settings;
     const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
     if (!result[0]) return { theme: "system", morningOrientationEnabled: false };
     const s = result[0];
-    return {
+    this._settings = {
       defaultConnectionId: s.defaultConnectionId ?? undefined,
       defaultProjectId: s.defaultProjectId ?? undefined,
       theme: (s.theme as Settings["theme"]) ?? "system",
@@ -804,7 +853,9 @@ export class DatabaseStorage implements IStorage {
       whisperEndpoint: s.whisperEndpoint ?? undefined,
       searchEndpoint: s.searchEndpoint ?? undefined,
     };
+    return this._settings;
   }
+
   async updateSettings(updates: Partial<Settings>): Promise<Settings> {
     const existing = await this.getSettings();
     const merged = { ...existing, ...updates };
@@ -820,6 +871,9 @@ export class DatabaseStorage implements IStorage {
       searchEndpoint: merged.searchEndpoint ?? null,
     };
     await this.db.insert(settings).values(dbRow).onConflictDoUpdate({ target: settings.id, set: dbRow });
+    // Keep the in-memory cache in sync so subsequent getSettings() calls
+    // reflect the update without another DB round-trip.
+    this._settings = merged;
     return merged;
   }
 
