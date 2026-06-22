@@ -457,8 +457,11 @@ export default function Chat() {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
   const [pinnedDocId, setPinnedDocId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const CONN_KEY = "creatrix:selectedConnectionId";
+  const MODEL_KEY = "creatrix:selectedModel";
+
+  const [selectedModel, setSelectedModel] = useState<string>(() => localStorage.getItem(MODEL_KEY) ?? "");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(() => localStorage.getItem(CONN_KEY));
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -481,17 +484,29 @@ export default function Chat() {
     staleTime: 30_000,
   });
 
-  // Init: pick the first online provider + its first live model — no stored defaults
+  // Persist selection so it survives page refreshes
   useEffect(() => {
-    if (selectedConnectionId) return;
+    if (selectedConnectionId) localStorage.setItem(CONN_KEY, selectedConnectionId);
+    else localStorage.removeItem(CONN_KEY);
+  }, [selectedConnectionId]);
+
+  useEffect(() => {
+    if (selectedModel) localStorage.setItem(MODEL_KEY, selectedModel);
+    else localStorage.removeItem(MODEL_KEY);
+  }, [selectedModel]);
+
+  // Validate stored selection against live DB connections.
+  // If the stored connection still exists → keep it (fast path, no scan needed).
+  // If it's gone or was never set → fall back to first online provider from the scan.
+  useEffect(() => {
+    if (!connections.length) return;
+    if (selectedConnectionId && connections.some(c => c.id === selectedConnectionId)) return;
     if (!providerStatus?.providers?.length) return;
     const firstOnline = providerStatus.providers.find(p => p.status === "online");
     if (!firstOnline) return;
     setSelectedConnectionId(firstOnline.connectionId);
-    if (!selectedModel && firstOnline.models.length > 0) {
-      setSelectedModel(firstOnline.models[0].id);
-    }
-  }, [providerStatus?.providers, selectedConnectionId]);
+    if (firstOnline.models.length > 0) setSelectedModel(firstOnline.models[0].id);
+  }, [connections, providerStatus?.providers, selectedConnectionId]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
 
