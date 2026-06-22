@@ -1,0 +1,137 @@
+Creatrix Execution Contract
+
+1. Core Principle
+
+Creatrix must behave identically in all environments.
+
+No behaviour may depend on:
+
+hosting platform (Replit, local, cloud, etc.)
+runtime injection systems
+external “magic” SDKs
+invisible infrastructure assumptions
+
+If behaviour changes by environment → it is a bug, not a feature.
+
+🔌 2. Tool Architecture Rule
+2.1 No implicit tool activation
+
+A tool is only active if:
+
+explicitly configured in .env or settings
+explicitly instantiated in code
+explicitly validated at runtime
+
+If any of those are missing:
+
+the tool is OFF. No fallback, no proxy, no inference.
+
+2.2 No dual-path execution
+
+Forbidden pattern:
+
+if (replit) use SDK
+else use direct API
+
+Allowed pattern:
+
+use direct API with explicit credentials
+
+Replit-specific behaviour is treated as external tooling noise, not logic.
+
+🔐 3. Identity & Configuration Rule
+3.1 All credentials are user-owned
+.env is canonical
+no platform overwrites allowed
+no secret injection from runtime environments
+3.2 No hidden mutation of config
+
+Creatrix must never:
+
+rewrite .env
+auto-inject keys
+silently patch config based on environment
+
+If config is missing:
+
+fail explicitly
+
+🧱 4. Platform Independence Rule
+
+Creatrix must NOT assume:
+
+Replit runtime exists
+connectors SDK exists
+cloud auth proxy exists
+hosted filesystem identity exists
+
+If those exist → they are ignored unless explicitly configured.
+
+⚠️ 5. Failure Behaviour Rule
+
+When something is misconfigured:
+
+MUST:
+fail loudly
+log explicit missing dependency
+stop tool activation
+MUST NOT:
+degrade silently
+fall back to alternate runtime behaviour
+guess intent
+“helpfully adapt”
+🧠 6. State Ownership Rule
+
+All persistent state belongs to:
+
+the local filesystem / repo / explicit database
+
+NOT:
+
+platform cache
+Replit-managed state
+hidden connector state
+runtime memory injection
+🔄 7. Tool Registry Rule
+
+Tool availability is determined ONLY by:
+
+explicit registration in Creatrix config
+successful runtime validation check
+
+NOT by:
+
+UI presence
+partial imports
+SDK availability
+environment detection
+
+🧭 8. Replit-Specific Rule (important for my next project)
+
+If running in Replit:
+
+treat Replit connectors as OPTIONAL external adapters
+NEVER allow them to define core behaviour
+NEVER rely on them for correctness
+
+Replit is a host, not a logic layer.
+
+🧬 9. Mental Model Rule (this is the stabiliser)
+
+Creatrix must always assume:
+
+“I know nothing unless explicitly told in config or code.”
+
+No inference layers.
+No environment assumptions.
+No hidden intelligence from platform.
+
+☕ What this gives you (why this matters)
+
+This contract guarantees:
+
+Notion behaves the same everywhere
+tools don’t randomly disappear
+Replit cannot “shape” behaviour silently
+local system remains authoritative
+your writing graph stays stable and portable
