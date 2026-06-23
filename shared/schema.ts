@@ -76,6 +76,7 @@ export const settings = pgTable("settings", {
   morningOrientationEnabled: boolean("morning_orientation_enabled").default(false),
   whisperEndpoint: text("whisper_endpoint"),
   searchEndpoint: text("search_endpoint"),
+  embeddingModel: text("embedding_model"),
 });
 
 // ─── Phase 2: Library ────────────────────────────────────────────────────────
@@ -279,6 +280,7 @@ export const settingsSchema = z.object({
   morningOrientationEnabled: z.boolean().default(false),
   whisperEndpoint: z.string().optional(),
   searchEndpoint: z.string().optional(),
+  embeddingModel: z.string().optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 

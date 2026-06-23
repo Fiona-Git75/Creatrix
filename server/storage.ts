@@ -1104,12 +1104,36 @@ export class DatabaseStorage implements IStorage {
   async initVectorStore(): Promise<void> {
     try {
       await this.db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+
+      // Migrate column from vector(1536) → vector(768) if needed.
+      // nomic-embed-text (and most local Ollama embedding models) produce 768-dim vectors.
+      // OpenAI text-embedding-3-small produces 1536. Since Creatrix is local-first,
+      // we default to 768. Existing 1536-dim embeddings are cleared (they'd be
+      // incompatible with a local model anyway — re-indexing is automatic on next use).
+      await this.db.execute(sql`
+        DO $$
+        DECLARE
+          current_dim integer;
+        BEGIN
+          SELECT atttypmod INTO current_dim
+          FROM pg_attribute
+          WHERE attrelid = 'chunk_embeddings'::regclass
+            AND attname = 'embedding'
+            AND attnum > 0;
+          IF current_dim IS NOT NULL AND current_dim <> 768 THEN
+            TRUNCATE chunk_embeddings;
+            EXECUTE 'ALTER TABLE chunk_embeddings ALTER COLUMN embedding TYPE vector(768)';
+          END IF;
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END $$
+      `);
+
       await this.db.execute(sql`
         CREATE TABLE IF NOT EXISTS chunk_embeddings (
           id VARCHAR(36) PRIMARY KEY,
           document_id VARCHAR(36) NOT NULL,
           content TEXT NOT NULL,
-          embedding vector(1536)
+          embedding vector(768)
         )
       `);
       await this.db.execute(sql`

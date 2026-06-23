@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -434,6 +434,7 @@ function SettingsTab() {
   const [rootFolder, setRootFolder] = useState<string>("");
   const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
   const [searchEndpoint, setSearchEndpoint] = useState<string>("");
+  const [embeddingModel, setEmbeddingModel] = useState<string>("");
   const [libraryPaths, setLibraryPaths] = useState<string[]>([]);
   const [newPath, setNewPath] = useState("");
   const [initialized, setInitialized] = useState(false);
@@ -442,6 +443,7 @@ function SettingsTab() {
     setRootFolder(settings.rootFolder || "");
     setWhisperEndpoint(settings.whisperEndpoint || "");
     setSearchEndpoint((settings as any).searchEndpoint || "");
+    setEmbeddingModel((settings as any).embeddingModel || "");
     setLibraryPaths(settings.libraryPaths || []);
     setInitialized(true);
   }
@@ -654,6 +656,37 @@ function SettingsTab() {
             DuckDuckGo fallback — configure SearXNG for full coverage
           </span>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Embedding Model */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Embedding Model</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Ollama model used for semantic search in your knowledge base. Leave blank to use the default (<span className="font-mono">nomic-embed-text</span>).
+          Install with: <span className="font-mono">ollama pull nomic-embed-text</span>
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="nomic-embed-text"
+            value={embeddingModel}
+            onChange={(e) => setEmbeddingModel(e.target.value)}
+            className="font-mono text-sm"
+            data-testid="input-embedding-model"
+          />
+          <Button
+            onClick={() => updateMutation.mutate({ embeddingModel: embeddingModel || undefined } as any)}
+            disabled={updateMutation.isPending}
+            size="sm"
+            data-testid="button-save-embedding-model"
+          >
+            {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+        </div>
       </div>
 
       <Separator />
