@@ -479,7 +479,8 @@ function SettingsTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <ScrollArea className="h-[480px]">
+    <div className="space-y-6 pr-4">
       {/* Root Folder */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -695,6 +696,7 @@ function SettingsTab() {
         </Select>
       </div>
     </div>
+    </ScrollArea>
   );
 }
 

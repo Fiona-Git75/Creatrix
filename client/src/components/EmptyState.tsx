@@ -80,7 +80,6 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
   }
 
   const onlineProviders = providerStatus?.providers.filter(p => p.status === "online") ?? [];
-  const offlineProviders = providerStatus?.providers.filter(p => p.status === "offline") ?? [];
   const suggested = providerStatus?.suggested ?? [];
   const anyOnline = onlineProviders.length > 0;
 
@@ -108,69 +107,41 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
               </div>
             </div>
           </div>
-        ) : (
-          <div className="space-y-2 font-mono text-sm">
-            {onlineProviders.map(p => (
-              <div key={p.connectionId} className="flex items-baseline gap-2">
-                <span className="text-green-500 text-xs">✓</span>
-                <span>
-                  {p.name} — {p.models.length} {p.models.length === 1 ? "model" : "models"} ready
-                </span>
-              </div>
-            ))}
-            {offlineProviders.map(p => (
-              <div key={p.connectionId} className="flex items-baseline gap-2">
-                <span className="text-muted-foreground text-xs">○</span>
-                <span className="text-muted-foreground">{p.name} — offline</span>
-              </div>
-            ))}
-            {suggested.map(s => (
-              <div key={s.endpoint} className="space-y-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-yellow-500 text-xs">△</span>
-                  <span className="text-muted-foreground">
-                    {s.name} found — {s.models.length} {s.models.length === 1 ? "model" : "models"}, not configured
-                  </span>
-                </div>
-                {onOpenSettings && (
-                  <button
-                    onClick={onOpenSettings}
-                    className="ml-4 text-xs underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
-                    data-testid="button-open-settings-from-briefing"
-                  >
-                    Add connection
-                  </button>
-                )}
-              </div>
-            ))}
-            {!anyOnline && suggested.length === 0 && (
-              <div className="space-y-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-muted-foreground text-xs">○</span>
-                  <span className="text-muted-foreground">No AI found</span>
-                </div>
-                {onOpenSettings && (
-                  <button
-                    onClick={onOpenSettings}
-                    className="ml-4 text-xs underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
-                    data-testid="button-open-settings-from-briefing"
-                  >
-                    Add a connection
-                  </button>
-                )}
-              </div>
-            )}
-            {status?.library.available && (
-              <div className="flex items-baseline gap-2">
-                <span className="text-green-500 text-xs">✓</span>
-                <span>Notes available</span>
-              </div>
-            )}
-          </div>
-        )}
+        ) : null}
 
         <p className="text-xs text-muted-foreground font-mono">
-          {anyOnline ? "Ready." : "Start Ollama or LM Studio, then reload."}
+          {anyOnline
+            ? "….Ready"
+            : suggested.length > 0
+              ? (
+                <>
+                  {suggested[0].name} found but not configured.{" "}
+                  {onOpenSettings && (
+                    <button
+                      onClick={onOpenSettings}
+                      className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                      data-testid="button-open-settings-from-briefing"
+                    >
+                      Add connection
+                    </button>
+                  )}
+                </>
+              )
+              : (
+                <>
+                  No AI found.{" "}
+                  {onOpenSettings && (
+                    <button
+                      onClick={onOpenSettings}
+                      className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                      data-testid="button-open-settings-from-briefing"
+                    >
+                      Add a connection
+                    </button>
+                  )}
+                </>
+              )
+          }
         </p>
 
       </div>

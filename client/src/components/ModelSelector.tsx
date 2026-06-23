@@ -514,6 +514,17 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64 max-h-72 overflow-y-auto">
+            {/* Provider status header */}
+            <div className="flex items-center justify-between px-2 py-1.5 mb-1">
+              <span className="text-xs text-muted-foreground font-medium truncate">
+                {activeConnection?.name ?? "Unknown"}
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                {models.length} {models.length === 1 ? "model" : "models"}
+              </span>
+            </div>
+            <DropdownMenuSeparator />
             {models.map((model) => {
               const ts = toolSupportLabel(model.toolSupport);
               return (
