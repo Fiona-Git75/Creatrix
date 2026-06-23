@@ -51,61 +51,169 @@ function toolSupportLabel(support?: ToolSupport): { symbol: string; label: strin
   }
 }
 
-function ModelProfileCard({ model, connection }: { model: Model; connection: Connection }) {
-  const hostLabel =
-    connection.provider === "ollama"   ? "Ollama (local)" :
-    connection.provider === "lmstudio" ? "LM Studio (local)" :
-    connection.provider === "openai"   ? "OpenAI" :
-    connection.provider;
+// ── Tool display helpers ──────────────────────────────────────────────────────
 
-  const ts = toolSupportLabel(model.toolSupport);
+const TOOL_LABELS: Record<string, string> = {
+  web_search: "Web Search", retrieve_url: "Read URLs",
+  search_library: "Library Search", save_conversation: "Save Chats",
+  read_file: "Read Files", write_file: "Write Files", list_files: "List Files",
+  create_file: "Create Files", delete_file: "Delete Files",
+  run_command: "Terminal", transcribe: "Transcription",
+  notion_search: "Notion Search", notion_read: "Notion Pages", notion_create: "Notion Write",
+};
+
+function toLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function groupByCategory(tools: { name: string }[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  const add = (g: string, n: string) => { if (!groups.has(g)) groups.set(g, []); groups.get(g)!.push(n); };
+  for (const t of tools) {
+    if (t.name.startsWith("notion"))                                                     add("Notes", t.name);
+    else if (t.name === "web_search" || t.name === "retrieve_url")                       add("Web", t.name);
+    else if (t.name === "search_library")                                                add("Library", t.name);
+    else if (t.name === "run_command")                                                   add("Terminal", t.name);
+    else if (["read_file","write_file","list_files","create_file","delete_file"].includes(t.name)) add("Files", t.name);
+    else if (t.name === "transcribe" || t.name.includes("audio") || t.name.includes("whisper")) add("Transcription", t.name);
+    else if (t.name === "save_conversation")                                             add("Memory", t.name);
+    else                                                                                 add(toLabel(t.name), t.name);
+  }
+  return groups;
+}
+
+function groupInactiveReasons(tools: { name: string; reason: string }[]): Map<string, string> {
+  const seen = new Map<string, string>();
+  for (const t of tools) {
+    const label =
+      t.reason.includes("root folder") ? "Files" :
+      t.reason.includes("Notion")      ? "Notes" :
+      t.reason.includes("Whisper")     ? "Transcription" :
+      toLabel(t.name);
+    if (!seen.has(label)) seen.set(label, t.reason.split("—")[0].trim());
+  }
+  return seen;
+}
+
+const CAPABILITY_INFO: Record<ToolSupport, { label: string; description: string; className: string }> = {
+  native:  { label: "Native tools",  className: "bg-green-500/10 text-green-700 dark:text-green-400",  description: "Full structured tool API — reliable invocation" },
+  text:    { label: "Text tools",    className: "bg-blue-500/10 text-blue-700 dark:text-blue-400",    description: "Text-based protocol — should work, may occasionally misformat" },
+  limited: { label: "Limited tools", className: "bg-amber-500/10 text-amber-700 dark:text-amber-400", description: "Jinja translation layer active — tools less reliable than native" },
+  none:    { label: "No tools",      className: "bg-red-500/10 text-red-700 dark:text-red-400",       description: "Parameter size too small — tool calls disabled for this model" },
+};
+
+interface ToolsStatusResponse {
+  active:   { name: string; description: string }[];
+  inactive: { name: string; description: string; reason: string }[];
+}
+
+// ── Model profile card ────────────────────────────────────────────────────────
+
+function ModelProfileCard({ model, connection }: { model: Model; connection: Connection }) {
+  const { data: toolsStatus, isLoading: toolsLoading } = useQuery<ToolsStatusResponse>({
+    queryKey: ["/api/tools/status"],
+    staleTime: 60_000,
+  });
+
+  const canUseTools = model.toolSupport !== "none";
+  const capInfo = CAPABILITY_INFO[model.toolSupport ?? "text"];
+
+  const activeGroups   = groupByCategory(toolsStatus?.active ?? []);
+  const inactiveGroups = groupInactiveReasons(toolsStatus?.inactive ?? []);
+
+  const verdict =
+    !canUseTools              ? { label: "TOOLS DISABLED",     className: "text-red-600 dark:text-red-400" } :
+    model.toolSupport === "limited" ? { label: "LIMITED",      className: "text-amber-600 dark:text-amber-400" } :
+    activeGroups.size === 0   ? { label: "NO TOOLS CONFIGURED",className: "text-amber-600 dark:text-amber-400" } :
+                                { label: "READY",              className: "text-green-600 dark:text-green-400" };
+
+  const hostLabel =
+    connection.provider === "ollama"   ? "Ollama · local" :
+    connection.provider === "lmstudio" ? "LM Studio · local" :
+    connection.provider === "openai"   ? "OpenAI" :
+    connection.endpoint;
 
   return (
-    <div className="space-y-3 text-sm" data-testid="model-profile-card">
-      <p className="font-medium truncate">{model.name}</p>
+    <div className="space-y-4 text-sm" data-testid="model-profile-card">
 
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <span className="text-muted-foreground">Host</span>
-        <span>{hostLabel}</span>
-
-        {model.family && (
-          <>
-            <span className="text-muted-foreground">Family</span>
-            <span>{model.family}</span>
-          </>
-        )}
-        {model.parameterSize && (
-          <>
-            <span className="text-muted-foreground">Parameters</span>
-            <span>{model.parameterSize}</span>
-          </>
-        )}
-        {model.quantization && (
-          <>
-            <span className="text-muted-foreground">Quantization</span>
-            <span>{model.quantization}</span>
-          </>
-        )}
-        {model.contextLength ? (
-          <>
-            <span className="text-muted-foreground">Context</span>
-            <span>{model.contextLength.toLocaleString()} tokens</span>
-          </>
-        ) : null}
-
-        <span className="text-muted-foreground">Tools</span>
-        <span className={ts.className}>
-          {ts.symbol} {ts.label || (model.toolSupport ?? "unknown")}
-        </span>
+      {/* Identity */}
+      <div>
+        <p className="font-semibold truncate mb-2">{model.name}</p>
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
+          <span className="text-muted-foreground">Host</span><span>{hostLabel}</span>
+          {model.family      && <><span className="text-muted-foreground">Family</span><span>{model.family}</span></>}
+          {model.parameterSize && <><span className="text-muted-foreground">Parameters</span><span>{model.parameterSize}</span></>}
+          {model.quantization  && <><span className="text-muted-foreground">Quantization</span><span>{model.quantization}</span></>}
+          {model.contextLength  ? <><span className="text-muted-foreground">Context</span><span>{model.contextLength.toLocaleString()} tokens</span></> : null}
+        </div>
       </div>
 
+      {/* Tool capability level */}
+      <div className="space-y-1.5">
+        <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded tracking-wide ${capInfo.className}`}>
+          {capInfo.label.toUpperCase()}
+        </span>
+        <p className="text-xs text-muted-foreground leading-snug">{capInfo.description}</p>
+      </div>
+
+      {/* Creatrix tool compatibility */}
+      <div className="border-t pt-3 space-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+          Creatrix tools
+        </p>
+
+        {toolsLoading && (
+          <p className="text-xs text-muted-foreground">Checking tools…</p>
+        )}
+
+        {/* Active tool groups */}
+        {Array.from(activeGroups.entries()).map(([group]) => (
+          <div key={group} className="flex items-center justify-between text-xs">
+            <span>{group}</span>
+            {!canUseTools ? (
+              <span className="text-red-500 font-medium">✗</span>
+            ) : model.toolSupport === "limited" ? (
+              <span className="text-amber-500">⚠</span>
+            ) : (
+              <span className="text-green-500">✓</span>
+            )}
+          </div>
+        ))}
+
+        {/* Inactive tool groups (not configured) */}
+        {Array.from(inactiveGroups.entries()).map(([group, reason]) => (
+          <div key={group} className="flex items-center justify-between text-xs text-muted-foreground/50" title={reason}>
+            <span>{group}</span>
+            <span>—</span>
+          </div>
+        ))}
+
+        {!toolsLoading && activeGroups.size === 0 && inactiveGroups.size === 0 && (
+          <p className="text-xs text-muted-foreground">No tools available</p>
+        )}
+
+        {/* Model-level tool block explanation */}
+        {!canUseTools && activeGroups.size > 0 && (
+          <p className="text-xs text-red-600/70 dark:text-red-400/70 pt-1">
+            ↳ Tools are configured but this model cannot use them
+          </p>
+        )}
+      </div>
+
+      {/* Warnings from model profile */}
       {model.notes && model.notes.length > 0 && (
-        <div className="space-y-1 border-t pt-2">
+        <div className="border-t pt-3 space-y-1">
           {model.notes.map((n, i) => (
             <p key={i} className="text-xs text-muted-foreground leading-snug">↳ {n}</p>
           ))}
         </div>
       )}
+
+      {/* Overall verdict */}
+      <div className="border-t pt-3 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Overall</span>
+        <span className={`text-xs font-bold tracking-widest ${verdict.className}`}>{verdict.label}</span>
+      </div>
     </div>
   );
 }
@@ -459,7 +567,7 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
                 <Info className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-4">
+            <PopoverContent align="end" className="w-80 p-4">
               <ModelProfileCard model={currentModel} connection={activeConnection} />
             </PopoverContent>
           </Popover>
