@@ -13,7 +13,7 @@ services:
   #
   # After starting, configure endpoints in Creatrix Settings:
   #   Search endpoint:  http://localhost:8080
-  #   Whisper endpoint: http://localhost:9000/v1
+  #   Whisper endpoint: http://localhost:9000
   #
   # OCR (tesseract.js) runs inside Creatrix — no container needed.
 
