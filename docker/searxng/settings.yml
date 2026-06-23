@@ -1,0 +1,22 @@
+# SearXNG configuration for Creatrix
+# ─────────────────────────────────────────────────────────────────────────────
+# The critical setting is search.formats including "json" — without it,
+# SearXNG returns HTML and Creatrix API calls will fail.
+
+use_default_settings: true
+
+server:
+  # Change this before exposing to a network
+  secret_key: "creatrix-local-dev-change-before-exposing"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_mode: 0
+  formats:
+    - html
+    - json   # required — Creatrix calls /search?format=json
+
+ui:
+  default_locale: "en"
+  default_theme: simple

@@ -1,8 +1,21 @@
 services:
-  # ── Support services ─────────────────────────────────────────────────────────
+  # ── Required ───────────────────────────────────────────────────────────────────
   # Creatrix and Ollama run directly on the host (npm start / ollama serve).
-  # This compose file manages only the backing services they depend on.
-  # Start with: docker compose up -d
+  # This file manages only the backing services they depend on.
+  #
+  # Start everything:
+  #   docker compose --profile search --profile media up -d
+  #
+  # Start only what you need:
+  #   docker compose up -d                                  # Postgres only
+  #   docker compose --profile search up -d                 # + SearXNG
+  #   docker compose --profile media up -d                  # + Whisper
+  #
+  # After starting, configure endpoints in Creatrix Settings:
+  #   Search endpoint:  http://localhost:8080
+  #   Whisper endpoint: http://localhost:9000/v1
+  #
+  # OCR (tesseract.js) runs inside Creatrix — no container needed.
 
   db:
     image: postgres:15-alpine
@@ -20,6 +33,35 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  # ── Optional: Web search ───────────────────────────────────────────────────────
+  # Privacy-respecting meta-search engine.
+  # Creatrix falls back to DuckDuckGo if this isn't running.
+  # Set Search endpoint in Settings → http://localhost:8080
+  searxng:
+    image: searxng/searxng:latest
+    profiles: [search]
+    ports:
+      - "8080:8080"
+    volumes:
+      # settings.yml enables JSON format (required for Creatrix API calls)
+      - ./docker/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:8080/"
+    restart: unless-stopped
+
+  # ── Optional: Transcription ────────────────────────────────────────────────────
+  # Local Whisper server with OpenAI-compatible API.
+  # Set Whisper endpoint in Settings → http://localhost:9000/v1
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:cpu-latest
+    profiles: [media]
+    ports:
+      - "9000:9000"
+    environment:
+      ASR_MODEL: base        # tiny | base | small | medium | large
+      ASR_ENGINE: openai_whisper
     restart: unless-stopped
 
 volumes:
