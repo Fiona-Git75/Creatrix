@@ -552,6 +552,9 @@ export class DatabaseStorage implements IStorage {
   // Hydrate settings from DB at startup so every subsequent getSettings()
   // call returns the persisted row, never the hardcoded in-memory default.
   async initialize(): Promise<void> {
+    const rawUrl = process.env.DATABASE_URL ?? "";
+    const maskedUrl = rawUrl.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
+    console.log(`[Creatrix] database: ${maskedUrl}`);
     try {
       const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
       if (!result[0]) {
