@@ -1,5 +1,5 @@
 import { Loader2, ChevronDown, ChevronRight, BrainCircuit } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { CapabilityName } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 
@@ -62,7 +62,16 @@ interface ToolCallCardProps {
 }
 
 export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    event.capability === "ask_consultant" && event.status === "success"
+  );
+
+  useEffect(() => {
+    if (event.capability === "ask_consultant" && event.status === "success") {
+      setExpanded(true);
+    }
+  }, [event.capability, event.status]);
+
   const label = LABELS[event.capability] ?? event.capability.replace(/_/g, " ");
   const hint = argHint(event.capability, event.args);
   const hasDetail = event.status !== "running" && event.status !== "pending_confirm" && (event.result !== undefined || event.error);
