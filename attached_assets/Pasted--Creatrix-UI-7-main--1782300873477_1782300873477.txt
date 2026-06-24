@@ -1,0 +1,53 @@
+
+░▒▓   …/Creatrix-UI_7    main !?  ▓▒░ ◦•·········································································································•◦ ░▒▓   11ms ▓▒░
+··• grep -R "fetch" server | head -n 50
+server/rag/embeddings.ts:    const response = await fetch(`${base}/embeddings`, {
+server/capabilities/media.ts:    const res = await fetch(source, { signal: AbortSignal.timeout(15000) });
+server/capabilities/media.ts:    if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+server/capabilities/media.ts:      const segments = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+server/capabilities/media.ts:      const audioRes = await fetch(url, { signal: AbortSignal.timeout(30000) });
+server/capabilities/media.ts:      if (!audioRes.ok) throw new Error(`Failed to fetch audio: HTTP ${audioRes.status}`);
+server/capabilities/media.ts:      const response = await fetch(transcribeUrl, {
+server/capabilities/media.ts:        const res = await fetch(source, { signal: AbortSignal.timeout(15000) });
+server/capabilities/media.ts:        if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+server/capabilities/media.ts:      const response = await fetch(chatEndpoint, {
+server/capabilities/web.ts:  const res = await fetch(url, {
+server/capabilities/web.ts:  const res = await fetch("https://html.duckduckgo.com/html/", {
+server/capabilities/web.ts:      return { blocked: true, reason: "Page requires JavaScript to render — not accessible via fetch" };
+server/capabilities/web.ts:          note: "No results found. Try rephrasing the query, or use retrieve_url to fetch a specific page directly.",
+server/capabilities/web.ts:      const response = await fetch(url, {
+server/capabilities/notion.ts:  return fetch(`${NOTION_API}${path}`, {
+server/providers/index.ts:    const response = await fetch(`${this.endpoint}/chat/completions`, {
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/models`, {
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/models`, {
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/api/chat`, {
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/api/tags`);
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/api/tags`);
+server/providers/index.ts:    const response = await fetch(`${this.endpoint}/api/pull`, {
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/models`);
+server/providers/index.ts:      const response = await fetch(`${this.endpoint}/models`);
+server/providers/discovery.ts:const _profileCache = new Map<string, { profile: Partial<ModelEntry>; fetchedAt: number }>();
+server/providers/discovery.ts:async function fetchOllamaModelProfile(endpoint: string, modelId: string): Promise<Partial<ModelEntry>> {
+server/providers/discovery.ts:  if (cached && Date.now() - cached.fetchedAt < PROFILE_CACHE_TTL) return cached.profile;
+server/providers/discovery.ts:    const r = await fetch(`${endpoint}/api/show`, {
+server/providers/discovery.ts:    _profileCache.set(key, { profile, fetchedAt: Date.now() });
+server/providers/discovery.ts:// Public: unified profile fetch for any connection type
+server/providers/discovery.ts:export async function fetchModelProfile(connection: Connection, modelId: string): Promise<Partial<ModelEntry>> {
+server/providers/discovery.ts:    return fetchOllamaModelProfile(connection.endpoint, modelId);
+server/providers/discovery.ts:    const r = await fetch(url, { signal: controller.signal });
+server/providers/discovery.ts:        const profile = await fetchModelProfile(connection, m.id);
+server/storage.ts:      .limit(limit * 4); // over-fetch to allow client-side filter
+server/routes.ts:import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
+server/routes.ts:  if (msg.includes("fetch failed")) return "Lost contact with the AI. Is it still running?";
+server/routes.ts:      console.error("Error fetching connections:", error);
+server/routes.ts:      res.status(500).json({ error: "Failed to fetch connections" });
+server/routes.ts:      console.error("Error fetching models:", error);
+server/routes.ts:      res.status(500).json({ status: "error", message: "Failed to fetch models", models: [] });
+server/routes.ts:        const resp = await fetch(url, { signal: controller.signal });
+server/routes.ts:      const profile = await fetchModelProfile(connection, decodeURIComponent(modelId));
+server/routes.ts:      console.error("Error fetching projects:", error);
+server/routes.ts:      res.status(500).json({ error: "Failed to fetch projects" });
+server/routes.ts:      console.error("Error fetching project:", error);
+server/routes.ts:      res.status(500).json({ error: "Failed to fetch project" });
+server/routes.ts:      console.error("Error fetching conversations:", error);
+server/routes.ts:      res.status(500).json({ error: "Failed to fetch conversations" });
