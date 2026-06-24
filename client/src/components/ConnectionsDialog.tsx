@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ interface ProvidersStatusResponse {
 }
 
 function DiscoveryPanel({ onUse, onManual }: {
-  onUse: (name: string, provider: ProviderType, endpoint: string) => void;
+  onUse: (name: string, provider: ProviderType, endpoint: string, defaultModel: string) => void;
   onManual: () => void;
 }) {
   const { data, isLoading } = useQuery<ProvidersStatusResponse>({
@@ -57,6 +57,10 @@ function DiscoveryPanel({ onUse, onManual }: {
       queryClient.setQueryData(["/api/providers/status"], fresh);
     },
   });
+
+  useEffect(() => {
+    scanMutation.mutate();
+  }, []);
 
   const scanning = isLoading || scanMutation.isPending;
   const found = data?.suggested ?? [];
@@ -108,7 +112,7 @@ function DiscoveryPanel({ onUse, onManual }: {
             <div className="flex items-center justify-between gap-2">
               <Button
                 size="sm"
-                onClick={() => onUse(p.name, p.type as ProviderType, p.endpoint)}
+                onClick={() => onUse(p.name, p.type as ProviderType, p.endpoint, p.models[0] ?? "")}
                 data-testid={`button-use-${p.type}`}
               >
                 Use this
@@ -173,9 +177,11 @@ function ConnectionsTab() {
       await apiRequest("POST", "/api/connections", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/status"] });
       setIsAdding(false);
       resetForm();
-      toast({ title: "Connection added successfully" });
+      toast({ title: "Connection added" });
     },
     onError: (error: any) => {
       toast({ title: "Failed to add connection", description: error.message, variant: "destructive" });
@@ -255,8 +261,8 @@ function ConnectionsTab() {
           </div>
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
-            onUse={(name, provider, endpoint) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel: "", isDefault: true });
+            onUse={(name, provider, endpoint, defaultModel) => {
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true });
             }}
             onManual={() => setIsAdding(true)}
           />
