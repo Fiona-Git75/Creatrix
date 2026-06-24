@@ -229,12 +229,17 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
   // Probe each candidate address in parallel so discovery works whether the
   // app is running natively (localhost) or inside Docker (host.docker.internal,
   // which is mapped to the host gateway via extra_hosts in docker-compose.yml).
+  // 127.0.0.1 is listed explicitly because on many Linux systems Node.js resolves
+  // "localhost" to ::1 (IPv6) while Ollama only binds to 127.0.0.1 (IPv4),
+  // causing silent connection refusals.
   const ollamaCandidates = [
+    "http://127.0.0.1:11434",
     "http://localhost:11434",
     "http://host.docker.internal:11434",
   ].filter(ep => !configuredEndpoints.has(ep));
 
   const lmCandidates = [
+    "http://127.0.0.1:1234/v1",
     "http://localhost:1234/v1",
     "http://host.docker.internal:1234/v1",
   ].filter(ep => !configuredEndpoints.has(ep) && !configuredEndpoints.has(ep.replace("/v1", "")));
@@ -255,13 +260,15 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
   ]);
 
   if (ollamaResult) {
-    // Strip the /api/tags path suffix to get the base endpoint
     const base = ollamaResult.endpoint.replace("/api/tags", "");
+    console.log(`[discovery] Ollama found at ${base} — ${ollamaResult.models.length} model(s)`);
     suggested.push({ name: "Ollama", type: "ollama", endpoint: base, models: ollamaResult.models });
+  } else {
+    console.log(`[discovery] Ollama not found — probed: ${ollamaCandidates.map(ep => `${ep}/api/tags`).join(", ")}`);
   }
   if (lmResult && lmResult.models.length > 0) {
-    // Strip /models to get the base v1 endpoint
     const base = lmResult.endpoint.replace("/models", "");
+    console.log(`[discovery] LM Studio found at ${base} — ${lmResult.models.length} model(s)`);
     suggested.push({ name: "LM Studio", type: "lmstudio", endpoint: base, models: lmResult.models });
   }
 

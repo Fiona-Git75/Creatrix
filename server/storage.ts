@@ -585,11 +585,17 @@ export class DatabaseStorage implements IStorage {
           libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
           morningOrientationEnabled: s.morningOrientationEnabled ?? false,
           whisperEndpoint: s.whisperEndpoint ?? undefined,
-          searchEndpoint: s.searchEndpoint ?? undefined,
+          searchEndpoint: (s as any).searchEndpoint ?? undefined,
+          embeddingModel: (s as any).embeddingModel ?? undefined,
         };
       }
     } catch (err: any) {
-      throw new Error(`Failed to initialize settings from database: ${err.message}`);
+      // If the schema has columns that don't exist yet in the DB (e.g. after a
+      // git pull before running drizzle-kit push), fall back to a safe default
+      // so the server can still start. The missing columns will be added on next push.
+      console.warn(`[storage] Settings query failed (schema out of sync?): ${err.message}`);
+      console.warn(`[storage] Run "npx drizzle-kit push" to sync your database schema.`);
+      this._settings = { theme: "system", morningOrientationEnabled: false };
     }
   }
 
@@ -854,7 +860,8 @@ export class DatabaseStorage implements IStorage {
       libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
       morningOrientationEnabled: s.morningOrientationEnabled ?? false,
       whisperEndpoint: s.whisperEndpoint ?? undefined,
-      searchEndpoint: s.searchEndpoint ?? undefined,
+      searchEndpoint: (s as any).searchEndpoint ?? undefined,
+      embeddingModel: (s as any).embeddingModel ?? undefined,
     };
     return this._settings;
   }
