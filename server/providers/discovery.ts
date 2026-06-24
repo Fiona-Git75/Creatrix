@@ -181,7 +181,9 @@ async function scanConnection(connection: Connection): Promise<ProviderStatus> {
   try {
     const provider = createProvider(connection);
     const result = await provider.listModelsWithStatus();
-    const online = result.status === "ok" || result.models.length > 0;
+    // "empty" means reachable but no models installed — still online
+    const online = result.status === "ok" || result.status === "empty" || result.models.length > 0;
+    console.log(`[discovery] scan ${connection.name} (${connection.endpoint}): status=${result.status} models=${result.models.length} → ${online ? "online" : "offline"}`);
 
     const models: ModelEntry[] = await Promise.all(
       result.models.map(async (m): Promise<ModelEntry> => {
@@ -199,7 +201,8 @@ async function scanConnection(connection: Connection): Promise<ProviderStatus> {
       status: online ? "online" : "offline",
       models,
     };
-  } catch {
+  } catch (err: any) {
+    console.error(`[discovery] scan ${connection.name} (${connection.endpoint}) threw: ${err?.message ?? err}`);
     return {
       connectionId: connection.id,
       name: connection.name,

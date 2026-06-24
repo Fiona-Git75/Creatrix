@@ -26,7 +26,14 @@ const PROBE_URLS: Record<string, (endpoint: string) => string> = {
   search:  (ep) => `${ep.replace(/\/$/, "")}/`,
 };
 
+/** Node.js on Linux often resolves "localhost" to ::1 (IPv6) while Docker
+ *  port-mappings bind to 0.0.0.0 (IPv4) only. Always force IPv4. */
+function normalizeUrl(url: string): string {
+  return url.replace(/\/\/localhost\b/gi, "//127.0.0.1");
+}
+
 async function fireProbe(key: string, url: string): Promise<void> {
+  url = normalizeUrl(url);
   if (inFlight.has(key)) return;
   inFlight.add(key);
   const start = Date.now();
