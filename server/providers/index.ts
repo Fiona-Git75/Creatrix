@@ -7,7 +7,8 @@ import { type Connection, type Message } from "@shared/schema";
 export interface MultimodalMessage {
   role: string;
   content: string;
-  images?: string[]; // base64, no data-URI prefix
+  images?: string[];       // base64, no data-URI prefix
+  imageMimeTypes?: string[]; // parallel to images; defaults to image/jpeg if absent
 }
 
 export interface StreamChunk {
@@ -92,9 +93,9 @@ export class OpenAIProvider implements ModelProvider {
       }
       const contentParts: Array<Record<string, unknown>> = [
         { type: "text", text: msg.content },
-        ...msg.images.map((b64) => ({
+        ...msg.images.map((b64, i) => ({
           type: "image_url",
-          image_url: { url: `data:image/jpeg;base64,${b64}` },
+          image_url: { url: `data:${msg.imageMimeTypes?.[i] ?? "image/jpeg"};base64,${b64}` },
         })),
       ];
       return { role: msg.role, content: contentParts };

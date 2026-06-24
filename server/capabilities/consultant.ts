@@ -4,9 +4,16 @@ import type { CapabilityDefinition, CapabilityContext } from "./index";
 import { createProvider } from "../providers";
 import type { MultimodalMessage } from "../providers";
 
-const ALLOWED_IMAGE_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
-]);
+const EXTENSION_TO_MIME: Record<string, string> = {
+  ".jpg":  "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png":  "image/png",
+  ".gif":  "image/gif",
+  ".webp": "image/webp",
+  ".bmp":  "image/bmp",
+};
+
+const ALLOWED_IMAGE_EXTENSIONS = new Set(Object.keys(EXTENSION_TO_MIME));
 
 function resolveImagePath(
   filePath: string,
@@ -105,8 +112,11 @@ export const consultantCapability: CapabilityDefinition = {
 
     // Resolve image data
     let imageBase64: string | undefined;
+    let imageMimeType: string | undefined;
     if (imagePath) {
       const safePath = resolveImagePath(imagePath, ctx);
+      const ext = path.extname(safePath).toLowerCase();
+      imageMimeType = EXTENSION_TO_MIME[ext] ?? "image/jpeg";
       const buf = readFileSync(safePath);
       imageBase64 = buf.toString("base64");
     } else if (imageBase64Arg) {
@@ -116,7 +126,10 @@ export const consultantCapability: CapabilityDefinition = {
     const userMessage: MultimodalMessage = {
       role: "user",
       content: question,
-      ...(imageBase64 ? { images: [imageBase64] } : {}),
+      ...(imageBase64 ? {
+        images: [imageBase64],
+        imageMimeTypes: [imageMimeType ?? "image/jpeg"],
+      } : {}),
     };
 
     const provider = createProvider(connection);
