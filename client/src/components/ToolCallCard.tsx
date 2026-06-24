@@ -1,4 +1,4 @@
-import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, ChevronDown, ChevronRight, BrainCircuit } from "lucide-react";
 import { useState } from "react";
 import type { CapabilityName } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ const LABELS: Partial<Record<CapabilityName, string>> = {
   analyze_image: "Looking at image",
   append_file: "Appending to file",
   run_command: "Running command",
+  ask_consultant: "Consulting specialist",
 };
 
 function argHint(capability: CapabilityName, args: Record<string, unknown>): string {
@@ -128,6 +129,64 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
         <span className="text-muted-foreground line-through">{label}</span>
         {hint && <span className="text-muted-foreground/50 truncate">{hint}</span>}
         <span className="ml-auto text-muted-foreground/50">cancelled</span>
+      </div>
+    );
+  }
+
+  // ── Consultant call — distinct layout ────────────────────────────────────
+  if (event.capability === "ask_consultant") {
+    const consultantName = String(event.args.consultant_name ?? "");
+    const question = String(event.args.question ?? "");
+    const result = event.result as { consultant?: string; question?: string; answer?: string } | undefined;
+    const answer = result?.answer;
+
+    return (
+      <div
+        className={`my-0.5 rounded-lg text-xs overflow-hidden border ${
+          event.status === "error"
+            ? "border-destructive/20 bg-destructive/5"
+            : "border-violet-500/20 bg-violet-500/5"
+        }`}
+        data-testid={`tool-call-${event.id}`}
+      >
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 ${hasDetail ? "cursor-pointer" : ""}`}
+          onClick={() => hasDetail && setExpanded(!expanded)}
+        >
+          {event.status === "running" ? (
+            <Loader2 className="h-3 w-3 animate-spin text-violet-500/60 shrink-0" />
+          ) : (
+            <BrainCircuit className={`h-3 w-3 shrink-0 ${event.status === "error" ? "text-destructive/60" : "text-violet-500/70"}`} />
+          )}
+          <span className="font-medium text-foreground/80">
+            {consultantName ? `${consultantName}` : "Consultant"}
+          </span>
+          {event.status === "running" && (
+            <span className="text-violet-500/50 text-[10px] ml-auto">thinking…</span>
+          )}
+          {hasDetail && (
+            expanded
+              ? <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0 ml-auto" />
+              : <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0 ml-auto" />
+          )}
+        </div>
+
+        {(question || expanded) && (
+          <div className="px-3 pb-2 space-y-2">
+            {question && (
+              <p className="text-muted-foreground/60 italic text-[11px]">"{question}"</p>
+            )}
+            {expanded && hasDetail && (
+              event.status === "error" ? (
+                <p className="text-destructive/80">{event.error}</p>
+              ) : answer ? (
+                <div className="text-foreground/70 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto border-t border-border/20 pt-2">
+                  {answer}
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
       </div>
     );
   }

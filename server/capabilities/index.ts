@@ -6,6 +6,7 @@ import { notionCapabilities } from "./notion";
 import { mediaCapabilities } from "./media";
 import { terminalCapabilities } from "./terminal";
 import { docsCapabilities } from "./docs";
+import { consultantCapability } from "./consultant";
 
 export interface CapabilityContext {
   rootFolder?: string;
@@ -44,7 +45,7 @@ function register(def: CapabilityDefinition) {
 }
 
 // Register all capabilities
-for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities, ...docsCapabilities]) {
+for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities, ...docsCapabilities, consultantCapability]) {
   register(cap);
 }
 

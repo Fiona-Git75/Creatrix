@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { chatRequestSchema, type Message, type CapabilityName, type Source } from "@shared/schema";
+import { chatRequestSchema, type Message, type CapabilityName, type Source, insertConsultantSchema } from "@shared/schema";
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
 import { chunkText } from "./rag/chunking";
@@ -423,6 +423,44 @@ export async function registerRoutes(
     }
   });
 
+  // === Consultants ===
+  app.get("/api/projects/:projectId/consultants", async (req: Request, res: Response) => {
+    try {
+      const list = await storage.getConsultants(req.params.projectId);
+      res.json(list);
+    } catch (error) {
+      console.error("Error fetching consultants:", error);
+      res.status(500).json({ error: "Failed to fetch consultants" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/consultants", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertConsultantSchema.safeParse({ ...req.body, projectId: req.params.projectId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid consultant data", details: parsed.error });
+      }
+      const consultant = await storage.createConsultant(parsed.data);
+      res.status(201).json(consultant);
+    } catch (error) {
+      console.error("Error creating consultant:", error);
+      res.status(500).json({ error: "Failed to create consultant" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/consultants/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteConsultant(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Consultant not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting consultant:", error);
+      res.status(500).json({ error: "Failed to delete consultant" });
+    }
+  });
+
   // === Conversations ===
   app.get("/api/conversations", async (req: Request, res: Response) => {
     try {
@@ -611,11 +649,16 @@ export async function registerRoutes(
       // Only "none"-tier models (too small to use tools) skip this entirely.
       const allCaps = toolSupport !== "none" ? listCapabilities() : [];
 
+      // Fetch consultants for this project (empty if no project)
+      const projectConsultants = projectId ? await storage.getConsultants(projectId) : [];
+
       // Active = wired up and executable right now.
       const availableCaps = allCaps.filter(c => {
         if (c.requires?.rootFolder && !rootFolder) return false;
         if (c.requires?.whisperEndpoint && !whisperEndpoint) return false;
         if (c.requires?.notion && !notionAvailable) return false;
+        // ask_consultant is only active when there are consultants configured for this project
+        if (c.name === "ask_consultant" && projectConsultants.length === 0) return false;
         return true;
       });
 
@@ -642,30 +685,38 @@ export async function registerRoutes(
         availableCaps.length > 0;
 
       const apiTools: ToolDefinition[] = useNativeToolCalling
-        ? availableCaps.map(c => ({
-            type: "function" as const,
-            function: {
-              name: c.name as string,
-              description: c.description,
-              parameters: {
-                type: "object" as const,
-                properties: Object.fromEntries(
-                  Object.entries(c.argsSchema).map(([k, v]) => [k, { type: v.type, description: v.description }])
-                ),
-                required: Object.entries(c.argsSchema)
-                  .filter(([, v]) => v.required)
-                  .map(([k]) => k),
+        ? availableCaps.map(c => {
+            const baseDescription = c.name === "ask_consultant" && projectConsultants.length > 0
+              ? `${c.description} Available consultants: ${projectConsultants.map(con => `"${con.name}" (${con.description})`).join(", ")}.`
+              : c.description;
+            return {
+              type: "function" as const,
+              function: {
+                name: c.name as string,
+                description: baseDescription,
+                parameters: {
+                  type: "object" as const,
+                  properties: Object.fromEntries(
+                    Object.entries(c.argsSchema).map(([k, v]) => [k, { type: v.type, description: v.description }])
+                  ),
+                  required: Object.entries(c.argsSchema)
+                    .filter(([, v]) => v.required)
+                    .map(([k]) => k),
+                },
               },
-            },
-          }))
+            };
+          })
         : [];
 
       // Text path: inject orientation handshake for models that speak XML tool protocol.
       if (!useNativeToolCalling && allCaps.length > 0) {
         const activeDesc = availableCaps.length > 0
-          ? availableCaps.map(c =>
-              `- **${c.name}**: ${c.description}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`
-            ).join("\n")
+          ? availableCaps.map(c => {
+              const desc = c.name === "ask_consultant" && projectConsultants.length > 0
+                ? `${c.description} Available: ${projectConsultants.map(con => `"${con.name}" — ${con.description}`).join("; ")}.`
+                : c.description;
+              return `- **${c.name}**: ${desc}${c.requiresConfirmation ? " *(requires confirmation)*" : ""}\n  Args: ${Object.entries(c.argsSchema).map(([k, v]) => `${k} (${v.type}${v.required ? ", required" : ""})`).join(", ")}`;
+            }).join("\n")
           : "(none — configure tools in Settings to enable them)";
 
         // Concrete example first — the model needs to see the exact protocol it will use

@@ -11,8 +11,9 @@ import {
   type JournalEntry, type InsertJournalEntry,
   type WorkspaceDoc, type InsertWorkspaceDoc,
   type SystemLog,
+  type Consultant, type InsertConsultant,
   users, connections, projects, conversations, memoryEntries, knowledgeDocuments, settings,
-  libraryFolders, libraryItems, journalEntries, systemLogs, workspaceDocs,
+  libraryFolders, libraryItems, journalEntries, systemLogs, workspaceDocs, consultants,
 } from "@shared/schema";
 import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
@@ -113,6 +114,12 @@ export interface IStorage {
   clearSystemLogs(): Promise<void>;
   pruneSystemLogs(olderThanDays: number): Promise<void>;
 
+  // ─── Consultants ───────────────────────────────────────────────────────────
+  getConsultants(projectId: string): Promise<Consultant[]>;
+  getConsultant(id: string): Promise<Consultant | undefined>;
+  createConsultant(consultant: InsertConsultant): Promise<Consultant>;
+  deleteConsultant(id: string): Promise<boolean>;
+
   // ─── Vector / Semantic Search ──────────────────────────────────────────────
   initVectorStore?(): Promise<void>;
   storeChunkEmbeddings?(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void>;
@@ -131,6 +138,7 @@ export class MemStorage implements IStorage {
   private _libraryFolders: Map<string, LibraryFolder>;
   private _libraryItems: Map<string, LibraryItem>;
   private _journalEntries: Map<string, JournalEntry>;
+  private _consultants: Map<string, Consultant>;
   private settings: Settings;
 
   constructor() {
@@ -143,6 +151,7 @@ export class MemStorage implements IStorage {
     this._libraryFolders = new Map();
     this._libraryItems = new Map();
     this._journalEntries = new Map();
+    this._consultants = new Map();
     this.settings = { theme: "system", morningOrientationEnabled: false };
 
     const defaultConnection: Connection = {
@@ -516,6 +525,23 @@ export class MemStorage implements IStorage {
     return updated;
   }
   async deleteWorkspaceDoc(id: string): Promise<boolean> { return this._workspaceDocs.delete(id); }
+
+  // ─── Consultants ───────────────────────────────────────────────────────────
+  async getConsultants(projectId: string): Promise<Consultant[]> {
+    return Array.from(this._consultants.values()).filter(c => c.projectId === projectId);
+  }
+  async getConsultant(id: string): Promise<Consultant | undefined> {
+    return this._consultants.get(id);
+  }
+  async createConsultant(insert: InsertConsultant): Promise<Consultant> {
+    const id = randomUUID();
+    const consultant: Consultant = { ...insert, id, createdAt: new Date().toISOString() };
+    this._consultants.set(id, consultant);
+    return consultant;
+  }
+  async deleteConsultant(id: string): Promise<boolean> {
+    return this._consultants.delete(id);
+  }
 
   async addSystemLog(_entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {
     // In-memory mode: syslog buffer already holds the entry
@@ -1079,6 +1105,27 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteWorkspaceDoc(id: string): Promise<boolean> {
     const result = await this.db.delete(workspaceDocs).where(eq(workspaceDocs.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ─── Consultants ───────────────────────────────────────────────────────────
+  async getConsultants(projectId: string): Promise<Consultant[]> {
+    const rows = await this.db.select().from(consultants).where(eq(consultants.projectId, projectId));
+    return rows.map(r => ({ ...r }));
+  }
+  async getConsultant(id: string): Promise<Consultant | undefined> {
+    const rows = await this.db.select().from(consultants).where(eq(consultants.id, id));
+    return rows[0] ? { ...rows[0] } : undefined;
+  }
+  async createConsultant(insert: InsertConsultant): Promise<Consultant> {
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    const row = { ...insert, id, createdAt };
+    await this.db.insert(consultants).values(row);
+    return row;
+  }
+  async deleteConsultant(id: string): Promise<boolean> {
+    const result = await this.db.delete(consultants).where(eq(consultants.id, id));
     return (result.rowCount ?? 0) > 0;
   }
 

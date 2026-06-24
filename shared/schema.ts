@@ -368,6 +368,33 @@ export type WorkspaceDoc = z.infer<typeof workspaceDocSchema>;
 export const insertWorkspaceDocSchema = workspaceDocSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertWorkspaceDoc = z.infer<typeof insertWorkspaceDocSchema>;
 
+// ─── Consultants ─────────────────────────────────────────────────────────────
+
+export const consultants = pgTable("consultants", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  projectId: varchar("project_id", { length: 36 }).notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  connectionId: varchar("connection_id", { length: 36 }).notNull(),
+  model: text("model").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const consultantSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  connectionId: z.string(),
+  model: z.string(),
+  systemPrompt: z.string(),
+  createdAt: z.string(),
+});
+export type Consultant = z.infer<typeof consultantSchema>;
+export const insertConsultantSchema = consultantSchema.omit({ id: true, createdAt: true });
+export type InsertConsultant = z.infer<typeof insertConsultantSchema>;
+
 // Capability invocation (used in chat context to track what tools were called)
 export const capabilityNames = [
   "list_directory",
@@ -397,6 +424,7 @@ export const capabilityNames = [
   "read_doc",
   "write_doc",
   "edit_doc",
+  "ask_consultant",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 
