@@ -589,47 +589,58 @@ export class DatabaseStorage implements IStorage {
     const rawUrl = process.env.DATABASE_URL ?? "";
     const maskedUrl = rawUrl.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
     console.log(`[Creatrix] database: ${maskedUrl}`);
+    // Read settings with a raw SQL query that lists columns explicitly.
+    // This makes startup resilient to schema drift — if schema.ts has new columns
+    // that haven't been pushed to the DB yet, we still read everything that exists
+    // rather than crashing or silently discarding all persisted data.
+    let rawRow: Record<string, any> | null = null;
     try {
-      const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
-      if (!result[0]) {
-        // No row yet — write the canonical default so it exists for all future reads
-        const defaultRow = {
-          id: "default",
-          defaultConnectionId: null,
-          defaultProjectId: null,
-          theme: "system",
-          rootFolder: null,
-          libraryPaths: null,
-          morningOrientationEnabled: false,
-          whisperEndpoint: null,
-          searchEndpoint: null,
-        };
-        await this.db.insert(settings).values(defaultRow).onConflictDoNothing();
-        this._settings = {
-          theme: "system",
-          morningOrientationEnabled: false,
-        };
-      } else {
-        const s = result[0];
-        this._settings = {
-          defaultConnectionId: s.defaultConnectionId ?? undefined,
-          defaultProjectId: s.defaultProjectId ?? undefined,
-          theme: (s.theme as Settings["theme"]) ?? "system",
-          rootFolder: s.rootFolder ?? undefined,
-          libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
-          morningOrientationEnabled: s.morningOrientationEnabled ?? false,
-          whisperEndpoint: s.whisperEndpoint ?? undefined,
-          searchEndpoint: (s as any).searchEndpoint ?? undefined,
-          embeddingModel: (s as any).embeddingModel ?? undefined,
-        };
-      }
+      // Probe which optional columns are present, then build a safe SELECT.
+      const colCheck = await this.db.execute(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'settings'
+      `);
+      const present = new Set((colCheck.rows as any[]).map((r: any) => r.column_name as string));
+
+      const optionals = ["whisper_endpoint", "search_endpoint", "embedding_model"]
+        .filter(c => present.has(c))
+        .map(c => `"${c}"`)
+        .join(", ");
+
+      const selectSql = `
+        SELECT id, default_connection_id, default_project_id, theme,
+               root_folder, library_paths, morning_orientation_enabled
+               ${optionals ? ", " + optionals : ""}
+        FROM settings WHERE id = 'default'
+      `;
+      const result = await this.db.execute(sql.raw(selectSql));
+      rawRow = (result.rows[0] as Record<string, any>) ?? null;
     } catch (err: any) {
-      // If the schema has columns that don't exist yet in the DB (e.g. after a
-      // git pull before running drizzle-kit push), fall back to a safe default
-      // so the server can still start. The missing columns will be added on next push.
-      console.warn(`[storage] Settings query failed (schema out of sync?): ${err.message}`);
-      console.warn(`[storage] Run "npx drizzle-kit push" to sync your database schema.`);
+      console.warn(`[storage] Settings read failed: ${err.message}`);
+    }
+
+    if (!rawRow) {
+      // No row yet — insert the canonical defaults
+      try {
+        await this.db.execute(sql`
+          INSERT INTO settings (id, theme, morning_orientation_enabled)
+          VALUES ('default', 'system', false)
+          ON CONFLICT (id) DO NOTHING
+        `);
+      } catch {}
       this._settings = { theme: "system", morningOrientationEnabled: false };
+    } else {
+      this._settings = {
+        defaultConnectionId: rawRow.default_connection_id ?? undefined,
+        defaultProjectId: rawRow.default_project_id ?? undefined,
+        theme: (rawRow.theme as Settings["theme"]) ?? "system",
+        rootFolder: rawRow.root_folder ?? undefined,
+        libraryPaths: (rawRow.library_paths as string[] | null) ?? undefined,
+        morningOrientationEnabled: rawRow.morning_orientation_enabled ?? false,
+        whisperEndpoint: rawRow.whisper_endpoint ?? undefined,
+        searchEndpoint: rawRow.search_endpoint ?? undefined,
+        embeddingModel: rawRow.embedding_model ?? undefined,
+      };
     }
   }
 

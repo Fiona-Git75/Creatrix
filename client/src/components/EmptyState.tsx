@@ -79,9 +79,12 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
     );
   }
 
-  const onlineProviders = providerStatus?.providers.filter(p => p.status === "online") ?? [];
+  const allProviders = providerStatus?.providers ?? [];
+  const onlineProviders = allProviders.filter(p => p.status === "online");
+  const offlineProviders = allProviders.filter(p => p.status === "offline");
   const suggested = providerStatus?.suggested ?? [];
   const anyOnline = onlineProviders.length > 0;
+  const anyConfigured = allProviders.length > 0;
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-4" data-testid="empty-state-briefing">
@@ -112,35 +115,59 @@ export function EmptyState({ onStartChatting, onOpenSettings }: EmptyStateProps)
         <p className="text-xs text-muted-foreground font-mono">
           {anyOnline
             ? "….Ready"
-            : suggested.length > 0
+            : anyConfigured
               ? (
+                // Connections exist but all offline — name them, don't pretend nothing is configured
                 <>
-                  {suggested[0].name} found but not configured.{" "}
+                  {offlineProviders.map((p, i) => (
+                    <span key={p.connectionId}>
+                      {i > 0 && " · "}
+                      {p.name} — offline
+                    </span>
+                  ))}
                   {onOpenSettings && (
-                    <button
-                      onClick={onOpenSettings}
-                      className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
-                      data-testid="button-open-settings-from-briefing"
-                    >
-                      Add connection
-                    </button>
+                    <>
+                      {" "}
+                      <button
+                        onClick={onOpenSettings}
+                        className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                        data-testid="button-open-settings-from-briefing"
+                      >
+                        Check settings
+                      </button>
+                    </>
                   )}
                 </>
               )
-              : (
-                <>
-                  No AI found.{" "}
-                  {onOpenSettings && (
-                    <button
-                      onClick={onOpenSettings}
-                      className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
-                      data-testid="button-open-settings-from-briefing"
-                    >
-                      Add a connection
-                    </button>
-                  )}
-                </>
-              )
+              : suggested.length > 0
+                ? (
+                  <>
+                    {suggested[0].name} found but not configured.{" "}
+                    {onOpenSettings && (
+                      <button
+                        onClick={onOpenSettings}
+                        className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                        data-testid="button-open-settings-from-briefing"
+                      >
+                        Add connection
+                      </button>
+                    )}
+                  </>
+                )
+                : (
+                  <>
+                    No AI found.{" "}
+                    {onOpenSettings && (
+                      <button
+                        onClick={onOpenSettings}
+                        className="underline underline-offset-2 hover:opacity-60 transition-opacity text-foreground"
+                        data-testid="button-open-settings-from-briefing"
+                      >
+                        Add a connection
+                      </button>
+                    )}
+                  </>
+                )
           }
         </p>
 
