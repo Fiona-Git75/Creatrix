@@ -332,16 +332,14 @@ interface ConsultantsSectionProps {
   onToggle: () => void;
 }
 
+const emptyConsultantForm = { name: "", description: "", connectionId: "", model: "", systemPrompt: "" };
+
 function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectionProps) {
   const { toast } = useToast();
   const [isAdding, setIsAdding] = useState(false);
-  const [consultantForm, setConsultantForm] = useState({
-    name: "",
-    description: "",
-    connectionId: "",
-    model: "",
-    systemPrompt: "",
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [consultantForm, setConsultantForm] = useState({ ...emptyConsultantForm });
+  const [editForm, setEditForm] = useState({ ...emptyConsultantForm });
 
   const { data: consultants = [], isLoading } = useQuery<Consultant[]>({
     queryKey: ["/api/projects", projectId, "consultants"],
@@ -351,7 +349,7 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
 
   const { data: connections = [] } = useQuery<Connection[]>({
     queryKey: ["/api/connections"],
-    enabled: expanded && isAdding,
+    enabled: expanded && (isAdding || editingId !== null),
   });
 
   const createMutation = useMutation({
@@ -361,11 +359,25 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "consultants"] });
       setIsAdding(false);
-      setConsultantForm({ name: "", description: "", connectionId: "", model: "", systemPrompt: "" });
+      setConsultantForm({ ...emptyConsultantForm });
       toast({ title: "Consultant added" });
     },
     onError: (error: any) => {
       toast({ title: "Failed to add consultant", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: typeof editForm }) => {
+      return await apiRequest("PATCH", `/api/projects/${projectId}/consultants/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "consultants"] });
+      setEditingId(null);
+      toast({ title: "Consultant updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update consultant", description: error.message, variant: "destructive" });
     },
   });
 
@@ -384,6 +396,100 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
     if (!consultantForm.name || !consultantForm.connectionId || !consultantForm.model || !consultantForm.description) return;
     createMutation.mutate(consultantForm);
   };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingId || !editForm.name || !editForm.connectionId || !editForm.model || !editForm.description) return;
+    updateMutation.mutate({ id: editingId, data: editForm });
+  };
+
+  const startEdit = (c: Consultant) => {
+    setEditingId(c.id);
+    setEditForm({
+      name: c.name,
+      description: c.description,
+      connectionId: c.connectionId,
+      model: c.model,
+      systemPrompt: c.systemPrompt ?? "",
+    });
+    setIsAdding(false);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ ...emptyConsultantForm });
+  };
+
+  const consultantFormFields = (
+    form: typeof emptyConsultantForm,
+    setForm: (f: typeof emptyConsultantForm) => void,
+    idPrefix: string
+  ) => (
+    <>
+      <div className="space-y-1">
+        <Label className="text-xs">Name</Label>
+        <Input
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Vision Consultant"
+          className="h-7 text-xs"
+          data-testid={`input-${idPrefix}-name`}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Description <span className="text-muted-foreground">(shown to primary model)</span></Label>
+        <Input
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          placeholder="Specialist for analyzing images and visual content"
+          className="h-7 text-xs"
+          data-testid={`input-${idPrefix}-description`}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Connection</Label>
+        <Select
+          value={form.connectionId}
+          onValueChange={(v) => setForm({ ...form, connectionId: v })}
+        >
+          <SelectTrigger className="h-7 text-xs" data-testid={`select-${idPrefix}-connection`}>
+            <SelectValue placeholder="Pick a connection" />
+          </SelectTrigger>
+          <SelectContent>
+            {connections.map((conn) => (
+              <SelectItem key={conn.id} value={conn.id} className="text-xs">
+                {conn.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Model</Label>
+        <Input
+          value={form.model}
+          onChange={(e) => setForm({ ...form, model: e.target.value })}
+          placeholder="moondream, llama3.2, gpt-4o…"
+          className="h-7 text-xs"
+          data-testid={`input-${idPrefix}-model`}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Role / System Prompt</Label>
+        <Textarea
+          value={form.systemPrompt}
+          onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
+          placeholder="You are a vision specialist. Analyze images and describe what you see in detail..."
+          className="min-h-[60px] text-xs"
+          data-testid={`input-${idPrefix}-system-prompt`}
+        />
+      </div>
+    </>
+  );
 
   return (
     <div className="border-t border-border/40 pt-2">
@@ -419,27 +525,69 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
           ) : (
             <div className="space-y-1">
               {consultants.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex items-start gap-2 rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-xs"
-                  data-testid={`consultant-card-${c.id}`}
-                >
-                  <BrainCircuit className="h-3 w-3 mt-0.5 shrink-0 text-violet-500/60" />
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium">{c.name}</span>
-                    <span className="text-muted-foreground ml-2">{c.model}</span>
-                    <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{c.description}</p>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-5 w-5 shrink-0"
-                    onClick={() => deleteMutation.mutate(c.id)}
-                    data-testid={`button-delete-consultant-${c.id}`}
+                editingId === c.id ? (
+                  <form
+                    key={c.id}
+                    onSubmit={handleEditSubmit}
+                    className="space-y-2 border border-violet-500/30 rounded-md p-3 bg-muted/10"
+                    data-testid={`form-edit-consultant-${c.id}`}
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
+                    <p className="text-xs font-medium text-foreground/80">Edit Consultant</p>
+                    {consultantFormFields(editForm, setEditForm, `edit-consultant`)}
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-6 text-xs"
+                        disabled={updateMutation.isPending}
+                        data-testid={`button-save-edit-consultant-${c.id}`}
+                      >
+                        {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                        Save
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div
+                    key={c.id}
+                    className="flex items-start gap-2 rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-xs"
+                    data-testid={`consultant-card-${c.id}`}
+                  >
+                    <BrainCircuit className="h-3 w-3 mt-0.5 shrink-0 text-violet-500/60" />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{c.name}</span>
+                      <span className="text-muted-foreground ml-2">{c.model}</span>
+                      <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{c.description}</p>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 shrink-0"
+                      onClick={() => startEdit(c)}
+                      data-testid={`button-edit-consultant-${c.id}`}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-5 w-5 shrink-0"
+                      onClick={() => deleteMutation.mutate(c.id)}
+                      data-testid={`button-delete-consultant-${c.id}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )
               ))}
             </div>
           )}
@@ -447,70 +595,7 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
           {isAdding ? (
             <form onSubmit={handleConsultantSubmit} className="space-y-2 border border-border/40 rounded-md p-3 bg-muted/10">
               <p className="text-xs font-medium text-foreground/80">Add Consultant</p>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Name</Label>
-                <Input
-                  value={consultantForm.name}
-                  onChange={(e) => setConsultantForm({ ...consultantForm, name: e.target.value })}
-                  placeholder="Vision Consultant"
-                  className="h-7 text-xs"
-                  data-testid="input-consultant-name"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Description <span className="text-muted-foreground">(shown to primary model)</span></Label>
-                <Input
-                  value={consultantForm.description}
-                  onChange={(e) => setConsultantForm({ ...consultantForm, description: e.target.value })}
-                  placeholder="Specialist for analyzing images and visual content"
-                  className="h-7 text-xs"
-                  data-testid="input-consultant-description"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Connection</Label>
-                <Select
-                  value={consultantForm.connectionId}
-                  onValueChange={(v) => setConsultantForm({ ...consultantForm, connectionId: v })}
-                >
-                  <SelectTrigger className="h-7 text-xs" data-testid="select-consultant-connection">
-                    <SelectValue placeholder="Pick a connection" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {connections.map((conn) => (
-                      <SelectItem key={conn.id} value={conn.id} className="text-xs">
-                        {conn.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Model</Label>
-                <Input
-                  value={consultantForm.model}
-                  onChange={(e) => setConsultantForm({ ...consultantForm, model: e.target.value })}
-                  placeholder="moondream, llama3.2, gpt-4o…"
-                  className="h-7 text-xs"
-                  data-testid="input-consultant-model"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Role / System Prompt</Label>
-                <Textarea
-                  value={consultantForm.systemPrompt}
-                  onChange={(e) => setConsultantForm({ ...consultantForm, systemPrompt: e.target.value })}
-                  placeholder="You are a vision specialist. Analyze images and describe what you see in detail..."
-                  className="min-h-[60px] text-xs"
-                  data-testid="input-consultant-system-prompt"
-                />
-              </div>
-
+              {consultantFormFields(consultantForm, setConsultantForm, `consultant`)}
               <div className="flex gap-2 justify-end">
                 <Button
                   type="button"
@@ -538,7 +623,7 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
               variant="ghost"
               size="sm"
               className="h-6 text-xs w-full justify-start text-muted-foreground hover:text-foreground"
-              onClick={() => setIsAdding(true)}
+              onClick={() => { setIsAdding(true); setEditingId(null); }}
               data-testid={`button-add-consultant-${projectId}`}
             >
               <Plus className="h-3 w-3 mr-1" />

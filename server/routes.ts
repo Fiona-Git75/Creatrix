@@ -448,6 +448,19 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/projects/:projectId/consultants/:id", async (req: Request, res: Response) => {
+    try {
+      const updated = await storage.updateConsultant(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Consultant not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating consultant:", error);
+      res.status(500).json({ error: "Failed to update consultant" });
+    }
+  });
+
   app.delete("/api/projects/:projectId/consultants/:id", async (req: Request, res: Response) => {
     try {
       const deleted = await storage.deleteConsultant(req.params.id);

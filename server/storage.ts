@@ -118,6 +118,7 @@ export interface IStorage {
   getConsultants(projectId: string): Promise<Consultant[]>;
   getConsultant(id: string): Promise<Consultant | undefined>;
   createConsultant(consultant: InsertConsultant): Promise<Consultant>;
+  updateConsultant(id: string, updates: Partial<InsertConsultant>): Promise<Consultant | undefined>;
   deleteConsultant(id: string): Promise<boolean>;
 
   // ─── Vector / Semantic Search ──────────────────────────────────────────────
@@ -538,6 +539,13 @@ export class MemStorage implements IStorage {
     const consultant: Consultant = { ...insert, id, createdAt: new Date().toISOString() };
     this._consultants.set(id, consultant);
     return consultant;
+  }
+  async updateConsultant(id: string, updates: Partial<InsertConsultant>): Promise<Consultant | undefined> {
+    const existing = this._consultants.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this._consultants.set(id, updated);
+    return updated;
   }
   async deleteConsultant(id: string): Promise<boolean> {
     return this._consultants.delete(id);
@@ -1123,6 +1131,10 @@ export class DatabaseStorage implements IStorage {
     const row = { ...insert, id, createdAt };
     await this.db.insert(consultants).values(row);
     return row;
+  }
+  async updateConsultant(id: string, updates: Partial<InsertConsultant>): Promise<Consultant | undefined> {
+    const rows = await this.db.update(consultants).set(updates).where(eq(consultants.id, id)).returning();
+    return rows[0] ? { ...rows[0] } : undefined;
   }
   async deleteConsultant(id: string): Promise<boolean> {
     const result = await this.db.delete(consultants).where(eq(consultants.id, id));
