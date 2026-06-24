@@ -46,3 +46,7 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_openai:1.0.0", "javascript_mem_db:1.0.0", "notion:1.0.0"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
