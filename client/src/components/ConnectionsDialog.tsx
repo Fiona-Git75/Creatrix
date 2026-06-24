@@ -42,17 +42,28 @@ function DiscoveryPanel({ onUse, onManual }: {
   onUse: (name: string, provider: ProviderType, endpoint: string) => void;
   onManual: () => void;
 }) {
-  const { data, isLoading, refetch } = useQuery<ProvidersStatusResponse>({
+  const { data, isLoading } = useQuery<ProvidersStatusResponse>({
     queryKey: ["/api/providers/status"],
     retry: false,
     staleTime: 0,
   });
 
+  // POST to force-refresh bypasses the server-side 30s cache so scanConnection
+  // actually runs instead of returning stale "offline" results
+  const scanMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/providers/refresh"),
+    onSuccess: async (res) => {
+      const fresh = await res.json();
+      queryClient.setQueryData(["/api/providers/status"], fresh);
+    },
+  });
+
+  const scanning = isLoading || scanMutation.isPending;
   const found = data?.suggested ?? [];
 
   return (
     <div className="space-y-5 py-2">
-      {isLoading ? (
+      {scanning ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Scanning local AI…
@@ -65,7 +76,7 @@ function DiscoveryPanel({ onUse, onManual }: {
           <p className="text-xs text-muted-foreground">
             Start Ollama or LM Studio, then scan again.
           </p>
-          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-rescan">
+          <Button variant="outline" size="sm" onClick={() => scanMutation.mutate()} disabled={scanning} data-testid="button-rescan">
             Scan again
           </Button>
         </div>
@@ -102,8 +113,8 @@ function DiscoveryPanel({ onUse, onManual }: {
               >
                 Use this
               </Button>
-              {!isLoading && (
-                <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs text-muted-foreground h-7" data-testid="button-rescan">
+              {!scanning && (
+                <Button variant="ghost" size="sm" onClick={() => scanMutation.mutate()} className="text-xs text-muted-foreground h-7" data-testid="button-rescan">
                   Scan again
                 </Button>
               )}

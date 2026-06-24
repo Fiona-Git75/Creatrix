@@ -178,8 +178,15 @@ async function probeFirstAvailable(
 }
 
 async function scanConnection(connection: Connection): Promise<ProviderStatus> {
+  // Normalize localhost → 127.0.0.1 so scans always use IPv4.
+  // On Linux, Node.js resolves "localhost" to ::1 (IPv6) while most local AI
+  // servers (Ollama, LM Studio) bind to 127.0.0.1 (IPv4) only.
+  const normalized: Connection = {
+    ...connection,
+    endpoint: connection.endpoint.replace(/\/\/localhost\b/gi, "//127.0.0.1"),
+  };
   try {
-    const provider = createProvider(connection);
+    const provider = createProvider(normalized);
     const result = await provider.listModelsWithStatus();
     // "empty" means reachable but no models installed — still online
     const online = result.status === "ok" || result.status === "empty" || result.models.length > 0;

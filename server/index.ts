@@ -92,6 +92,12 @@ app.use((req, res, next) => {
       log("Initializing routes…");
       await registerRoutes(httpServer, app);
       log("Routes registered");
+      // Warm the provider cache once at startup so the UI has real state on first load
+      import("./providers/discovery").then(({ getProvidersStatus }) => {
+        getProvidersStatus(true).then(s => {
+          log(`Discovery: ${s.providers.length} connection(s) scanned, ${s.providers.filter(p => p.status === "online").length} online`);
+        }).catch(e => console.error("[discovery] startup scan failed:", e));
+      });
 
       app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
         const status = err.status || err.statusCode || 500;
