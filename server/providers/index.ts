@@ -1,5 +1,15 @@
 import { type Connection, type Message } from "@shared/schema";
 
+// A chat message that may carry base64 image data for vision models.
+// - `images`: base64-encoded image strings (Ollama native format)
+// - For OpenAI-compatible providers the images are converted to content-array
+//   format (image_url parts) before the request is sent.
+export interface MultimodalMessage {
+  role: string;
+  content: string;
+  images?: string[]; // base64, no data-URI prefix
+}
+
 export interface StreamChunk {
   type: "content" | "done" | "error" | "tool_call";
   content?: string;
@@ -47,7 +57,7 @@ export interface ToolDefinition {
 export interface ModelProvider {
   name: string;
   generateStream(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
     tools?: ToolDefinition[]
@@ -70,11 +80,26 @@ export class OpenAIProvider implements ModelProvider {
   }
 
   async generateStream(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
     _tools?: ToolDefinition[]
   ): Promise<void> {
+    // Convert MultimodalMessage[] to OpenAI content-array format when images present
+    const openaiMessages = messages.map((msg) => {
+      if (!msg.images || msg.images.length === 0) {
+        return { role: msg.role, content: msg.content };
+      }
+      const contentParts: Array<Record<string, unknown>> = [
+        { type: "text", text: msg.content },
+        ...msg.images.map((b64) => ({
+          type: "image_url",
+          image_url: { url: `data:image/jpeg;base64,${b64}` },
+        })),
+      ];
+      return { role: msg.role, content: contentParts };
+    });
+
     const response = await fetch(`${this.endpoint}/chat/completions`, {
       method: "POST",
       headers: {
@@ -83,7 +108,7 @@ export class OpenAIProvider implements ModelProvider {
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: openaiMessages,
         stream: true,
       }),
     });
@@ -187,12 +212,13 @@ export class OllamaProvider implements ModelProvider {
   }
 
   async generateStream(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
     tools?: ToolDefinition[]
   ): Promise<void> {
     try {
+      // Ollama natively supports an `images` field per message; pass it through as-is
       const body: Record<string, unknown> = { model, messages, stream: true };
       if (tools && tools.length > 0) body.tools = tools;
 
@@ -371,7 +397,7 @@ export class LMStudioProvider implements ModelProvider {
   }
 
   async generateStream(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
     tools?: ToolDefinition[]
