@@ -1,5 +1,14 @@
+// ── Provenance ──────────────────────────────────────────────────────────────
+// canonical:   server/syslog.ts → LogLevel, LogCategory
+// overrides:   none
+// consumed-by: server/routes.ts → syslog()
+//              server/storage.ts → addSystemLog(), getSystemLogs()
+//              shared/schema.ts → system_logs table (level/category columns)
+// note:        "bootstrap" category entries are birth-certificate records —
+//              they document what was validated at system construction time.
+//              Do not clear them with normal log rotation.
 export type LogLevel = "info" | "warn" | "error";
-export type LogCategory = "system" | "chat" | "tool" | "connection" | "notion" | "filesystem" | "web";
+export type LogCategory = "system" | "chat" | "tool" | "connection" | "notion" | "filesystem" | "web" | "bootstrap";
 
 export interface LogEntry {
   id: string;

@@ -29,6 +29,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  listUsers(): Promise<User[]>;
   
   // Connections
   getConnections(): Promise<Connection[]>;
@@ -177,6 +178,7 @@ export class MemStorage implements IStorage {
     this.users.set(id, user);
     return user;
   }
+  async listUsers(): Promise<User[]> { return Array.from(this.users.values()); }
 
   // Connections
   async getConnections(): Promise<Connection[]> { return Array.from(this.connections.values()); }
@@ -555,7 +557,7 @@ export class MemStorage implements IStorage {
     // In-memory mode: syslog buffer already holds the entry
   }
   async getSystemLogs(opts?: { level?: string; category?: string; limit?: number }): Promise<SystemLog[]> {
-    return getLogs(opts).map(e => ({
+    return getLogs(opts as any).map(e => ({
       id: parseInt(e.id),
       timestamp: new Date(e.timestamp),
       level: e.level,
@@ -657,6 +659,9 @@ export class DatabaseStorage implements IStorage {
     const user = { ...insertUser, id };
     await this.db.insert(users).values(user);
     return user;
+  }
+  async listUsers(): Promise<User[]> {
+    return this.db.select().from(users);
   }
 
   async getConnections(): Promise<Connection[]> {
@@ -852,7 +857,7 @@ export class DatabaseStorage implements IStorage {
         ) as { rows: { chunk_id: string; document_id: string; content: string; score: number }[] };
 
         if (rows.rows.length > 0) {
-          const docIds = [...new Set(rows.rows.map(r => r.document_id))].slice(0, topK);
+          const docIds = Array.from(new Set(rows.rows.map(r => r.document_id))).slice(0, topK);
           const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[] = [];
           for (const docId of docIds) {
             const doc = await this.getKnowledgeDocument(docId);

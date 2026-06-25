@@ -1,0 +1,862 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Loader2, ArrowRight, CheckCircle2, XCircle,
+  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench
+} from "lucide-react";
+
+type Provider = "ollama" | "lmstudio" | "openai" | "custom";
+
+const PROVIDER_DEFAULTS: Record<Provider, { endpoint: string; label: string }> = {
+  ollama:   { endpoint: "http://localhost:11434",     label: "Ollama" },
+  lmstudio: { endpoint: "http://localhost:1234/v1",   label: "LM Studio" },
+  openai:   { endpoint: "https://api.openai.com/v1", label: "OpenAI" },
+  custom:   { endpoint: "",                           label: "Custom" },
+};
+
+const TOTAL_STEPS = 4;
+
+type ProbePhase = "enter" | "probing" | "select" | "saving" | "done";
+type ServiceState = "idle" | "probing" | "ok" | "fail" | "skip";
+
+interface BootstrapStep {
+  step: number;
+  component: string;
+  result: "OK" | "SKIP" | "FAIL";
+  detail: string;
+  timestamp: string;
+}
+
+function StepIndicator({ current }: { current: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+        <div
+          key={i}
+          className={`h-1 rounded-full transition-all duration-300 ${
+            i < current
+              ? "w-8 bg-primary"
+              : i === current
+              ? "w-8 bg-primary/50"
+              : "w-4 bg-muted"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ ok, label }: { ok: boolean | null; label: string }) {
+  if (ok === null) return <span className="text-xs text-muted-foreground">{label}</span>;
+  return ok ? (
+    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+      <CheckCircle2 className="h-3 w-3" /> {label}
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-xs text-destructive">
+      <XCircle className="h-3 w-3" /> {label}
+    </span>
+  );
+}
+
+function RecordRow({
+  icon: Icon,
+  component,
+  result,
+  detail,
+  timestamp,
+}: {
+  icon: React.ElementType;
+  component: string;
+  result: "OK" | "SKIP" | "FAIL";
+  detail: string;
+  timestamp: string;
+}) {
+  const colour =
+    result === "OK"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : result === "SKIP"
+      ? "text-muted-foreground"
+      : "text-destructive";
+  return (
+    <div className="grid grid-cols-[20px_1fr_36px_auto] gap-3 items-start py-2.5 border-b border-border/50 last:border-0">
+      <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+      <div className="min-w-0">
+        <p className="text-sm font-medium leading-tight">{component}</p>
+        <p className="text-xs text-muted-foreground truncate">{detail}</p>
+      </div>
+      <span className={`text-xs font-mono font-semibold ${colour}`}>{result}</span>
+      <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+        {new Date(timestamp).toLocaleTimeString()}
+      </span>
+    </div>
+  );
+}
+
+export default function Setup() {
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState(0);
+
+  // ── Step 1: Account ──────────────────────────────────────────────────────
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [accountError, setAccountError] = useState("");
+  const [createdUsername, setCreatedUsername] = useState("");
+  const [accountTimestamp, setAccountTimestamp] = useState("");
+
+  // ── Step 2: AI connection ────────────────────────────────────────────────
+  const [provider, setProvider] = useState<Provider>("ollama");
+  const [endpoint, setEndpoint] = useState(PROVIDER_DEFAULTS.ollama.endpoint);
+  const [apiKey, setApiKey] = useState("");
+  const [probePhase, setProbePhase] = useState<ProbePhase>("enter");
+  const [probeModels, setProbeModels] = useState<{ id: string; name: string; size?: string }[]>([]);
+  const [probeError, setProbeError] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [confirmedAI, setConfirmedAI] = useState<{ provider: string; endpoint: string; model: string; timestamp: string } | null>(null);
+
+  // ── Step 3: Services ─────────────────────────────────────────────────────
+  const [whisperUrl, setWhisperUrl] = useState("http://localhost:9000");
+  const [whisperState, setWhisperState] = useState<ServiceState>("idle");
+  const [whisperError, setWhisperError] = useState("");
+  const [searxngUrl, setSearxngUrl] = useState("http://localhost:8080");
+  const [searxngState, setSearxngState] = useState<ServiceState>("idle");
+  const [searxngError, setSearxngError] = useState("");
+  const [servicesTimestamp, setServicesTimestamp] = useState("");
+
+  // ── Step 4: Bootstrap record ─────────────────────────────────────────────
+  const [bootstrapId, setBootstrapId] = useState<string | null>(null);
+  const [completedAt, setCompletedAt] = useState<string | null>(null);
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const registerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/register", { username, password });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Failed to create account.");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const ts = new Date().toISOString();
+      setCreatedUsername(data.user.username);
+      setAccountTimestamp(ts);
+      queryClient.setQueryData(["/api/auth/status"], { bootstrapped: true, user: data.user });
+      setStep(2);
+    },
+    onError: (err: any) => {
+      setAccountError(err.message ?? "Failed to create account.");
+    },
+  });
+
+  const probeMutation = useMutation({
+    mutationFn: async () => {
+      setProbePhase("probing");
+      setProbeError("");
+      const res = await apiRequest("POST", "/api/providers/probe", { provider, endpoint, apiKey: apiKey || undefined });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (!data.ok) {
+        setProbePhase("enter");
+        setProbeError(data.error ?? `Could not reach ${endpoint} — is the service running?`);
+        return;
+      }
+      setProbeModels(data.models ?? []);
+      setSelectedModel(data.models?.[0]?.id ?? "");
+      setProbePhase("select");
+    },
+    onError: (err: any) => {
+      setProbePhase("enter");
+      setProbeError(err.message ?? "Probe failed.");
+    },
+  });
+
+  const saveConnectionMutation = useMutation({
+    mutationFn: async () => {
+      setProbePhase("saving");
+      const res = await apiRequest("POST", "/api/connections", {
+        name: PROVIDER_DEFAULTS[provider].label,
+        provider,
+        endpoint,
+        apiKey: apiKey || "",
+        defaultModel: selectedModel,
+        isDefault: true,
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Failed to save connection.");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      const ts = new Date().toISOString();
+      setConfirmedAI({ provider, endpoint, model: selectedModel, timestamp: ts });
+      setProbePhase("done");
+      queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      setTimeout(() => setStep(3), 600);
+    },
+    onError: (err: any) => {
+      setProbePhase("select");
+      setProbeError(err.message ?? "Could not save connection.");
+    },
+  });
+
+  const probeServiceMutation = useMutation({
+    mutationFn: async ({ url, type }: { url: string; type: "whisper" | "searxng" }) => {
+      const res = await apiRequest("POST", "/api/services/probe", { url, type });
+      return { ...(await res.json()), type };
+    },
+    onSuccess: (data) => {
+      if (data.type === "whisper") {
+        setWhisperState(data.ok ? "ok" : "fail");
+        if (!data.ok) setWhisperError(data.error ?? `Received HTTP ${data.httpStatus}`);
+      } else {
+        setSearxngState(data.ok ? "ok" : "fail");
+        if (!data.ok) setSearxngError(data.error ?? `Received HTTP ${data.httpStatus}`);
+      }
+    },
+    onError: (err: any) => {
+      setWhisperState("fail");
+      setWhisperError(err.message);
+    },
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: async (steps: BootstrapStep[]) => {
+      const res = await apiRequest("POST", "/api/bootstrap/complete", { steps });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setBootstrapId(data.bootstrap_id);
+      setCompletedAt(data.completed_at);
+    },
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function handleProviderChange(p: Provider) {
+    setProvider(p);
+    setEndpoint(PROVIDER_DEFAULTS[p].endpoint);
+    setApiKey("");
+    setProbePhase("enter");
+    setProbeModels([]);
+    setSelectedModel("");
+    setProbeError("");
+  }
+
+  function handleContinueServices() {
+    const ts = new Date().toISOString();
+    setServicesTimestamp(ts);
+
+    const steps: BootstrapStep[] = [
+      {
+        step: 1,
+        component: "Database + Account",
+        result: "OK",
+        detail: `Account created: ${createdUsername}`,
+        timestamp: accountTimestamp,
+      },
+      {
+        step: 2,
+        component: "AI Endpoint",
+        result: confirmedAI ? "OK" : "SKIP",
+        detail: confirmedAI
+          ? `${confirmedAI.provider} @ ${confirmedAI.endpoint} — model: ${confirmedAI.model}`
+          : "No connection registered",
+        timestamp: confirmedAI?.timestamp ?? ts,
+      },
+      {
+        step: 3,
+        component: "Services",
+        result: "OK",
+        detail: [
+          whisperState === "ok" ? `Whisper: ${whisperUrl}` : "Whisper: not configured",
+          searxngState === "ok" ? `SearXNG: ${searxngUrl}` : "SearXNG: not configured",
+        ].join(" · "),
+        timestamp: ts,
+      },
+    ];
+
+    completeMutation.mutate(steps);
+    setStep(4);
+  }
+
+  function handleEnter() {
+    queryClient.invalidateQueries({ queryKey: ["/api/auth/status"] });
+  }
+
+  // ─── Step 0: Welcome ──────────────────────────────────────────────────────
+
+  if (step === 0) {
+    return (
+      <Screen>
+        <div className="space-y-8">
+          <div className="space-y-3">
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              One-time setup
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">Welcome to Creatrix</h1>
+            <p className="text-muted-foreground leading-relaxed max-w-sm">
+              This sequence constructs and validates your system — account, AI connection, and
+              services — and seals a permanent record when complete. You will never see it again.
+            </p>
+          </div>
+          <Button size="lg" onClick={() => setStep(1)} data-testid="button-start-setup">
+            Begin <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+      </Screen>
+    );
+  }
+
+  // ─── Step 1: Account ──────────────────────────────────────────────────────
+
+  if (step === 1) {
+    const passwordMismatch = confirmPassword && password !== confirmPassword;
+    const canSubmit =
+      username.trim().length >= 2 &&
+      password.length >= 6 &&
+      password === confirmPassword &&
+      !registerMutation.isPending;
+
+    return (
+      <Screen progress={<StepIndicator current={0} />}>
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <p className="text-xs font-mono text-muted-foreground">Step 1 of 3 — Database + Account</p>
+            <h2 className="text-xl font-semibold">Create your account</h2>
+            <p className="text-sm text-muted-foreground">
+              Creating this account proves the database is writable and starts your session record.
+            </p>
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setAccountError("");
+              registerMutation.mutate();
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                autoFocus
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="your name"
+                data-testid="input-setup-username"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="minimum 6 characters"
+                data-testid="input-setup-password"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirm">Confirm password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={passwordMismatch ? "border-destructive" : ""}
+                data-testid="input-setup-confirm"
+              />
+              {passwordMismatch && (
+                <p className="text-xs text-destructive">Passwords don't match.</p>
+              )}
+            </div>
+
+            {accountError && (
+              <p className="text-sm text-destructive" data-testid="text-account-error">
+                {accountError}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!canSubmit}
+              data-testid="button-create-account"
+            >
+              {registerMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Create account
+            </Button>
+          </form>
+        </div>
+      </Screen>
+    );
+  }
+
+  // ─── Step 2: AI connection (probe-first) ──────────────────────────────────
+
+  if (step === 2) {
+    const needsKey = provider === "openai" || provider === "custom";
+    const canProbe = endpoint.trim().length > 0 && (!needsKey || apiKey.trim().length > 0);
+
+    return (
+      <Screen progress={<StepIndicator current={1} />}>
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <p className="text-xs font-mono text-muted-foreground">Step 2 of 3 — AI Endpoint</p>
+            <h2 className="text-xl font-semibold">Connect your AI</h2>
+            <p className="text-sm text-muted-foreground">
+              The endpoint will be probed live. You will pick from the models that respond —
+              no guessing required.
+            </p>
+          </div>
+
+          {/* Provider tabs */}
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(PROVIDER_DEFAULTS) as Provider[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handleProviderChange(p)}
+                disabled={probePhase === "probing" || probePhase === "saving"}
+                data-testid={`button-provider-${p}`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors disabled:opacity-50 ${
+                  provider === p
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-input hover:bg-accent"
+                }`}
+              >
+                {PROVIDER_DEFAULTS[p].label}
+              </button>
+            ))}
+          </div>
+
+          {/* Endpoint + key inputs */}
+          {probePhase === "enter" || probePhase === "probing" ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="endpoint">Endpoint URL</Label>
+                <Input
+                  id="endpoint"
+                  value={endpoint}
+                  onChange={(e) => { setEndpoint(e.target.value); setProbeError(""); }}
+                  placeholder="http://localhost:11434"
+                  disabled={probePhase === "probing"}
+                  data-testid="input-setup-endpoint"
+                />
+              </div>
+              {needsKey && (
+                <div className="space-y-2">
+                  <Label htmlFor="apikey">API key</Label>
+                  <Input
+                    id="apikey"
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    disabled={probePhase === "probing"}
+                    data-testid="input-setup-apikey"
+                  />
+                </div>
+              )}
+              {probeError && (
+                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+                  <p className="text-sm text-destructive" data-testid="text-probe-error">
+                    {probeError}
+                  </p>
+                </div>
+              )}
+              <Button
+                onClick={() => probeMutation.mutate()}
+                disabled={!canProbe || probePhase === "probing"}
+                className="w-full"
+                data-testid="button-test-connection"
+              >
+                {probePhase === "probing" ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />Probing endpoint…</>
+                ) : (
+                  <><Wifi className="h-4 w-4 mr-2" />Test Connection</>
+                )}
+              </Button>
+            </div>
+          ) : null}
+
+          {/* Model selection after successful probe */}
+          {(probePhase === "select" || probePhase === "saving" || probePhase === "done") && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>
+                  {endpoint} is online — {probeModels.length} model{probeModels.length !== 1 ? "s" : ""} found
+                </span>
+              </div>
+
+              {probeModels.length > 0 ? (
+                <div className="space-y-2">
+                  <Label>Select default model</Label>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto rounded-md border border-border p-1">
+                    {probeModels.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedModel(m.id)}
+                        disabled={probePhase === "saving" || probePhase === "done"}
+                        data-testid={`button-model-${m.id}`}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                          selectedModel === m.id
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-accent"
+                        }`}
+                      >
+                        <span className="font-medium">{m.name || m.id}</span>
+                        {m.size && (
+                          <span className="ml-2 text-xs opacity-70">{m.size}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="manual-model">Model name</Label>
+                  <Input
+                    id="manual-model"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    placeholder="e.g. gpt-4o"
+                    data-testid="input-manual-model"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Endpoint is reachable but returned no models. Enter the model name manually.
+                  </p>
+                </div>
+              )}
+
+              {probeError && (
+                <p className="text-sm text-destructive">{probeError}</p>
+              )}
+
+              {probePhase === "done" ? (
+                <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Registered — moving to services…</span>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => saveConnectionMutation.mutate()}
+                    disabled={!selectedModel.trim() || probePhase === "saving"}
+                    className="flex-1"
+                    data-testid="button-register-connection"
+                  >
+                    {probePhase === "saving" ? (
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Registering…</>
+                    ) : (
+                      "Register & Continue"
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => { setProbePhase("enter"); setProbeError(""); }}
+                    disabled={probePhase === "saving"}
+                    data-testid="button-back-to-enter"
+                  >
+                    Change
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Screen>
+    );
+  }
+
+  // ─── Step 3: Services ──────────────────────────────────────────────────────
+
+  if (step === 3) {
+    return (
+      <Screen progress={<StepIndicator current={2} />}>
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <p className="text-xs font-mono text-muted-foreground">Step 3 of 3 — Services</p>
+            <h2 className="text-xl font-semibold">Register services</h2>
+            <p className="text-sm text-muted-foreground">
+              These are optional. Test what is running — anything confirmed here will be
+              available in your workspace. Skip what isn't set up yet.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <ServiceRow
+              name="Whisper (speech-to-text)"
+              type="whisper"
+              url={whisperUrl}
+              setUrl={setWhisperUrl}
+              state={whisperState}
+              error={whisperError}
+              isProbing={probeServiceMutation.isPending}
+              onProbe={() => {
+                setWhisperState("probing");
+                setWhisperError("");
+                probeServiceMutation.mutate({ url: whisperUrl, type: "whisper" });
+              }}
+              onSkip={() => setWhisperState("skip")}
+            />
+            <ServiceRow
+              name="SearXNG (web search)"
+              type="searxng"
+              url={searxngUrl}
+              setUrl={setSearxngUrl}
+              state={searxngState}
+              error={searxngError}
+              isProbing={probeServiceMutation.isPending}
+              onProbe={() => {
+                setSearxngState("probing");
+                setSearxngError("");
+                probeServiceMutation.mutate({ url: searxngUrl, type: "searxng" });
+              }}
+              onSkip={() => setSearxngState("skip")}
+            />
+          </div>
+
+          <Button
+            onClick={handleContinueServices}
+            className="w-full"
+            disabled={completeMutation.isPending}
+            data-testid="button-services-continue"
+          >
+            {completeMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sealing record…</>
+            ) : (
+              <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>
+            )}
+          </Button>
+        </div>
+      </Screen>
+    );
+  }
+
+  // ─── Step 4: Bootstrap Record ─────────────────────────────────────────────
+
+  return (
+    <Screen>
+      <div className="space-y-6 w-full max-w-lg">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            <h2 className="text-xl font-semibold">Bootstrap complete</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Creatrix has been constructed and validated. The record below is permanent.
+          </p>
+        </div>
+
+        {/* Birth certificate */}
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-muted/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+                Bootstrap Record
+              </span>
+              {bootstrapId && (
+                <span className="text-xs font-mono text-muted-foreground">
+                  {bootstrapId.slice(0, 8)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="px-4 divide-y divide-border/0">
+            <RecordRow
+              icon={Database}
+              component="Database + Account"
+              result="OK"
+              detail={`Account created: ${createdUsername}`}
+              timestamp={accountTimestamp || new Date().toISOString()}
+            />
+            <RecordRow
+              icon={Cpu}
+              component="AI Endpoint"
+              result={confirmedAI ? "OK" : "SKIP"}
+              detail={
+                confirmedAI
+                  ? `${confirmedAI.provider} @ ${confirmedAI.endpoint} · ${confirmedAI.model}`
+                  : "No connection registered"
+              }
+              timestamp={confirmedAI?.timestamp || servicesTimestamp || new Date().toISOString()}
+            />
+            <RecordRow
+              icon={Wrench}
+              component="Whisper"
+              result={whisperState === "ok" ? "OK" : "SKIP"}
+              detail={whisperState === "ok" ? whisperUrl : "Not configured"}
+              timestamp={servicesTimestamp || new Date().toISOString()}
+            />
+            <RecordRow
+              icon={Wrench}
+              component="SearXNG"
+              result={searxngState === "ok" ? "OK" : "SKIP"}
+              detail={searxngState === "ok" ? searxngUrl : "Not configured"}
+              timestamp={servicesTimestamp || new Date().toISOString()}
+            />
+          </div>
+
+          {completedAt && (
+            <div className="px-4 py-3 border-t border-border bg-muted/20">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  SYSTEM STATE: COMPLETE &amp; VALID
+                </span>
+                <span className="text-xs font-mono text-muted-foreground">
+                  {new Date(completedAt).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-md border border-border/60 bg-muted/20 px-4 py-3 space-y-1">
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-2">
+            Bootstrap Metadata
+          </p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
+            <span className="text-muted-foreground">Signed in as</span>
+            <span className="font-medium">{createdUsername}</span>
+            <span className="text-muted-foreground">Environment</span>
+            <span className="font-medium">Local-First</span>
+            <span className="text-muted-foreground">Scaffold inference</span>
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">NONE</span>
+            <span className="text-muted-foreground">Manual intervention</span>
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">NONE</span>
+            {bootstrapId && (
+              <>
+                <span className="text-muted-foreground">Bootstrap ID</span>
+                <span className="font-mono">{bootstrapId.slice(0, 16)}…</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <Button
+          size="lg"
+          onClick={handleEnter}
+          className="w-full"
+          data-testid="button-enter-creatrix"
+        >
+          <Shield className="h-4 w-4 mr-2" />
+          Enter Creatrix
+        </Button>
+      </div>
+    </Screen>
+  );
+}
+
+function ServiceRow({
+  name,
+  type,
+  url,
+  setUrl,
+  state,
+  error,
+  isProbing,
+  onProbe,
+  onSkip,
+}: {
+  name: string;
+  type: "whisper" | "searxng";
+  url: string;
+  setUrl: (v: string) => void;
+  state: ServiceState;
+  error: string;
+  isProbing: boolean;
+  onProbe: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">{name}</p>
+        {state === "ok" && <StatusBadge ok={true} label="confirmed" />}
+        {state === "fail" && <StatusBadge ok={false} label="unreachable" />}
+        {state === "skip" && <span className="text-xs text-muted-foreground">skipped</span>}
+      </div>
+      {state !== "skip" && (
+        <>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            disabled={state === "ok" || isProbing}
+            placeholder={type === "whisper" ? "http://localhost:9000" : "http://localhost:8080"}
+            data-testid={`input-${type}-url`}
+            className="text-sm"
+          />
+          {error && state === "fail" && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+          {state !== "ok" && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onProbe}
+                disabled={!url.trim() || isProbing}
+                data-testid={`button-probe-${type}`}
+              >
+                {isProbing ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <Wifi className="h-3 w-3 mr-1" />
+                )}
+                Test
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onSkip}
+                className="text-muted-foreground"
+                data-testid={`button-skip-${type}`}
+              >
+                Skip
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Screen({
+  children,
+  progress,
+}: {
+  children: React.ReactNode;
+  progress?: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-6">
+      <div className="w-full max-w-lg space-y-8">
+        {progress && <div>{progress}</div>}
+        {children}
+      </div>
+    </div>
+  );
+}

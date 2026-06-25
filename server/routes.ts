@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { hashPassword, comparePasswords } from "./auth";
 import { storage } from "./storage";
 import { chatRequestSchema, type Message, type CapabilityName, type Source, insertConsultantSchema } from "@shared/schema";
 import { createProvider } from "./providers";
@@ -11,7 +12,7 @@ import { probeNotionConnected } from "./capabilities/notion";
 import { requestConfirmation, resolveConfirmation } from "./confirm";
 import { querySubstrate, computeCoherence } from "./health";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
-import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile } from "./providers/discovery";
+import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile, scanConnection } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
 import type { ToolDefinition } from "./providers/index";
 import fs from "fs/promises";
@@ -83,6 +84,77 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  // ─── Auth ─────────────────────────────────────────────────────────────────
+
+  app.get("/api/auth/status", async (req: Request, res: Response) => {
+    const allUsers = await storage.listUsers();
+    const bootstrapped = allUsers.length > 0;
+    const user = req.session.userId
+      ? await storage.getUser(req.session.userId)
+      : undefined;
+    res.json({
+      bootstrapped,
+      user: user ? { id: user.id, username: user.username } : null,
+    });
+  });
+
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    try {
+      const allUsers = await storage.listUsers();
+      if (allUsers.length > 0) {
+        return res.status(403).json({ error: "System already bootstrapped. Use /api/auth/login." });
+      }
+      const { username, password } = req.body;
+      if (!username?.trim() || !password) {
+        return res.status(400).json({ error: "Username and password are required." });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters." });
+      }
+      const existing = await storage.getUserByUsername(username.trim());
+      if (existing) {
+        return res.status(409).json({ error: "Username already taken." });
+      }
+      const hashed = await hashPassword(password);
+      const user = await storage.createUser({ username: username.trim(), password: hashed });
+      req.session.userId = user.id;
+      syslog("info", "bootstrap", `Step 1 — Account registered: ${user.username}`, JSON.stringify({ userId: user.id, at: new Date().toISOString() }));
+      return res.status(201).json({ user: { id: user.id, username: user.username } });
+    } catch (err: any) {
+      console.error("[auth] register error:", err);
+      return res.status(500).json({ error: "Registration failed." });
+    }
+  });
+
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { username, password, remember } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required." });
+      }
+      const user = await storage.getUserByUsername(username);
+      if (!user || !(await comparePasswords(password, user.password))) {
+        return res.status(401).json({ error: "Incorrect username or password." });
+      }
+      req.session.userId = user.id;
+      if (!remember) {
+        req.session.cookie.expires = undefined;
+        req.session.cookie.maxAge = undefined as any;
+      }
+      return res.json({ user: { id: user.id, username: user.username } });
+    } catch (err: any) {
+      console.error("[auth] login error:", err);
+      return res.status(500).json({ error: "Login failed." });
+    }
+  });
+
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    req.session.destroy(() => {});
+    res.json({ ok: true });
+  });
+
+  // ─── System ───────────────────────────────────────────────────────────────
+
   // Wire log persistence to DB and prune entries older than 7 days
   setLogPersist((entry) => { storage.addSystemLog(entry).catch(() => {}); });
   storage.pruneSystemLogs(7).catch(() => {});
@@ -106,7 +178,11 @@ export async function registerRoutes(
   app.post("/api/connections", async (req: Request, res: Response) => {
     try {
       console.log("Creating connection with data:", JSON.stringify(req.body));
+      const existingConns = await storage.getConnections();
       const connection = await storage.createConnection(req.body);
+      if (existingConns.length === 0) {
+        syslog("info", "bootstrap", `Step 2 — AI endpoint registered: ${connection.provider} @ ${connection.endpoint}`, JSON.stringify({ connectionId: connection.id, model: connection.defaultModel, at: new Date().toISOString() }));
+      }
       res.status(201).json(connection);
     } catch (error: any) {
       console.error("Error creating connection:", error?.message || error, error?.stack);
@@ -227,6 +303,81 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ── Provenance ────────────────────────────────────────────────────────────
+  // canonical:   server/routes.ts → POST /api/providers/probe
+  // derives:     server/providers/discovery.ts → scanConnection()
+  // contract:    read-only validation — never persists; result is ephemeral
+  // bootstrap:   Step 2 precondition — must return ok:true before POST /api/connections
+  // overrides:   none
+  // consumed-by: client/src/pages/Setup.tsx → probeMutation
+  app.post("/api/providers/probe", async (req: Request, res: Response) => {
+    try {
+      const { provider, endpoint, apiKey } = req.body;
+      if (!provider || !endpoint) {
+        return res.status(400).json({ ok: false, error: "provider and endpoint are required" });
+      }
+      const tempConn = {
+        id: "probe",
+        name: "probe",
+        provider,
+        endpoint,
+        apiKey: apiKey || null,
+        defaultModel: "",
+        isDefault: false,
+        settings: null,
+      } as any;
+      const result = await scanConnection(tempConn);
+      return res.json({
+        ok: result.status === "online",
+        status: result.status,
+        models: result.models.map(m => ({ id: m.id, name: m.name, size: m.size })),
+      });
+    } catch (err: any) {
+      return res.json({ ok: false, error: err.message || "Probe failed" });
+    }
+  });
+
+  // ── Provenance ────────────────────────────────────────────────────────────
+  // canonical:   server/routes.ts → POST /api/services/probe
+  // contract:    read-only reachability check — no side effects
+  // bootstrap:   Step 3 — Whisper and SearXNG validation; result informs record only
+  // overrides:   none
+  // consumed-by: client/src/pages/Setup.tsx → probeServiceMutation
+  app.post("/api/services/probe", async (req: Request, res: Response) => {
+    const { url, type } = req.body;
+    if (!url) return res.status(400).json({ ok: false, error: "url required" });
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 5000);
+    try {
+      const checkUrl = type === "whisper"
+        ? `${url.replace(/\/$/, "")}/health`
+        : url;
+      const r = await fetch(checkUrl, { signal: controller.signal });
+      clearTimeout(t);
+      res.json({ ok: r.ok || r.status < 500, httpStatus: r.status });
+    } catch (err: any) {
+      clearTimeout(t);
+      res.json({ ok: false, error: err.message || "Unreachable" });
+    }
+  });
+
+  // ── Provenance ────────────────────────────────────────────────────────────
+  // canonical:   server/routes.ts → POST /api/bootstrap/complete
+  // derives:     server/syslog.ts → syslog("bootstrap", ...)
+  // contract:    seals the birth certificate — one permanent log entry per call.
+  //              Duplicate calls are intentionally visible (not idempotent by design):
+  //              if this appears twice in system_logs, something ran bootstrap twice.
+  // overrides:   none
+  // consumed-by: client/src/pages/Setup.tsx → completeMutation (Step 4, "Enter Creatrix")
+  app.post("/api/bootstrap/complete", async (req: Request, res: Response) => {
+    const { steps } = req.body;
+    const bootstrap_id = randomUUID();
+    const completed_at = new Date().toISOString();
+    const detail = JSON.stringify({ bootstrap_id, completed_at, steps: steps || [] });
+    syslog("info", "bootstrap", `BOOTSTRAP COMPLETE — Creatrix is operational [${bootstrap_id.slice(0, 8)}]`, detail);
+    return res.json({ bootstrap_id, completed_at, ok: true });
   });
 
   // Force-refresh the providers cache
@@ -1107,7 +1258,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Folder not found or not accessible" });
       }
 
-      async function walk(dir: string, depth = 0): Promise<string[]> {
+      const walk = async (dir: string, depth = 0): Promise<string[]> => {
         if (depth > 6) return [];
         const entries = await fs.readdir(dir, { withFileTypes: true });
         const files: string[] = [];
@@ -1118,7 +1269,7 @@ export async function registerRoutes(
           else if (allowed.has(path.extname(e.name).toLowerCase())) files.push(full);
         }
         return files;
-      }
+      };
 
       const allFiles = await walk(root);
       const existing = await storage.getKnowledgeDocuments(projectId);

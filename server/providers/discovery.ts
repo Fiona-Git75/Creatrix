@@ -177,7 +177,7 @@ async function probeFirstAvailable(
   return results.find(r => r !== null) ?? null;
 }
 
-async function scanConnection(connection: Connection): Promise<ProviderStatus> {
+export async function scanConnection(connection: Connection): Promise<ProviderStatus> {
   // Normalize localhost → 127.0.0.1 so scans always use IPv4.
   // On Linux, Node.js resolves "localhost" to ::1 (IPv6) while most local AI
   // servers (Ollama, LM Studio) bind to 127.0.0.1 (IPv4) only.

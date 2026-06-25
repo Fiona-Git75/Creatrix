@@ -25,7 +25,7 @@ function resolveImagePath(
   const ext = path.extname(resolved).toLowerCase();
   if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
     throw new Error(
-      `image_path must point to an image file (${[...ALLOWED_IMAGE_EXTENSIONS].join(", ")}). ` +
+      `image_path must point to an image file (${Array.from(ALLOWED_IMAGE_EXTENSIONS).join(", ")}). ` +
       `Got extension: "${ext || "(none)"}"`
     );
   }

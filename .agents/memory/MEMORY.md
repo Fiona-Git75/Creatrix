@@ -7,3 +7,4 @@
 - [Docker capability substrate](docker-capability-substrate.md) — Docker services are runtime grounding for capabilities; requires= is contract, Docker is fulfillment; reasoning must not exceed affordance boundary.
 - [Provider discovery architecture](provider-discovery-arch.md) — connectionId is the provider boundary; defaultModel is a hint only; live scan is authoritative.
 - [Cold-start gaps — next session](cold-start-next-session.md) — three issues surfaced by cold-start testing; logging, model cards, bootstrap contract.
+- [Provenance annotation convention](provenance-convention.md) — symbolic anchor comments at integration boundaries; canonical/derives/overrides/consumed-by; never line numbers.
