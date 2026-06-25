@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Settings, FileText, Activity } from "lucide-react";
+import { Plus, Settings, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -35,13 +34,6 @@ interface AppSidebarProps {
   onOpenSystemLog?: () => void;
 }
 
-interface SimpleHealth {
-  status: "ok" | "degraded" | "unwell";
-  headline: string;
-  canChat: boolean;
-  issues: { component: string; severity: string; message: string; whyItMatters: string; action: string }[];
-}
-
 export function AppSidebar({
   conversations,
   activeConversationId,
@@ -56,11 +48,6 @@ export function AppSidebar({
   onOpenSystemLog,
 }: AppSidebarProps) {
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
-
-  const { data: health } = useQuery<SimpleHealth>({
-    queryKey: ["/api/system/health"],
-    refetchInterval: 30_000,
-  });
 
   const filteredConversations = selectedProjectId
     ? conversations.filter((c) => c.projectId === selectedProjectId)
@@ -117,35 +104,8 @@ export function AppSidebar({
         {morningOrientationEnabled && <MorningOrientation />}
 
         <SidebarFooter className="border-t pt-2 pb-3 px-3 space-y-1">
-          <RuntimeCoherencePanel />
+          <RuntimeCoherencePanel onOpenSystemLog={onOpenSystemLog} />
           <ToolStatusChip onOpenSettings={onOpenSettings} />
-          {/* Health indicator — always visible, reflects whether chat actually works */}
-          {health && health.status !== "ok" && (
-            <button
-              onClick={onOpenSystemLog}
-              title={health.headline}
-              data-testid="button-health-indicator"
-              className={`w-full flex items-start gap-2 px-3 py-2 rounded-md text-left text-xs transition-colors hover:bg-accent ${
-                health.status === "unwell"
-                  ? "bg-destructive/10 border border-destructive/20"
-                  : "bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-900"
-              }`}
-            >
-              <span className={`mt-0.5 shrink-0 h-2 w-2 rounded-full ${
-                health.status === "unwell" ? "bg-destructive animate-pulse" : "bg-amber-500"
-              }`} />
-              <div className="min-w-0">
-                <p className={`font-medium leading-tight truncate ${
-                  health.status === "unwell" ? "text-destructive" : "text-amber-700 dark:text-amber-400"
-                }`}>
-                  {health.issues[0]?.message ?? health.headline}
-                </p>
-                <p className="text-muted-foreground truncate mt-0.5">
-                  {health.issues[0]?.action ?? "Open System Log for details"}
-                </p>
-              </div>
-            </button>
-          )}
           <Button
             variant="ghost"
             className="w-full justify-start gap-2"
@@ -163,15 +123,6 @@ export function AppSidebar({
           >
             <Settings className="h-4 w-4" />
             Settings
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 text-muted-foreground"
-            onClick={onOpenSystemLog}
-            data-testid="button-system-log-sidebar"
-          >
-            <Activity className="h-4 w-4" />
-            System Log
           </Button>
         </SidebarFooter>
       </Sidebar>

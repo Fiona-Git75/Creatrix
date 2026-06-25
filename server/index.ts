@@ -131,6 +131,22 @@ app.use((req, res, next) => {
               import("./runtime/coherence"),
               import("./syslog"),
             ]);
+
+            // Narrate the startup connection state into the system log so it's
+            // visible in the UI without opening a terminal.
+            const onlineProviders = s.providers.filter(p => p.status === "online");
+            const offlineProviders = s.providers.filter(p => p.status === "offline");
+            if (s.providers.length === 0) {
+              syslog("warn", "connection", "No connections configured — inference unavailable. Add one in Settings → Connections.");
+            } else if (onlineProviders.length === 0) {
+              syslog("warn", "connection",
+                `No connection established — ${offlineProviders.map(p => p.name).join(", ")} ${offlineProviders.length === 1 ? "is" : "are"} unreachable. Inference unavailable.`);
+            } else {
+              for (const p of offlineProviders) {
+                syslog("warn", "connection", `${p.name} not reachable at startup — inference on this connection unavailable.`);
+              }
+            }
+
             const manifest = await loadManifest();
             if (!manifest.bootstrapped) return;
             syslog("info", "runtime",
