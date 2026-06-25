@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -156,9 +156,27 @@ function detectProvider(url: string): { provider: ProviderType; name: string; mo
   }
 }
 
+type EditForm = {
+  name: string;
+  provider: ProviderType;
+  endpoint: string;
+  apiKey: string;
+  defaultModel: string;
+  maxImageSizeMb: string;
+};
+
 function ConnectionsTab() {
   const { toast } = useToast();
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({
+    name: "",
+    provider: "ollama",
+    endpoint: "",
+    apiKey: "",
+    defaultModel: "",
+    maxImageSizeMb: "",
+  });
   const [newConnection, setNewConnection] = useState({
     name: "",
     provider: "ollama" as ProviderType,
@@ -173,8 +191,10 @@ function ConnectionsTab() {
     queryKey: ["/api/connections"],
   });
 
+  type ConnectionCreatePayload = Omit<typeof newConnection, "maxImageSizeMb"> & { maxImageSizeMb?: number };
+
   const createMutation = useMutation({
-    mutationFn: async (data: typeof newConnection) =>
+    mutationFn: async (data: ConnectionCreatePayload) =>
       await apiRequest("POST", "/api/connections", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
@@ -207,6 +227,55 @@ function ConnectionsTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
     },
   });
+
+  type ConnectionPatchPayload = {
+    name?: string; provider?: ProviderType; endpoint?: string;
+    apiKey?: string; defaultModel?: string; maxImageSizeMb?: number;
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: ConnectionPatchPayload }) =>
+      await apiRequest("PATCH", `/api/connections/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/providers/status"] });
+      setEditingId(null);
+      toast({ title: "Connection updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update connection", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const startEditing = (connection: Connection) => {
+    setEditForm({
+      name: connection.name,
+      provider: connection.provider as ProviderType,
+      endpoint: connection.endpoint,
+      apiKey: connection.apiKey ?? "",
+      defaultModel: connection.defaultModel ?? "",
+      maxImageSizeMb: connection.maxImageSizeMb != null ? String(connection.maxImageSizeMb) : "",
+    });
+    setEditingId(connection.id);
+    setIsAdding(false);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingId || !editForm.endpoint) return;
+    const maxMb = editForm.maxImageSizeMb !== "" ? parseInt(editForm.maxImageSizeMb, 10) : undefined;
+    updateMutation.mutate({
+      id: editingId,
+      data: {
+        name: editForm.name,
+        provider: editForm.provider,
+        endpoint: editForm.endpoint,
+        apiKey: editForm.apiKey || undefined,
+        defaultModel: editForm.defaultModel || undefined,
+        maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
+      },
+    });
+  };
 
   const resetForm = () => {
     setNewConnection({
@@ -266,7 +335,7 @@ function ConnectionsTab() {
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
             onUse={(name, provider, endpoint, defaultModel) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true });
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined });
             }}
             onManual={() => setIsAdding(true)}
           />
@@ -274,45 +343,175 @@ function ConnectionsTab() {
           <>
             {connections.map((connection) => (
               <Card key={connection.id} className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium truncate">{connection.name}</span>
-                      {connection.isDefault && (
-                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                          Default
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {providerLabels[connection.provider as ProviderType]}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {connection.endpoint}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <ConnectionHealth connectionId={connection.id} />
-                    {!connection.isDefault && (
+                {editingId === connection.id ? (
+                  <form onSubmit={handleEditSubmit} className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">Edit connection</p>
                       <Button
-                        size="sm"
+                        type="button"
+                        size="icon"
                         variant="ghost"
-                        onClick={() => setDefaultMutation.mutate(connection.id)}
-                        data-testid={`button-set-default-${connection.id}`}
+                        className="h-7 w-7"
+                        onClick={() => setEditingId(null)}
+                        data-testid={`button-cancel-edit-${connection.id}`}
                       >
-                        Set Default
+                        <X className="h-4 w-4" />
                       </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`edit-endpoint-${connection.id}`}>URL</Label>
+                      <Input
+                        id={`edit-endpoint-${connection.id}`}
+                        value={editForm.endpoint}
+                        onChange={(e) => setEditForm({ ...editForm, endpoint: e.target.value })}
+                        placeholder="https://api.openai.com/v1"
+                        data-testid={`input-edit-endpoint-${connection.id}`}
+                      />
+                    </div>
+
+                    {(editForm.provider === "openai" || editForm.provider === "custom") && (
+                      <div className="space-y-2">
+                        <Label htmlFor={`edit-apikey-${connection.id}`}>API Key</Label>
+                        <Input
+                          id={`edit-apikey-${connection.id}`}
+                          type="password"
+                          value={editForm.apiKey}
+                          onChange={(e) => setEditForm({ ...editForm, apiKey: e.target.value })}
+                          placeholder="sk-…  (leave blank to keep existing)"
+                          data-testid={`input-edit-apikey-${connection.id}`}
+                        />
+                      </div>
                     )}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => deleteMutation.mutate(connection.id)}
-                      data-testid={`button-delete-connection-${connection.id}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+
+                    <details className="group">
+                      <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
+                        <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                        Advanced
+                      </summary>
+                      <div className="pt-3 space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-name-${connection.id}`}>Name</Label>
+                          <Input
+                            id={`edit-name-${connection.id}`}
+                            value={editForm.name}
+                            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                            placeholder="My AI"
+                            data-testid={`input-edit-name-${connection.id}`}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-provider-${connection.id}`}>Provider type</Label>
+                          <Select
+                            value={editForm.provider}
+                            onValueChange={(v) => setEditForm({ ...editForm, provider: v as ProviderType })}
+                          >
+                            <SelectTrigger data-testid={`select-edit-provider-${connection.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ollama">Ollama</SelectItem>
+                              <SelectItem value="lmstudio">LM Studio</SelectItem>
+                              <SelectItem value="openai">OpenAI</SelectItem>
+                              <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-model-${connection.id}`}>Default model</Label>
+                          <Input
+                            id={`edit-model-${connection.id}`}
+                            value={editForm.defaultModel}
+                            onChange={(e) => setEditForm({ ...editForm, defaultModel: e.target.value })}
+                            placeholder="model-name"
+                            data-testid={`input-edit-model-${connection.id}`}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-maximg-${connection.id}`}>Max image size (MB)</Label>
+                          <Input
+                            id={`edit-maximg-${connection.id}`}
+                            type="number"
+                            min="1"
+                            value={editForm.maxImageSizeMb}
+                            onChange={(e) => setEditForm({ ...editForm, maxImageSizeMb: e.target.value })}
+                            placeholder={`Default: ${editForm.provider === "ollama" ? "10" : "20"}`}
+                            data-testid={`input-edit-max-image-size-${connection.id}`}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Leave blank to use the provider default.
+                          </p>
+                        </div>
+                      </div>
+                    </details>
+
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={updateMutation.isPending || !editForm.endpoint}
+                        data-testid={`button-save-edit-${connection.id}`}
+                      >
+                        {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Save
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium truncate">{connection.name}</span>
+                        {connection.isDefault && (
+                          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {providerLabels[connection.provider as ProviderType]}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {connection.endpoint}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <ConnectionHealth connectionId={connection.id} />
+                      {!connection.isDefault && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setDefaultMutation.mutate(connection.id)}
+                          data-testid={`button-set-default-${connection.id}`}
+                        >
+                          Set Default
+                        </Button>
+                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => startEditing(connection)}
+                        data-testid={`button-edit-connection-${connection.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => deleteMutation.mutate(connection.id)}
+                        data-testid={`button-delete-connection-${connection.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
               </Card>
             ))}
 
