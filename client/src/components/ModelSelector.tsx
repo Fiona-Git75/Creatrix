@@ -34,11 +34,87 @@ export interface Model {
   name: string;
   size?: string;
   toolSupport?: ToolSupport;
+  supportsVision?: boolean;
   family?: string;
   parameterSize?: string;
   quantization?: string;
   contextLength?: number;
   notes?: string[];
+}
+
+// ── Capability summary ────────────────────────────────────────────────────────
+
+function parseSizeB(parameterSize?: string): number {
+  const m = parameterSize?.match(/(\d+(?:\.\d+)?)\s*([BMT])/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  const u = m[2].toUpperCase();
+  return u === "T" ? n * 1000 : u === "B" ? n : n / 1000;
+}
+
+function deriveCapabilitySummary(model: Model): { useFor: string[]; notFor: string[] } {
+  const useFor: string[] = [];
+  const notFor: string[] = [];
+  const nameLower = (model.name + " " + (model.family ?? "")).toLowerCase();
+
+  // Specialization hints from model name
+  if (/coder|deepcoder|codestral|starcoder/i.test(nameLower)) useFor.push("Code generation");
+  if (/whisper|speech/i.test(nameLower)) useFor.push("Speech transcription");
+  if (/embed/i.test(nameLower)) useFor.push("Semantic search / embeddings");
+
+  // Vision
+  if (model.supportsVision) {
+    useFor.push("Image & visual analysis");
+  } else {
+    notFor.push("Image analysis — text only");
+  }
+
+  // Parameter size → speed / reasoning tradeoff
+  const sizeB = parseSizeB(model.parameterSize);
+  if (sizeB > 0 && sizeB <= 3) {
+    useFor.push("Fast responses, light tasks");
+    notFor.push("Complex multi-step reasoning");
+  } else if (sizeB > 30) {
+    useFor.push("Complex reasoning, nuanced tasks");
+    notFor.push("Speed — larger models respond slower");
+  } else if (sizeB > 0) {
+    useFor.push("General reasoning & writing");
+  }
+
+  // Tool capability
+  if (model.toolSupport === "native") {
+    useFor.push("Tool use — web, files, Notion");
+  } else if (model.toolSupport === "text") {
+    useFor.push("Tool use (text protocol)");
+  } else if (model.toolSupport === "limited") {
+    notFor.push("Reliable tool calls — Jinja layer active");
+  } else if (model.toolSupport === "none") {
+    notFor.push("Tool use — disabled for this model");
+  }
+
+  // Context window
+  if (model.contextLength) {
+    if (model.contextLength >= 32_000) {
+      useFor.push("Long documents & large codebases");
+    } else if (model.contextLength < 4_096) {
+      notFor.push("Long documents — small context window");
+    }
+  }
+
+  return { useFor, notFor };
+}
+
+function modelTagLine(model: Model): string {
+  const parts: string[] = [];
+  if (model.supportsVision) parts.push("Vision");
+  if (model.toolSupport === "native") parts.push("Native tools");
+  else if (model.toolSupport === "text") parts.push("Tools");
+  else if (model.toolSupport === "limited") parts.push("Limited tools");
+  else if (model.toolSupport === "none") parts.push("No tools");
+  if (model.contextLength && model.contextLength >= 1000) {
+    parts.push(`${Math.round(model.contextLength / 1000)}k ctx`);
+  }
+  return parts.join(" · ");
 }
 
 function toolSupportLabel(support?: ToolSupport): { symbol: string; label: string; className: string } {
@@ -209,11 +285,40 @@ function ModelProfileCard({ model, connection }: { model: Model; connection: Con
         </div>
       )}
 
-      {/* Overall verdict */}
-      <div className="border-t pt-3 flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">Overall</span>
-        <span className={`text-xs font-bold tracking-widest ${verdict.className}`}>{verdict.label}</span>
-      </div>
+      {/* Use for / Not optimized for */}
+      {(() => {
+        const { useFor, notFor } = deriveCapabilitySummary(model);
+        return (
+          <div className="border-t pt-3 space-y-2">
+            {useFor.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Use for</p>
+                <ul className="space-y-0.5">
+                  {useFor.map((item, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                      <span className="text-emerald-500 shrink-0 mt-px">·</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {notFor.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Not optimized for</p>
+                <ul className="space-y-0.5">
+                  {notFor.map((item, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <span className="shrink-0 mt-px">·</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -526,7 +631,7 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
             </div>
             <DropdownMenuSeparator />
             {models.map((model) => {
-              const ts = toolSupportLabel(model.toolSupport);
+              const tag = modelTagLine(model);
               return (
                 <DropdownMenuItem
                   key={model.id}
@@ -534,17 +639,15 @@ export function ModelSelector({ selectedModel, connectionId, onModelChange }: Mo
                   className="py-2"
                   data-testid={`option-model-${model.id}`}
                 >
-                  <div className="flex items-center justify-between w-full gap-2">
+                  <div className="flex items-start justify-between w-full gap-2">
                     <div className="min-w-0">
                       <span className="font-medium truncate block">{model.name}</span>
-                      {model.toolSupport && (
-                        <span className={`text-[10px] ${ts.className}`}>
-                          {ts.symbol} {ts.label}
-                        </span>
+                      {tag && (
+                        <span className="text-[10px] text-muted-foreground truncate block">{tag}</span>
                       )}
                     </div>
                     {model.size && (
-                      <Badge variant="secondary" className="text-xs shrink-0">{model.size}</Badge>
+                      <Badge variant="secondary" className="text-xs shrink-0 mt-0.5">{model.size}</Badge>
                     )}
                   </div>
                 </DropdownMenuItem>

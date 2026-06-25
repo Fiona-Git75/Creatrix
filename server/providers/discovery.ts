@@ -10,6 +10,7 @@ export interface ModelEntry {
   name: string;
   size?: string;
   toolSupport?: ToolSupport;
+  supportsVision?: boolean;
   family?: string;
   parameterSize?: string;
   quantization?: string;
@@ -107,7 +108,8 @@ async function fetchOllamaModelProfile(endpoint: string, modelId: string): Promi
     const paramSize: string = details.parameter_size || "";
     const quantization: string = details.quantization_level || "";
     const rawFamilies = details.families ?? (details.family ? [details.family] : []);
-    const family: string = (Array.isArray(rawFamilies) ? rawFamilies[0] : rawFamilies) || "";
+    const allFamilies: string[] = Array.isArray(rawFamilies) ? rawFamilies : rawFamilies ? [rawFamilies] : [];
+    const family: string = allFamilies[0] || "";
     const contextLength: number =
       data.model_info?.["general.context_length"] ||
       data.model_info?.["llama.context_length"] ||
@@ -117,8 +119,15 @@ async function fetchOllamaModelProfile(endpoint: string, modelId: string): Promi
     const toolSupport = classifyToolSupport(template, paramSize);
     const notes = buildNotes(toolSupport, isJinja);
 
+    // Vision: Ollama reports "clip" in the families array for multimodal models.
+    // Also catch known vision model name patterns as a fallback.
+    const supportsVision =
+      allFamilies.some(f => typeof f === "string" && f.toLowerCase().includes("clip")) ||
+      /moondream|llava|bakllava|minicpm.?v|qwen.?vl|phi.?vision|cogvlm|internvl|idefics/i.test(modelId);
+
     const profile: Partial<ModelEntry> = {
       toolSupport,
+      supportsVision,
       family: family || undefined,
       parameterSize: paramSize || undefined,
       quantization: quantization || undefined,
