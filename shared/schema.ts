@@ -269,6 +269,8 @@ export const chatRequestSchema = z.object({
   connectionId: z.string().nullish(),
   message: z.string().min(1),
   model: z.string().nullish(),
+  imageBase64s: z.array(z.string()).optional(),
+  imageMimeTypes: z.array(z.string()).optional(),
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 

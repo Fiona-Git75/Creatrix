@@ -14,7 +14,7 @@ import { querySubstrate, computeCoherence } from "./health";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile, scanConnection } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
-import type { ToolDefinition } from "./providers/index";
+import type { ToolDefinition, MultimodalMessage } from "./providers/index";
 import fs from "fs/promises";
 import path from "path";
 
@@ -704,7 +704,10 @@ export async function registerRoutes(
 
       const {
         conversationId: _cid, projectId: _pid, connectionId: _connid, message, model: _model,
+        imageBase64s: _imageBase64s, imageMimeTypes: _imageMimeTypes,
       } = parsed.data;
+      const imageBase64s = _imageBase64s ?? [];
+      const imageMimeTypes = _imageMimeTypes ?? [];
       // Normalize null → undefined so storage functions receive string | undefined
       const conversationId = _cid ?? undefined;
       const projectId      = _pid ?? undefined;
@@ -762,10 +765,14 @@ export async function registerRoutes(
 
       // Build messages for model
       const updatedConversation = await storage.getConversation(currentConversationId);
-      const modelMessages = updatedConversation!.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const rawMessages = updatedConversation!.messages;
+      const modelMessages: MultimodalMessage[] = rawMessages.map((m, idx) => {
+        const isLastUserMessage = m.role === "user" && idx === rawMessages.length - 1;
+        if (isLastUserMessage && imageBase64s.length > 0) {
+          return { role: m.role, content: m.content, images: imageBase64s, imageMimeTypes };
+        }
+        return { role: m.role, content: m.content };
+      });
 
       // Build system context from memories and project settings
       const systemParts: string[] = [];

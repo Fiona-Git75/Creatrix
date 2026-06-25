@@ -15,7 +15,7 @@ import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sid
 import { AppSidebar } from "@/components/AppSidebar";
 import { ConnectionsDialog } from "@/components/ConnectionsDialog";
 import { ChatMessage, type Message } from "@/components/ChatMessage";
-import { ChatInput } from "@/components/ChatInput";
+import { ChatInput, type AttachedImage } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MemoryPanel } from "@/components/MemoryPanel";
@@ -146,7 +146,7 @@ function ChatContent({
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, images?: AttachedImage[]) => void;
   onClearChat: () => void;
   onProjectChange: (projectId: string | null) => void;
   onSelectConnection: (connectionId: string, model: string) => void;
@@ -535,7 +535,7 @@ export default function Chat() {
     setToolEvents([]);
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, images?: AttachedImage[]) => {
     setIsLoading(true);
     setStreamingContent("");
     setToolEvents([]);
@@ -550,6 +550,8 @@ export default function Chat() {
           connectionId: selectedConnectionId ?? undefined,
           message: content,
           model: selectedModel || undefined,
+          imageBase64s: images && images.length > 0 ? images.map(img => img.base64) : undefined,
+          imageMimeTypes: images && images.length > 0 ? images.map(img => img.mimeType) : undefined,
         }),
       });
 
