@@ -754,6 +754,12 @@ export async function registerRoutes(
         id: randomUUID(),
         role: "user",
         content: message,
+        ...(imageBase64s.length > 0 && {
+          images: imageBase64s.map((base64, i) => ({
+            base64,
+            mimeType: imageMimeTypes[i] ?? "image/jpeg",
+          })),
+        }),
       };
       await storage.addMessageToConversation(currentConversationId, userMessage);
 

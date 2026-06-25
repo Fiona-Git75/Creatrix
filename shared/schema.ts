@@ -180,12 +180,19 @@ export const sourceSchema = z.object({
 });
 export type Source = z.infer<typeof sourceSchema>;
 
+export const messageImageSchema = z.object({
+  base64: z.string(),
+  mimeType: z.string(),
+});
+export type MessageImage = z.infer<typeof messageImageSchema>;
+
 export const messageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   createdAt: z.string().optional(),
   sources: z.array(sourceSchema).optional(),
+  images: z.array(messageImageSchema).optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

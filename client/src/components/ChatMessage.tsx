@@ -3,13 +3,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import type { Source } from "@shared/schema";
+import type { Source, MessageImage } from "@shared/schema";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  images?: MessageImage[];
 }
 
 interface ChatMessageProps {
@@ -87,6 +88,19 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                 : "bg-muted text-foreground"
             )}
           >
+            {isUser && message.images && message.images.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2" data-testid="message-images">
+                {message.images.map((img, i) => (
+                  <img
+                    key={i}
+                    src={`data:${img.mimeType};base64,${img.base64}`}
+                    alt={`Attached image ${i + 1}`}
+                    className="max-h-48 max-w-xs rounded-md object-contain"
+                    data-testid={`message-image-${message.id}-${i}`}
+                  />
+                ))}
+              </div>
+            )}
             <p className="whitespace-pre-wrap">{message.content}</p>
             {isStreaming && (
               <span className="inline-block w-2 h-4 ml-1 bg-current animate-pulse" />
