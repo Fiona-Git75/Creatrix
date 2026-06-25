@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, KeyboardEvent, RefObject, ChangeEvent } from "react";
+import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, RefObject, ChangeEvent } from "react";
 import { Send, Paperclip, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,7 +53,11 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message..."
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
+    processImageFiles(files);
+    e.target.value = "";
+  };
 
+  const processImageFiles = (files: File[]) => {
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -68,8 +72,13 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message..."
       };
       reader.readAsDataURL(file);
     });
+  };
 
-    e.target.value = "";
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    processImageFiles(imageFiles);
   };
 
   const removeImage = (index: number) => {
@@ -164,6 +173,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message..."
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={placeholder}
             disabled={isLoading}
             className="min-h-[44px] max-h-[200px] resize-none border-0 focus-visible:ring-0 text-base bg-transparent"
