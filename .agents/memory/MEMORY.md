@@ -6,5 +6,5 @@
 - [Replit lockfile portability](replit-lockfile-portability.md) — package-lock.json bakes in internal proxy URLs; breaks npm ci outside Replit; sed fix in Dockerfile; symptoms look like missing binaries.
 - [Docker capability substrate](docker-capability-substrate.md) — Docker services are runtime grounding for capabilities; requires= is contract, Docker is fulfillment; reasoning must not exceed affordance boundary.
 - [Provider discovery architecture](provider-discovery-arch.md) — connectionId is the provider boundary; defaultModel is a hint only; live scan is authoritative.
-- [Cold-start gaps — next session](cold-start-next-session.md) — three issues surfaced by cold-start testing; logging, model cards, bootstrap contract.
+- [Runtime coherence architecture](runtime-coherence-arch.md) — bootstrap record is the living contract; coherence ≠ health; "right relationship with itself and its user."
 - [Provenance annotation convention](provenance-convention.md) — symbolic anchor comments at integration boundaries; canonical/derives/overrides/consumed-by; never line numbers.

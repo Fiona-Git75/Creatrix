@@ -19,6 +19,7 @@ import { ProjectSelector } from "./ProjectSelector";
 import { ProjectsDialog } from "./ProjectsDialog";
 import { MorningOrientation } from "./MorningOrientation";
 import { ToolStatusChip } from "./ToolStatusChip";
+import { RuntimeCoherencePanel } from "./RuntimeCoherencePanel";
 
 interface AppSidebarProps {
   conversations: Conversation[];
@@ -116,6 +117,7 @@ export function AppSidebar({
         {morningOrientationEnabled && <MorningOrientation />}
 
         <SidebarFooter className="border-t pt-2 pb-3 px-3 space-y-1">
+          <RuntimeCoherencePanel />
           <ToolStatusChip onOpenSettings={onOpenSettings} />
           {/* Health indicator — always visible, reflects whether chat actually works */}
           {health && health.status !== "ok" && (
