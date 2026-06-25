@@ -141,6 +141,7 @@ export async function registerRoutes(
         req.session.cookie.expires = undefined;
         req.session.cookie.maxAge = undefined as any;
       }
+      syslog("info", "system", `Session started: ${user.username}`, JSON.stringify({ userId: user.id }));
       return res.json({ user: { id: user.id, username: user.username } });
     } catch (err: any) {
       console.error("[auth] login error:", err);
@@ -149,6 +150,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/logout", (req: Request, res: Response) => {
+    syslog("info", "system", "Session ended", JSON.stringify({ userId: req.session.userId }));
     req.session.destroy(() => {});
     res.json({ ok: true });
   });
@@ -1799,6 +1801,13 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // ── Provenance ────────────────────────────────────────────────────────────
+  // canonical:   server/routes.ts → GET /api/system/health
+  // contract:    reflects whether the user can actually do their task right now,
+  //              not just whether infrastructure pings succeed. Each issue carries
+  //              message (what) + whyItMatters + action (what to do).
+  // consumed-by: client/src/components/SystemLogPanel.tsx → HealthBar
+  //              client/src/components/AppSidebar.tsx → health dot
   app.get("/api/system/health", async (_req: Request, res: Response) => {
     let dbOk = false;
     try {
@@ -1807,14 +1816,96 @@ export async function registerRoutes(
     } catch {}
 
     const uptimeSeconds = Math.floor((Date.now() - SERVER_START) / 1000);
-    const recentLogs = await storage.getSystemLogs({ level: "issues", limit: 500 });
-    const recentErrors = recentLogs.filter(
-      (e) => e.level === "error" && Date.now() - new Date(e.timestamp).getTime() < 5 * 60 * 1000
-    ).length;
 
-    const allLogs = await storage.getSystemLogs({ limit: 500 });
-    const status = !dbOk ? "error" : recentErrors > 5 ? "degraded" : "ok";
-    res.json({ status, db: dbOk, uptime: uptimeSeconds, logCount: allLogs.length, recentErrors });
+    // Use cached provider state — do not force a fresh scan on every health poll
+    const providerStatus = await getProvidersStatus(false).catch(() => null);
+    const connections = providerStatus?.providers ?? [];
+    const onlineConnections = connections.filter(c => c.status === "online");
+    const canChat = onlineConnections.length > 0;
+
+    // Errors in the last 5 minutes
+    const recentLogs = await storage.getSystemLogs({ limit: 200 });
+    const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
+    const recentErrorLogs = recentLogs.filter(
+      e => e.level === "error" && new Date(e.timestamp).getTime() > fiveMinsAgo
+    );
+
+    // Build task-oriented issue list — each item answers what/why/how
+    const issues: {
+      component: string;
+      severity: "error" | "warn";
+      message: string;
+      whyItMatters: string;
+      action: string;
+    }[] = [];
+
+    if (!dbOk) {
+      issues.push({
+        component: "Database",
+        severity: "error",
+        message: "Database is not responding",
+        whyItMatters: "Nothing can be saved — settings, conversations, and logs will be lost",
+        action: "Check that PostgreSQL is running and DATABASE_URL is set correctly",
+      });
+    }
+
+    if (connections.length === 0) {
+      issues.push({
+        component: "AI Connection",
+        severity: "error",
+        message: "No AI connections configured",
+        whyItMatters: "Chat will not work — there is nothing to send your messages to",
+        action: "Open Settings → Connections and add your AI endpoint",
+      });
+    } else if (!canChat) {
+      const names = connections.map(c => c.name).join(", ");
+      const firstType = connections[0]?.type;
+      const action = firstType === "ollama"
+        ? "Run `ollama serve` in a terminal to start the local model server"
+        : firstType === "lmstudio"
+        ? "Open LM Studio and start the local server (Server tab)"
+        : "Check that your AI service is running and the endpoint URL is correct";
+      issues.push({
+        component: "AI Connection",
+        severity: "error",
+        message: `${names} ${connections.length === 1 ? "is" : "are"} not responding`,
+        whyItMatters: "Chat will fail — no models are available to respond",
+        action,
+      });
+    }
+
+    if (recentErrorLogs.length > 0 && canChat) {
+      const sample = recentErrorLogs[0];
+      issues.push({
+        component: sample.category,
+        severity: "warn",
+        message: `${recentErrorLogs.length} error${recentErrorLogs.length !== 1 ? "s" : ""} in the last 5 minutes`,
+        whyItMatters: "Something may not be working as expected",
+        action: "Open the System Log and filter by Errors for details",
+      });
+    }
+
+    const hasErrors = issues.some(i => i.severity === "error");
+    const hasWarnings = issues.some(i => i.severity === "warn");
+    const status = !dbOk || hasErrors ? "unwell" : hasWarnings ? "degraded" : "ok";
+
+    const modelCount = onlineConnections.reduce((n, c) => n + c.models.length, 0);
+    const headline = status === "ok"
+      ? `Ready — ${onlineConnections[0]?.name ?? "AI"} online${modelCount > 0 ? ` · ${modelCount} model${modelCount !== 1 ? "s" : ""}` : ""}`
+      : issues[0]?.message ?? "System issue detected";
+
+    res.json({
+      status,
+      canChat,
+      headline,
+      issues,
+      connections: connections.map(c => ({ name: c.name, status: c.status, models: c.models.length })),
+      db: dbOk,
+      uptime: uptimeSeconds,
+      checkedAt: new Date().toISOString(),
+      logCount: recentLogs.length,
+      recentErrors: recentErrorLogs.length,
+    });
   });
 
   return httpServer;

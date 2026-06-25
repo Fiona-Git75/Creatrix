@@ -33,12 +33,23 @@ interface LogEntry {
   detail?: string;
 }
 
+interface HealthIssue {
+  component: string;
+  severity: "error" | "warn";
+  message: string;
+  whyItMatters: string;
+  action: string;
+}
+
 interface HealthStatus {
-  status: "ok" | "degraded" | "error";
+  status: "ok" | "degraded" | "unwell";
+  canChat: boolean;
+  headline: string;
+  issues: HealthIssue[];
+  connections: { name: string; status: string; models: number }[];
   db: boolean;
   uptime: number;
-  logCount: number;
-  recentErrors: number;
+  checkedAt: string;
 }
 
 interface SystemLogPanelProps {
@@ -60,6 +71,7 @@ function categoryColor(cat: string): string {
     case "notion": return "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300";
     case "filesystem": return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
     case "web": return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300";
+    case "bootstrap": return "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300";
     default: return "bg-muted text-muted-foreground";
   }
 }
@@ -70,36 +82,41 @@ function formatTime(iso: string) {
 }
 
 function HealthBar({ health }: { health: HealthStatus }) {
-  const ok = health.status === "ok";
-  const degraded = health.status === "degraded";
+  const isOk = health.status === "ok";
+  const isUnwell = health.status === "unwell";
   return (
-    <div className={`flex items-center gap-3 px-3 py-2 rounded-md border text-sm ${
-      ok ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-900"
-        : degraded ? "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900"
-        : "bg-destructive/5 border-destructive/30"
+    <div className={`rounded-md border p-3 space-y-2 text-sm ${
+      isOk
+        ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900"
+        : isUnwell
+        ? "bg-destructive/5 border-destructive/30"
+        : "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900"
     }`}>
-      {ok
-        ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-        : degraded
-        ? <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-        : <XCircle className="h-4 w-4 text-destructive shrink-0" />
-      }
-      <div className="flex-1 flex flex-wrap gap-x-4 gap-y-0.5">
-        <span className="font-medium">
-          {ok ? "System healthy" : degraded ? "System degraded" : "System error"}
+      <div className="flex items-center gap-2">
+        {isOk
+          ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+          : isUnwell
+          ? <XCircle className="h-4 w-4 text-destructive shrink-0" />
+          : <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+        }
+        <span className="font-medium">{health.headline}</span>
+        <span className="ml-auto text-xs text-muted-foreground shrink-0">
+          {Math.floor(health.uptime / 60)}m uptime
         </span>
-        <span className="text-muted-foreground">
-          DB {health.db ? "✓" : "✗"}
-        </span>
-        <span className="text-muted-foreground">
-          Uptime {Math.floor(health.uptime / 60)}m
-        </span>
-        {health.recentErrors > 0 && (
-          <span className="text-destructive font-medium">
-            {health.recentErrors} recent error{health.recentErrors !== 1 ? "s" : ""}
-          </span>
-        )}
       </div>
+      {health.issues.map((issue, i) => (
+        <div key={i} className={`pl-3 space-y-0.5 border-l-2 ${
+          issue.severity === "error" ? "border-destructive/50" : "border-amber-400/50"
+        }`}>
+          <p className={`text-xs font-medium ${
+            issue.severity === "error" ? "text-destructive" : "text-amber-700 dark:text-amber-400"
+          }`}>
+            {issue.component}: {issue.message}
+          </p>
+          <p className="text-xs text-muted-foreground">{issue.whyItMatters}</p>
+          <p className="text-xs font-medium text-foreground">{issue.action}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -137,7 +154,7 @@ export function SystemLogPanel({ open, onOpenChange }: SystemLogPanelProps) {
     },
   });
 
-  const categories = ["all", "system", "chat", "tool", "connection", "notion", "filesystem", "web"];
+  const categories = ["all", "system", "chat", "tool", "connection", "notion", "filesystem", "web", "bootstrap"];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

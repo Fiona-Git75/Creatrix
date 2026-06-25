@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { createProvider } from "./index";
+import { syslog } from "../syslog";
 import type { Connection } from "@shared/schema";
 
 export type ToolSupport = "native" | "text" | "limited" | "none";
@@ -232,6 +233,31 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
 
   const connections = await storage.getConnections();
   const providers = await Promise.all(connections.map(scanConnection));
+
+  // Detect online/offline transitions and log them with actionable guidance
+  if (_cache) {
+    const prevMap = new Map(_cache.providers.map(p => [p.connectionId, p.status]));
+    for (const p of providers) {
+      const prev = prevMap.get(p.connectionId);
+      if (prev && prev !== p.status) {
+        if (p.status === "offline") {
+          const hint = p.type === "ollama"
+            ? "Run `ollama serve` in a terminal to restore it."
+            : p.type === "lmstudio"
+            ? "Open LM Studio and start the local server (Server tab)."
+            : "Check that the service is running and the endpoint URL is correct.";
+          syslog("warn", "connection",
+            `${p.name} went offline — chat will fail until it's restored. ${hint}`,
+            JSON.stringify({ endpoint: p.endpoint }));
+        } else {
+          const n = p.models.length;
+          syslog("info", "connection",
+            `${p.name} is back online — ${n} model${n !== 1 ? "s" : ""} available.`,
+            JSON.stringify({ endpoint: p.endpoint, models: p.models.map(m => m.id) }));
+        }
+      }
+    }
+  }
 
   const configuredEndpoints = new Set(connections.map(c => c.endpoint.replace(/\/$/, "")));
   const suggested: SuggestedProvider[] = [];

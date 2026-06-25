@@ -228,6 +228,7 @@ function ChatContent({
         onProjectChange={onProjectChange}
         onOpenSettings={onOpenSettings}
         onOpenDocs={() => onDocChange(null)}
+        onOpenSystemLog={() => setSystemLogOpen(true)}
       />
 
       <div className="flex flex-row flex-1 min-w-0">
