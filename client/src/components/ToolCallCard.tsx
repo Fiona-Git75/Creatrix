@@ -48,6 +48,15 @@ function argHint(capability: CapabilityName, args: Record<string, unknown>): str
   return String(val).split("/").pop()?.slice(0, 48) || "";
 }
 
+function renderErrorWithLinks(text: string): (string | JSX.Element)[] {
+  const parts = text.split(/(https?:\/\/[^\s,]+)/g);
+  return parts.map((part, i) =>
+    part.startsWith("http://") || part.startsWith("https://")
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-80">{part}</a>
+      : part
+  );
+}
+
 function confirmDescription(capability: CapabilityName, args: Record<string, unknown>): string {
   if (capability === "delete_file") return `Permanently delete: ${args.path}`;
   if (capability === "move_file")   return `Move ${args.path} → ${args.destination}`;
@@ -187,7 +196,7 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
             )}
             {expanded && hasDetail && (
               event.status === "error" ? (
-                <p className="text-destructive/80">{event.error}</p>
+                <p className="text-destructive/80">{renderErrorWithLinks(event.error ?? "")}</p>
               ) : answer ? (
                 <div className="text-foreground/70 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto border-t border-border/20 pt-2">
                   {answer}

@@ -24,7 +24,8 @@ function checkImageSize(bytes: number, provider: string): void {
     throw new Error(
       `Image is too large to send to a vision model (${mb} MB). ` +
       `The limit for ${provider} is ${limitMb} MB. ` +
-      `Please resize the image before sharing it.`
+      `To resize: on macOS/Linux run \`sips -Z 1920 yourimage.jpg\`, ` +
+      `or compress it online at https://squoosh.app`
     );
   }
 }
