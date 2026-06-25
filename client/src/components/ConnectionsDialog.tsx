@@ -166,6 +166,7 @@ function ConnectionsTab() {
     apiKey: "",
     defaultModel: "",
     isDefault: false,
+    maxImageSizeMb: "" as string,
   });
 
   const { data: connections = [], isLoading } = useQuery<Connection[]>({
@@ -215,6 +216,7 @@ function ConnectionsTab() {
       apiKey: "",
       defaultModel: "",
       isDefault: false,
+      maxImageSizeMb: "",
     });
   };
 
@@ -237,11 +239,13 @@ function ConnectionsTab() {
     e.preventDefault();
     if (!newConnection.endpoint) return;
     const detected = detectProvider(newConnection.endpoint);
+    const maxMb = newConnection.maxImageSizeMb !== "" ? parseInt(newConnection.maxImageSizeMb, 10) : undefined;
     createMutation.mutate({
       ...newConnection,
       name: newConnection.name || detected.name,
       defaultModel: newConnection.defaultModel || detected.model,
       isDefault: connections.length === 0,
+      maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
     });
   };
 
@@ -402,6 +406,21 @@ function ConnectionsTab() {
                       placeholder={detectProvider(newConnection.endpoint).model || "model-name"}
                       data-testid="input-connection-model"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxImageSizeMb">Max image size (MB)</Label>
+                    <Input
+                      id="maxImageSizeMb"
+                      type="number"
+                      min="1"
+                      value={newConnection.maxImageSizeMb}
+                      onChange={(e) => setNewConnection({ ...newConnection, maxImageSizeMb: e.target.value })}
+                      placeholder={`Default: ${newConnection.provider === "ollama" ? "10" : "20"}`}
+                      data-testid="input-connection-max-image-size"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to use the provider default. Raise this for high-VRAM setups or lower it to protect constrained hardware.
+                    </p>
                   </div>
                 </div>
               </details>

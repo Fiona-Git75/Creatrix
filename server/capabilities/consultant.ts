@@ -16,14 +16,16 @@ const IMAGE_SIZE_LIMITS: Record<string, number> = {
 };
 const DEFAULT_IMAGE_SIZE_LIMIT = 20 * 1024 * 1024;
 
-function checkImageSize(bytes: number, provider: string): void {
-  const limit = IMAGE_SIZE_LIMITS[provider] ?? DEFAULT_IMAGE_SIZE_LIMIT;
+function checkImageSize(bytes: number, provider: string, maxImageSizeMb?: number | null): void {
+  const limit = maxImageSizeMb != null
+    ? maxImageSizeMb * 1024 * 1024
+    : (IMAGE_SIZE_LIMITS[provider] ?? DEFAULT_IMAGE_SIZE_LIMIT);
   if (bytes > limit) {
     const mb      = (bytes / (1024 * 1024)).toFixed(1);
     const limitMb = (limit / (1024 * 1024)).toFixed(0);
     throw new Error(
       `Image is too large to send to a vision model (${mb} MB). ` +
-      `The limit for ${provider} is ${limitMb} MB. ` +
+      `The limit for this connection is ${limitMb} MB. ` +
       `To resize: on macOS/Linux run \`sips -Z 1920 yourimage.jpg\`, ` +
       `or compress it online at https://squoosh.app`
     );
@@ -171,7 +173,7 @@ export const consultantCapability: CapabilityDefinition = {
       const safePath = resolveImagePath(imagePath, ctx);
       const ext = path.extname(safePath).toLowerCase();
       const buf = readFileSync(safePath);
-      checkImageSize(buf.byteLength, connection.provider);
+      checkImageSize(buf.byteLength, connection.provider, connection.maxImageSizeMb);
       allImages.push(buf.toString("base64"));
       allMimeTypes.push(EXTENSION_TO_MIME[ext] ?? "image/jpeg");
     }
@@ -179,7 +181,7 @@ export const consultantCapability: CapabilityDefinition = {
     // Singular image_base64 — MIME type unknown, default to jpeg.
     // Base64 inflates by ~4/3 — reverse to estimate original byte count.
     if (imageBase64Arg) {
-      checkImageSize(Math.ceil(imageBase64Arg.length * 0.75), connection.provider);
+      checkImageSize(Math.ceil(imageBase64Arg.length * 0.75), connection.provider, connection.maxImageSizeMb);
       allImages.push(imageBase64Arg);
       allMimeTypes.push("image/jpeg");
     }
@@ -189,14 +191,14 @@ export const consultantCapability: CapabilityDefinition = {
       const safePath = resolveImagePath(p, ctx);
       const ext = path.extname(safePath).toLowerCase();
       const buf = readFileSync(safePath);
-      checkImageSize(buf.byteLength, connection.provider);
+      checkImageSize(buf.byteLength, connection.provider, connection.maxImageSizeMb);
       allImages.push(buf.toString("base64"));
       allMimeTypes.push(EXTENSION_TO_MIME[ext] ?? "image/jpeg");
     }
 
     // Plural image_base64s — MIME type unknown, default to jpeg
     for (const b64 of imageBase64sArg) {
-      checkImageSize(Math.ceil(b64.length * 0.75), connection.provider);
+      checkImageSize(Math.ceil(b64.length * 0.75), connection.provider, connection.maxImageSizeMb);
       allImages.push(b64);
       allMimeTypes.push("image/jpeg");
     }
