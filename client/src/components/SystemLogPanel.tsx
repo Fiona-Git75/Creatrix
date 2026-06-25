@@ -72,6 +72,7 @@ function categoryColor(cat: string): string {
     case "filesystem": return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
     case "web": return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300";
     case "bootstrap": return "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300";
+    case "runtime": return "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300";
     default: return "bg-muted text-muted-foreground";
   }
 }

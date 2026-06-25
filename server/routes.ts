@@ -1915,5 +1915,24 @@ export async function registerRoutes(
     });
   });
 
+  // ── Provenance ────────────────────────────────────────────────────────────
+  // canonical:   server/routes.ts → GET /api/system/coherence
+  // derives:     server/runtime/manifest.ts + server/runtime/coherence.ts
+  // contract:    measures current state against the commissioning record.
+  //              Not "is X up?" but "was X commissioned, and is it still present?"
+  //              Returns a coherence report with expected/actual/action per item.
+  // consumed-by: client (future coherence panel); also called directly for debugging
+  app.get("/api/system/coherence", async (_req: Request, res: Response) => {
+    try {
+      const { loadManifest } = await import("./runtime/manifest");
+      const { measureCoherence } = await import("./runtime/coherence");
+      const manifest = await loadManifest();
+      const report = await measureCoherence(manifest);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Coherence check failed" });
+    }
+  });
+
   return httpServer;
 }

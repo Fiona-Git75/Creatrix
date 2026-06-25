@@ -118,10 +118,36 @@ app.use((req, res, next) => {
       log("Initializing routes…");
       await registerRoutes(httpServer, app);
       log("Routes registered");
-      // Warm the provider cache once at startup so the UI has real state on first load
+      // Warm the provider cache once at startup so the UI has real state on first load.
+      // After the scan completes, run the runtime coherence check: compare what was
+      // commissioned during setup against what is present now, and narrate the result
+      // into the system log so it's visible at 2 a.m. without opening a debugger.
       import("./providers/discovery").then(({ getProvidersStatus }) => {
-        getProvidersStatus(true).then(s => {
+        getProvidersStatus(true).then(async s => {
           log(`Discovery: ${s.providers.length} connection(s) scanned, ${s.providers.filter(p => p.status === "online").length} online`);
+          try {
+            const [{ loadManifest }, { measureCoherence }, { syslog }] = await Promise.all([
+              import("./runtime/manifest"),
+              import("./runtime/coherence"),
+              import("./syslog"),
+            ]);
+            const manifest = await loadManifest();
+            if (!manifest.bootstrapped) return;
+            syslog("info", "runtime",
+              `Manifest loaded — commissioned by ${manifest.bootstrappedBy} on ${manifest.bootstrappedAt?.slice(0, 10) ?? "unknown"}`);
+            const report = await measureCoherence(manifest);
+            for (const item of report.items) {
+              const level = item.actual === "coherent" ? "info" : item.actual === "degraded" ? "warn" : "error";
+              const icon = item.actual === "coherent" ? "✓" : "⚠";
+              syslog(level, "runtime", `${icon} ${item.component} — ${item.message}`,
+                item.action ? `action: ${item.action}` : undefined);
+            }
+            const n = report.items.filter(i => i.actual === "coherent").length;
+            syslog(report.coherent ? "info" : "warn", "runtime",
+              `Coherence: ${n}/${report.items.length} item${report.items.length !== 1 ? "s" : ""} coherent`);
+          } catch (e) {
+            console.error("[runtime] coherence check failed:", e);
+          }
         }).catch(e => console.error("[discovery] startup scan failed:", e));
       });
 
