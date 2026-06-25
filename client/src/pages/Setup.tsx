@@ -659,15 +659,16 @@ export default function Setup() {
   return (
     <Screen>
       <div className="space-y-6 w-full max-w-lg">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-            <h2 className="text-xl font-semibold">Bootstrap complete</h2>
+        {createdUsername && (
+          <div className="space-y-1 pt-2">
+            <p className="text-2xl font-light tracking-tight">
+              Welcome to Creatrix, {createdUsername}.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Initialization complete. Your workspace is ready.
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Creatrix has been constructed and validated. The record below is permanent.
-          </p>
-        </div>
+        )}
 
         {/* Birth certificate */}
         <div className="rounded-lg border border-border bg-card overflow-hidden">

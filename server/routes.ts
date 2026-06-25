@@ -12,7 +12,7 @@ import { probeNotionConnected } from "./capabilities/notion";
 import { requestConfirmation, resolveConfirmation } from "./confirm";
 import { querySubstrate, computeCoherence } from "./health";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
-import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile, scanConnection } from "./providers/discovery";
+import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile, scanConnection, scanConnectionLite } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
 import type { ToolDefinition, MultimodalMessage } from "./providers/index";
 import fs from "fs/promises";
@@ -330,11 +330,11 @@ export async function registerRoutes(
         isDefault: false,
         settings: null,
       } as any;
-      const result = await scanConnection(tempConn);
+      const result = await scanConnectionLite(tempConn);
       return res.json({
         ok: result.status === "online",
         status: result.status,
-        models: result.models.map(m => ({ id: m.id, name: m.name, size: m.size })),
+        models: result.models,
       });
     } catch (err: any) {
       return res.json({ ok: false, error: err.message || "Probe failed" });

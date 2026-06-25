@@ -231,6 +231,36 @@ export async function scanConnection(connection: Connection): Promise<ProviderSt
   }
 }
 
+// ── Lightweight probe (setup wizard) ─────────────────────────────────────────
+// Skips per-model profile enrichment so the probe completes in one round-trip.
+// scanConnection() fetches /api/show for every model (4 s timeout × N models);
+// scanConnectionLite() just checks reachability and returns the model list.
+export async function scanConnectionLite(
+  connection: Connection,
+): Promise<{ status: "online" | "offline"; models: Pick<ModelEntry, "id" | "name" | "size">[] }> {
+  const normalized: Connection = {
+    ...connection,
+    endpoint: connection.endpoint.replace(/\/\/localhost\b/gi, "//127.0.0.1"),
+  };
+  try {
+    const provider = createProvider(normalized);
+    const result = await Promise.race([
+      provider.listModelsWithStatus(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("probe timeout")), 5000),
+      ),
+    ]);
+    const online =
+      result.status === "ok" || result.status === "empty" || result.models.length > 0;
+    return {
+      status: online ? "online" : "offline",
+      models: result.models.map((m) => ({ id: m.id, name: m.name, size: m.size })),
+    };
+  } catch {
+    return { status: "offline", models: [] };
+  }
+}
+
 // ── Cache + refresh ───────────────────────────────────────────────────────────
 
 let _cache: ProvidersStatusResponse | null = null;
