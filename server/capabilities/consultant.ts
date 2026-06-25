@@ -4,6 +4,31 @@ import type { CapabilityDefinition, CapabilityContext } from "./index";
 import { createProvider } from "../providers";
 import type { MultimodalMessage } from "../providers";
 
+// ── Per-provider image size limits ───────────────────────────────────────────
+// OpenAI enforces a hard 20 MB cap on image payloads.
+// Ollama has no API cap but large images consume context tokens rapidly;
+// 10 MB is a practical ceiling that avoids silent OOM/timeout failures.
+const IMAGE_SIZE_LIMITS: Record<string, number> = {
+  openai:   20 * 1024 * 1024,
+  ollama:   10 * 1024 * 1024,
+  lmstudio: 20 * 1024 * 1024,
+  custom:   20 * 1024 * 1024,
+};
+const DEFAULT_IMAGE_SIZE_LIMIT = 20 * 1024 * 1024;
+
+function checkImageSize(bytes: number, provider: string): void {
+  const limit = IMAGE_SIZE_LIMITS[provider] ?? DEFAULT_IMAGE_SIZE_LIMIT;
+  if (bytes > limit) {
+    const mb      = (bytes          / (1024 * 1024)).toFixed(1);
+    const limitMb = (limit          / (1024 * 1024)).toFixed(0);
+    throw new Error(
+      `Image is too large to send to a vision model (${mb} MB). ` +
+      `The limit for ${provider} is ${limitMb} MB. ` +
+      `Please resize the image before sharing it.`
+    );
+  }
+}
+
 const EXTENSION_TO_MIME: Record<string, string> = {
   ".jpg":  "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -110,7 +135,8 @@ export const consultantCapability: CapabilityDefinition = {
       throw new Error(`Connection for consultant "${consultantName}" is no longer configured`);
     }
 
-    // Resolve image data
+    // Resolve image data — size-check before encoding to give a clear error
+    // rather than a silent API failure or OOM deep in the provider stack.
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
     if (imagePath) {
@@ -118,8 +144,11 @@ export const consultantCapability: CapabilityDefinition = {
       const ext = path.extname(safePath).toLowerCase();
       imageMimeType = EXTENSION_TO_MIME[ext] ?? "image/jpeg";
       const buf = readFileSync(safePath);
+      checkImageSize(buf.byteLength, connection.provider);
       imageBase64 = buf.toString("base64");
     } else if (imageBase64Arg) {
+      // Base64 inflates by ~4/3 — reverse to estimate original byte count.
+      checkImageSize(Math.ceil(imageBase64Arg.length * 0.75), connection.provider);
       imageBase64 = imageBase64Arg;
     }
 
