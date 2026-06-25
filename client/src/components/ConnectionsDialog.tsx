@@ -480,6 +480,11 @@ function ConnectionsTab() {
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {connection.endpoint}
                       </p>
+                      {connection.maxImageSizeMb != null && (
+                        <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-image-limit-${connection.id}`}>
+                          Image limit: {connection.maxImageSizeMb} MB
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <ConnectionHealth connectionId={connection.id} />
