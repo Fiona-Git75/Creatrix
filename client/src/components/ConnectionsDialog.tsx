@@ -1,6 +1,23 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles, Pencil } from "lucide-react";
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Settings as SettingsIcon, Server, FolderOpen, X, ChevronDown, Search, Sparkles, Pencil, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -165,6 +182,226 @@ type EditForm = {
   maxImageSizeMb: string;
 };
 
+interface SortableConnectionCardProps {
+  connection: Connection;
+  editingId: string | null;
+  editForm: EditForm;
+  setEditForm: (form: EditForm) => void;
+  onStartEditing: (c: Connection) => void;
+  onCancelEdit: () => void;
+  onEditSubmit: (e: React.FormEvent) => void;
+  onSetDefault: (id: string) => void;
+  onDelete: (id: string) => void;
+  updateIsPending: boolean;
+  providerLabels: Record<ProviderType, string>;
+}
+
+function SortableConnectionCard({
+  connection,
+  editingId,
+  editForm,
+  setEditForm,
+  onStartEditing,
+  onCancelEdit,
+  onEditSubmit,
+  onSetDefault,
+  onDelete,
+  updateIsPending,
+  providerLabels,
+}: SortableConnectionCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: connection.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card className="p-4">
+        {editingId === connection.id ? (
+          <form onSubmit={onEditSubmit} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Edit connection</p>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={onCancelEdit}
+                data-testid={`button-cancel-edit-${connection.id}`}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`edit-endpoint-${connection.id}`}>URL</Label>
+              <Input
+                id={`edit-endpoint-${connection.id}`}
+                value={editForm.endpoint}
+                onChange={(e) => setEditForm({ ...editForm, endpoint: e.target.value })}
+                placeholder="https://api.openai.com/v1"
+                data-testid={`input-edit-endpoint-${connection.id}`}
+              />
+            </div>
+
+            {(editForm.provider === "openai" || editForm.provider === "custom") && (
+              <div className="space-y-2">
+                <Label htmlFor={`edit-apikey-${connection.id}`}>API Key</Label>
+                <Input
+                  id={`edit-apikey-${connection.id}`}
+                  type="password"
+                  value={editForm.apiKey}
+                  onChange={(e) => setEditForm({ ...editForm, apiKey: e.target.value })}
+                  placeholder="sk-…  (leave blank to keep existing)"
+                  data-testid={`input-edit-apikey-${connection.id}`}
+                />
+              </div>
+            )}
+
+            <details className="group">
+              <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
+                <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                Advanced
+              </summary>
+              <div className="pt-3 space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-name-${connection.id}`}>Name</Label>
+                  <Input
+                    id={`edit-name-${connection.id}`}
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    placeholder="My AI"
+                    data-testid={`input-edit-name-${connection.id}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-provider-${connection.id}`}>Provider type</Label>
+                  <Select
+                    value={editForm.provider}
+                    onValueChange={(v) => setEditForm({ ...editForm, provider: v as ProviderType })}
+                  >
+                    <SelectTrigger data-testid={`select-edit-provider-${connection.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ollama">Ollama</SelectItem>
+                      <SelectItem value="lmstudio">LM Studio</SelectItem>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-model-${connection.id}`}>Default model</Label>
+                  <Input
+                    id={`edit-model-${connection.id}`}
+                    value={editForm.defaultModel}
+                    onChange={(e) => setEditForm({ ...editForm, defaultModel: e.target.value })}
+                    placeholder="model-name"
+                    data-testid={`input-edit-model-${connection.id}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-maximg-${connection.id}`}>Max image size (MB)</Label>
+                  <Input
+                    id={`edit-maximg-${connection.id}`}
+                    type="number"
+                    min="1"
+                    value={editForm.maxImageSizeMb}
+                    onChange={(e) => setEditForm({ ...editForm, maxImageSizeMb: e.target.value })}
+                    placeholder={`Default: ${editForm.provider === "ollama" ? "10" : "20"}`}
+                    data-testid={`input-edit-max-image-size-${connection.id}`}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank to use the provider default.
+                  </p>
+                </div>
+              </div>
+            </details>
+
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="ghost" onClick={onCancelEdit}>Cancel</Button>
+              <Button
+                type="submit"
+                disabled={updateIsPending || !editForm.endpoint}
+                data-testid={`button-save-edit-${connection.id}`}
+              >
+                {updateIsPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Save
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex items-start gap-2">
+            <div
+              {...attributes}
+              {...listeners}
+              className="mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 touch-none"
+              data-testid={`drag-handle-${connection.id}`}
+            >
+              <GripVertical className="h-4 w-4" />
+            </div>
+            <div className="flex items-start justify-between gap-3 flex-1 min-w-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium truncate">{connection.name}</span>
+                  {connection.isDefault && (
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                      Default
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {providerLabels[connection.provider as ProviderType]}
+                </p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {connection.endpoint}
+                </p>
+                {connection.maxImageSizeMb != null && (
+                  <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-image-limit-${connection.id}`}>
+                    Image limit: {connection.maxImageSizeMb} MB
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <ConnectionHealth connectionId={connection.id} />
+                {!connection.isDefault && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onSetDefault(connection.id)}
+                    data-testid={`button-set-default-${connection.id}`}
+                  >
+                    Set Default
+                  </Button>
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onStartEditing(connection)}
+                  data-testid={`button-edit-connection-${connection.id}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onDelete(connection.id)}
+                  data-testid={`button-delete-connection-${connection.id}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function ConnectionsTab() {
   const { toast } = useToast();
   const [isAdding, setIsAdding] = useState(false);
@@ -186,10 +423,15 @@ function ConnectionsTab() {
     isDefault: false,
     maxImageSizeMb: "" as string,
   });
+  const [localOrder, setLocalOrder] = useState<Connection[]>([]);
 
   const { data: connections = [], isLoading } = useQuery<Connection[]>({
     queryKey: ["/api/connections"],
   });
+
+  useEffect(() => {
+    setLocalOrder(connections);
+  }, [connections]);
 
   type ConnectionCreatePayload = Omit<typeof newConnection, "maxImageSizeMb"> & { maxImageSizeMb?: number };
 
@@ -325,6 +567,32 @@ function ConnectionsTab() {
     custom: "Custom API",
   };
 
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      await apiRequest("POST", "/api/connections/reorder", { orderedIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setLocalOrder(prev => {
+      const oldIndex = prev.findIndex(c => c.id === active.id);
+      const newIndex = prev.findIndex(c => c.id === over.id);
+      const reordered = arrayMove(prev, oldIndex, newIndex);
+      reorderMutation.mutate(reordered.map(c => c.id));
+      return reordered;
+    });
+  };
+
   return (
     <ScrollArea className="h-[480px]">
       <div className="space-y-4 pr-4">
@@ -341,185 +609,28 @@ function ConnectionsTab() {
           />
         ) : (
           <>
-            {connections.map((connection) => (
-              <Card key={connection.id} className="p-4">
-                {editingId === connection.id ? (
-                  <form onSubmit={handleEditSubmit} className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium">Edit connection</p>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => setEditingId(null)}
-                        data-testid={`button-cancel-edit-${connection.id}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`edit-endpoint-${connection.id}`}>URL</Label>
-                      <Input
-                        id={`edit-endpoint-${connection.id}`}
-                        value={editForm.endpoint}
-                        onChange={(e) => setEditForm({ ...editForm, endpoint: e.target.value })}
-                        placeholder="https://api.openai.com/v1"
-                        data-testid={`input-edit-endpoint-${connection.id}`}
-                      />
-                    </div>
-
-                    {(editForm.provider === "openai" || editForm.provider === "custom") && (
-                      <div className="space-y-2">
-                        <Label htmlFor={`edit-apikey-${connection.id}`}>API Key</Label>
-                        <Input
-                          id={`edit-apikey-${connection.id}`}
-                          type="password"
-                          value={editForm.apiKey}
-                          onChange={(e) => setEditForm({ ...editForm, apiKey: e.target.value })}
-                          placeholder="sk-…  (leave blank to keep existing)"
-                          data-testid={`input-edit-apikey-${connection.id}`}
-                        />
-                      </div>
-                    )}
-
-                    <details className="group">
-                      <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
-                        <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                        Advanced
-                      </summary>
-                      <div className="pt-3 space-y-3">
-                        <div className="space-y-2">
-                          <Label htmlFor={`edit-name-${connection.id}`}>Name</Label>
-                          <Input
-                            id={`edit-name-${connection.id}`}
-                            value={editForm.name}
-                            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                            placeholder="My AI"
-                            data-testid={`input-edit-name-${connection.id}`}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`edit-provider-${connection.id}`}>Provider type</Label>
-                          <Select
-                            value={editForm.provider}
-                            onValueChange={(v) => setEditForm({ ...editForm, provider: v as ProviderType })}
-                          >
-                            <SelectTrigger data-testid={`select-edit-provider-${connection.id}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="ollama">Ollama</SelectItem>
-                              <SelectItem value="lmstudio">LM Studio</SelectItem>
-                              <SelectItem value="openai">OpenAI</SelectItem>
-                              <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`edit-model-${connection.id}`}>Default model</Label>
-                          <Input
-                            id={`edit-model-${connection.id}`}
-                            value={editForm.defaultModel}
-                            onChange={(e) => setEditForm({ ...editForm, defaultModel: e.target.value })}
-                            placeholder="model-name"
-                            data-testid={`input-edit-model-${connection.id}`}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`edit-maximg-${connection.id}`}>Max image size (MB)</Label>
-                          <Input
-                            id={`edit-maximg-${connection.id}`}
-                            type="number"
-                            min="1"
-                            value={editForm.maxImageSizeMb}
-                            onChange={(e) => setEditForm({ ...editForm, maxImageSizeMb: e.target.value })}
-                            placeholder={`Default: ${editForm.provider === "ollama" ? "10" : "20"}`}
-                            data-testid={`input-edit-max-image-size-${connection.id}`}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Leave blank to use the provider default.
-                          </p>
-                        </div>
-                      </div>
-                    </details>
-
-                    <div className="flex gap-2 justify-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={updateMutation.isPending || !editForm.endpoint}
-                        data-testid={`button-save-edit-${connection.id}`}
-                      >
-                        {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                        Save
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium truncate">{connection.name}</span>
-                        {connection.isDefault && (
-                          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
-                            Default
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {providerLabels[connection.provider as ProviderType]}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {connection.endpoint}
-                      </p>
-                      {connection.maxImageSizeMb != null && (
-                        <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-image-limit-${connection.id}`}>
-                          Image limit: {connection.maxImageSizeMb} MB
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <ConnectionHealth connectionId={connection.id} />
-                      {!connection.isDefault && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setDefaultMutation.mutate(connection.id)}
-                          data-testid={`button-set-default-${connection.id}`}
-                        >
-                          Set Default
-                        </Button>
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => startEditing(connection)}
-                        data-testid={`button-edit-connection-${connection.id}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(connection.id)}
-                        data-testid={`button-delete-connection-${connection.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            ))}
-
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={localOrder.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-4">
+                  {localOrder.map((connection) => (
+                    <SortableConnectionCard
+                      key={connection.id}
+                      connection={connection}
+                      editingId={editingId}
+                      editForm={editForm}
+                      setEditForm={setEditForm}
+                      onStartEditing={startEditing}
+                      onCancelEdit={() => setEditingId(null)}
+                      onEditSubmit={handleEditSubmit}
+                      onSetDefault={(id) => setDefaultMutation.mutate(id)}
+                      onDelete={(id) => deleteMutation.mutate(id)}
+                      updateIsPending={updateMutation.isPending}
+                      providerLabels={providerLabels}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
             {!isAdding && (
               <Button
                 variant="outline"

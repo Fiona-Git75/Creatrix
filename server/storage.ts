@@ -38,6 +38,7 @@ export interface IStorage {
   createConnection(connection: InsertConnection): Promise<Connection>;
   updateConnection(id: string, updates: Partial<InsertConnection>): Promise<Connection | undefined>;
   deleteConnection(id: string): Promise<boolean>;
+  reorderConnections(orderedIds: string[]): Promise<void>;
 
   // Projects
   getProjects(): Promise<Project[]>;
@@ -163,6 +164,7 @@ export class MemStorage implements IStorage {
       endpoint: "http://localhost:11434",
       defaultModel: "llama3.2",
       isDefault: true,
+      orderIndex: 0,
     };
     this.connections.set(defaultConnection.id, defaultConnection);
   }
@@ -181,14 +183,17 @@ export class MemStorage implements IStorage {
   async listUsers(): Promise<User[]> { return Array.from(this.users.values()); }
 
   // Connections
-  async getConnections(): Promise<Connection[]> { return Array.from(this.connections.values()); }
+  async getConnections(): Promise<Connection[]> {
+    return Array.from(this.connections.values()).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+  }
   async getConnection(id: string): Promise<Connection | undefined> { return this.connections.get(id); }
   async getDefaultConnection(): Promise<Connection | undefined> {
     return Array.from(this.connections.values()).find(c => c.isDefault);
   }
   async createConnection(insertConnection: InsertConnection): Promise<Connection> {
     const id = randomUUID();
-    const connection: Connection = { ...insertConnection, id };
+    const maxOrder = Array.from(this.connections.values()).reduce((m, c) => Math.max(m, c.orderIndex ?? 0), -1);
+    const connection: Connection = { ...insertConnection, id, orderIndex: maxOrder + 1 };
     if (connection.isDefault) {
       Array.from(this.connections.entries()).forEach(([key, conn]) => {
         if (conn.isDefault) this.connections.set(key, { ...conn, isDefault: false });
@@ -210,6 +215,12 @@ export class MemStorage implements IStorage {
     return updated;
   }
   async deleteConnection(id: string): Promise<boolean> { return this.connections.delete(id); }
+  async reorderConnections(orderedIds: string[]): Promise<void> {
+    orderedIds.forEach((id, index) => {
+      const conn = this.connections.get(id);
+      if (conn) this.connections.set(id, { ...conn, orderIndex: index });
+    });
+  }
 
   // Projects
   async getProjects(): Promise<Project[]> {
@@ -665,20 +676,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getConnections(): Promise<Connection[]> {
-    const result = await this.db.select().from(connections);
-    return result.map(c => ({ ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false }));
+    const result = await this.db.select().from(connections).orderBy(connections.orderIndex);
+    return result.map(c => ({ ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 }));
   }
   async getConnection(id: string): Promise<Connection | undefined> {
     const result = await this.db.select().from(connections).where(eq(connections.id, id));
     if (!result[0]) return undefined;
     const c = result[0];
-    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false };
+    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 };
   }
   async getDefaultConnection(): Promise<Connection | undefined> {
     const result = await this.db.select().from(connections).where(eq(connections.isDefault, true));
     if (!result[0]) return undefined;
     const c = result[0];
-    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false };
+    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 };
   }
   async createConnection(insertConnection: InsertConnection): Promise<Connection> {
     const id = randomUUID();
@@ -686,13 +697,15 @@ export class DatabaseStorage implements IStorage {
       await this.db.update(connections).set({ isDefault: false }).where(eq(connections.isDefault, true));
     }
     const apiKey = insertConnection.apiKey?.trim() || null;
-    const connection = { id, name: insertConnection.name, provider: insertConnection.provider, endpoint: insertConnection.endpoint, apiKey, defaultModel: insertConnection.defaultModel, isDefault: insertConnection.isDefault ?? false };
+    const countResult = await this.db.select({ count: sql<number>`count(*)` }).from(connections);
+    const nextOrder = Number(countResult[0]?.count ?? 0);
+    const connection = { id, name: insertConnection.name, provider: insertConnection.provider, endpoint: insertConnection.endpoint, apiKey, defaultModel: insertConnection.defaultModel, isDefault: insertConnection.isDefault ?? false, orderIndex: nextOrder };
     console.log("Inserting connection:", JSON.stringify(connection));
     await this.db.insert(connections).values(connection);
     if (connection.isDefault) {
       await this.db.update(settings).set({ defaultConnectionId: id }).where(eq(settings.id, "default"));
     }
-    return { ...insertConnection, id, isDefault: connection.isDefault };
+    return { ...insertConnection, id, isDefault: connection.isDefault, orderIndex: nextOrder };
   }
   async updateConnection(id: string, updates: Partial<InsertConnection>): Promise<Connection | undefined> {
     const existing = await this.getConnection(id);
@@ -707,6 +720,13 @@ export class DatabaseStorage implements IStorage {
   async deleteConnection(id: string): Promise<boolean> {
     const result = await this.db.delete(connections).where(eq(connections.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+  async reorderConnections(orderedIds: string[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, index) =>
+        this.db.update(connections).set({ orderIndex: index }).where(eq(connections.id, id))
+      )
+    );
   }
 
   async getProjects(): Promise<Project[]> {

@@ -19,6 +19,7 @@ export const connections = pgTable("connections", {
   defaultModel: text("default_model").notNull(),
   isDefault: boolean("is_default").default(false),
   maxImageSizeMb: integer("max_image_size_mb"),
+  orderIndex: integer("order_index").default(0),
 });
 
 // Projects table
@@ -153,6 +154,7 @@ export const connectionSchema = z.object({
   defaultModel: z.string(),
   isDefault: z.boolean().default(false),
   maxImageSizeMb: z.number().int().positive().nullable().optional(),
+  orderIndex: z.number().int().default(0),
 });
 export type Connection = z.infer<typeof connectionSchema>;
 export const insertConnectionSchema = connectionSchema.omit({ id: true });

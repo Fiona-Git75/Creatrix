@@ -410,6 +410,7 @@ export class LMStudioProvider implements ModelProvider {
       endpoint: this.endpoint,
       defaultModel: model,
       isDefault: false,
+      orderIndex: 0,
     });
     return openaiProvider.generateStream(messages, model, onChunk, tools);
   }
