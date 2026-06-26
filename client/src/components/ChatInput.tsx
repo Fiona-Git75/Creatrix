@@ -35,6 +35,34 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message..."
     }
   }, [value]);
 
+  // Document-level paste: catches pastes that happen before the user clicks
+  // into the textarea (e.g. Cmd+V immediately after taking a screenshot).
+  // Guard: skip when another input or textarea has focus — their own paste
+  // handlers should run undisturbed. Plain-text pastes are also ignored here
+  // because no image files will be present.
+  useEffect(() => {
+    const handleDocumentPaste = (e: ClipboardEvent) => {
+      const active = document.activeElement;
+      // If any input or textarea has focus, let its own handler run.
+      // This includes the chat textarea itself (covered by onPaste prop)
+      // and any other focusable form field that should not be interrupted.
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+
+      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter(
+        f => f.type.startsWith("image/"),
+      );
+      if (imageFiles.length === 0) return;
+
+      e.preventDefault();
+      processImageFiles(imageFiles);
+    };
+
+    document.addEventListener("paste", handleDocumentPaste as EventListener);
+    return () => document.removeEventListener("paste", handleDocumentPaste as EventListener);
+  // processImageFiles is defined in the same render scope; no external deps needed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = () => {
     if (value.trim() && !isLoading) {
       onSend(value.trim(), attachedImages.length > 0 ? attachedImages : undefined);
