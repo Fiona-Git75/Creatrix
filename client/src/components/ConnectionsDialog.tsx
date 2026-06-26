@@ -359,11 +359,18 @@ function SortableConnectionCard({
                 <p className="text-xs text-muted-foreground truncate mt-0.5">
                   {connection.endpoint}
                 </p>
-                {connection.maxImageSizeMb != null && (
-                  <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-image-limit-${connection.id}`}>
-                    Image limit: {connection.maxImageSizeMb} MB
-                  </p>
-                )}
+                {(() => {
+                  const custom = connection.maxImageSizeMb != null;
+                  const mb = custom ? connection.maxImageSizeMb : (connection.provider === "ollama" ? 10 : 20);
+                  return (
+                    <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-image-limit-${connection.id}`}>
+                      Image limit:{" "}
+                      <span className={custom ? undefined : "opacity-60"}>
+                        {mb} MB{custom ? "" : " (default)"}
+                      </span>
+                    </p>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <ConnectionHealth connectionId={connection.id} />
