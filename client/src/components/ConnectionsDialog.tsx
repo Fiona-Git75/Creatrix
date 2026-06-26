@@ -192,6 +192,7 @@ interface SortableConnectionCardProps {
   onEditSubmit: (e: React.FormEvent) => void;
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
+  deletingId: string | null;
   updateIsPending: boolean;
   providerLabels: Record<ProviderType, string>;
 }
@@ -206,6 +207,7 @@ function SortableConnectionCard({
   onEditSubmit,
   onSetDefault,
   onDelete,
+  deletingId,
   updateIsPending,
   providerLabels,
 }: SortableConnectionCardProps) {
@@ -396,9 +398,12 @@ function SortableConnectionCard({
                   size="icon"
                   variant="ghost"
                   onClick={() => onDelete(connection.id)}
+                  disabled={deletingId === connection.id}
                   data-testid={`button-delete-connection-${connection.id}`}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  {deletingId === connection.id
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Trash2 className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
@@ -431,6 +436,8 @@ function ConnectionsTab() {
     maxImageSizeMb: "" as string,
   });
   const [localOrder, setLocalOrder] = useState<Connection[]>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; count: number } | null>(null);
+  const [checkingUsage, setCheckingUsage] = useState<string | null>(null);
 
   const { data: connections = [], isLoading } = useQuery<Connection[]>({
     queryKey: ["/api/connections"],
@@ -464,9 +471,27 @@ function ConnectionsTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+      setDeleteConfirm(null);
       toast({ title: "Connection deleted" });
     },
   });
+
+  const handleDeleteClick = async (id: string) => {
+    setCheckingUsage(id);
+    try {
+      const res = await apiRequest("GET", `/api/connections/${id}/usage`);
+      const { count } = await res.json();
+      if (count > 0) {
+        setDeleteConfirm({ id, count });
+      } else {
+        deleteMutation.mutate(id);
+      }
+    } catch {
+      deleteMutation.mutate(id);
+    } finally {
+      setCheckingUsage(null);
+    }
+  };
 
   const setDefaultMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -601,6 +626,7 @@ function ConnectionsTab() {
   };
 
   return (
+    <>
     <ScrollArea className="h-[480px]">
       <div className="space-y-4 pr-4">
         {isLoading ? (
@@ -630,7 +656,8 @@ function ConnectionsTab() {
                       onCancelEdit={() => setEditingId(null)}
                       onEditSubmit={handleEditSubmit}
                       onSetDefault={(id) => setDefaultMutation.mutate(id)}
-                      onDelete={(id) => deleteMutation.mutate(id)}
+                      onDelete={handleDeleteClick}
+                      deletingId={checkingUsage || (deleteMutation.isPending ? (deleteConfirm?.id ?? null) : null)}
                       updateIsPending={updateMutation.isPending}
                       providerLabels={providerLabels}
                     />
@@ -769,6 +796,35 @@ function ConnectionsTab() {
         )}
       </div>
     </ScrollArea>
+
+    <Dialog open={deleteConfirm !== null} onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete connection?</DialogTitle>
+        </DialogHeader>
+        {deleteConfirm && deleteConfirm.count > 0 && (
+          <p className="text-sm text-muted-foreground">
+            <strong className="text-foreground">{deleteConfirm.count} {deleteConfirm.count === 1 ? "conversation uses" : "conversations use"} this connection.</strong>{" "}
+            Deleting it will leave {deleteConfirm.count === 1 ? "that conversation" : "them"} without a provider and they won't be able to continue.
+          </p>
+        )}
+        <div className="flex gap-2 justify-end pt-2">
+          <Button variant="ghost" onClick={() => setDeleteConfirm(null)} data-testid="button-cancel-delete-connection">
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}
+            disabled={deleteMutation.isPending}
+            data-testid="button-confirm-delete-connection"
+          >
+            {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Delete anyway
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

@@ -39,6 +39,7 @@ export interface IStorage {
   updateConnection(id: string, updates: Partial<InsertConnection>): Promise<Connection | undefined>;
   deleteConnection(id: string): Promise<boolean>;
   reorderConnections(orderedIds: string[]): Promise<void>;
+  countConversationsByConnection(connectionId: string): Promise<number>;
 
   // Projects
   getProjects(): Promise<Project[]>;
@@ -215,6 +216,9 @@ export class MemStorage implements IStorage {
     return updated;
   }
   async deleteConnection(id: string): Promise<boolean> { return this.connections.delete(id); }
+  async countConversationsByConnection(connectionId: string): Promise<number> {
+    return Array.from(this.conversations.values()).filter(c => c.connectionId === connectionId).length;
+  }
   async reorderConnections(orderedIds: string[]): Promise<void> {
     orderedIds.forEach((id, index) => {
       const conn = this.connections.get(id);
@@ -755,6 +759,11 @@ export class DatabaseStorage implements IStorage {
     await this.db.delete(conversations).where(eq(conversations.projectId, id));
     const result = await this.db.delete(projects).where(eq(projects.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async countConversationsByConnection(connectionId: string): Promise<number> {
+    const result = await this.db.select({ count: sql<number>`count(*)` }).from(conversations).where(eq(conversations.connectionId, connectionId));
+    return Number(result[0]?.count ?? 0);
   }
 
   async getConversations(projectId?: string): Promise<Conversation[]> {

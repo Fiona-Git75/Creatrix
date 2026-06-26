@@ -205,6 +205,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/connections/:id/usage", async (req: Request, res: Response) => {
+    try {
+      const count = await storage.countConversationsByConnection(req.params.id);
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching connection usage:", error);
+      res.status(500).json({ error: "Failed to fetch connection usage" });
+    }
+  });
+
   app.delete("/api/connections/:id", async (req: Request, res: Response) => {
     try {
       const deleted = await storage.deleteConnection(req.params.id);
