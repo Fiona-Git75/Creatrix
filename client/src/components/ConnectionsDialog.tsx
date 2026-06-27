@@ -40,6 +40,7 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Connection, ProviderType, Settings } from "@shared/schema";
@@ -1161,32 +1162,65 @@ function SettingsTab() {
           {systemCoherence && (() => {
             const status = systemCoherence.overallStatus;
             const problemItems = systemCoherence.items.filter(i => i.actual !== "coherent");
-            const tooltipText = status === "GREEN"
-              ? "All systems coherent — everything is running as commissioned."
-              : problemItems.length > 0
-                ? problemItems.map(i => `${i.component}: ${i.message}${i.action ? ` ${i.action}` : ""}`).join("\n")
-                : status === "AMBER"
-                  ? "One or more systems are degraded."
-                  : "One or more systems are absent or unconfigured.";
             const dotColor = status === "GREEN"
               ? "bg-green-500"
               : status === "AMBER"
                 ? "bg-amber-400"
                 : "bg-red-500";
+
+            if (status === "GREEN") {
+              return (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor} cursor-default`}
+                        data-testid="status-system-coherence"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      All systems coherent — everything is running as commissioned.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            }
+
             return (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor} cursor-default`}
-                      data-testid="status-system-coherence"
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs whitespace-pre-line">
-                    {tooltipText}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <span
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor} cursor-pointer`}
+                    data-testid="status-system-coherence"
+                  />
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-0" align="start">
+                  <div className="px-3 py-2 border-b">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      {status === "AMBER" ? "Degraded" : "System Issues"}
+                    </p>
+                  </div>
+                  <ul className="divide-y">
+                    {problemItems.map((item, idx) => (
+                      <li key={idx} className="px-3 py-2.5 space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                              item.actual === "absent" ? "bg-red-500" : "bg-amber-400"
+                            }`}
+                          />
+                          <span className="text-xs font-medium">{item.component}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">{item.domain}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pl-3.5">{item.message}</p>
+                        {item.action && (
+                          <p className="text-xs text-foreground/70 pl-3.5 italic">{item.action}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </PopoverContent>
+              </Popover>
             );
           })()}
         </div>
