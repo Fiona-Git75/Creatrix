@@ -129,7 +129,6 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
 
   // ── AMBER / RED mode — always expanded ────────────────────────────────────
   const degradedDomains = [...new Set(degradedItems.map(i => i.domain))];
-  const firstDegraded = degradedItems[0];
 
   return (
     <div
@@ -176,22 +175,25 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
         ))}
       </div>
 
-      {firstDegraded?.firstLook && (
+      {degradedItems.some(i => i.firstLook) && (
         <div className="mb-2">
           <div className="text-muted-foreground mb-0.5">First place to look:</div>
-          {firstDegraded.domain === "Identity" ? (
-            <button
-              className="pl-1 text-foreground/80 underline underline-offset-2 hover:text-foreground text-left"
-              onClick={() => { window.location.href = "/setup"; }}
-              data-testid="button-coherence-run-wizard"
-            >
-              Run Setup Wizard →
-            </button>
-          ) : (
-            <div className="pl-1 text-foreground/80 whitespace-pre-wrap">
-              {firstDegraded.firstLook}
-            </div>
-          )}
+          {degradedItems.filter(i => i.firstLook).map(item => (
+            item.domain === "Identity" ? (
+              <button
+                key={item.component}
+                className="pl-1 text-foreground/80 underline underline-offset-2 hover:text-foreground text-left block"
+                onClick={() => { window.location.href = "/setup"; }}
+                data-testid={`button-coherence-run-wizard-${item.component}`}
+              >
+                Run Setup Wizard →
+              </button>
+            ) : (
+              <div key={item.component} className="pl-1 text-foreground/80 whitespace-pre-wrap">
+                {item.firstLook}
+              </div>
+            )
+          ))}
         </div>
       )}
 
