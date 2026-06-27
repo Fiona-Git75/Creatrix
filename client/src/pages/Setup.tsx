@@ -7,8 +7,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Loader2, ArrowRight, CheckCircle2, XCircle,
-  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward, Info, X, Home
+  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward, Info, X, Home,
+  Copy, Check
 } from "lucide-react";
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy to clipboard"
+      data-testid="button-copy-command"
+      className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+    >
+      {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
+}
 
 interface CoherenceReport {
   coherent: boolean;
@@ -536,13 +557,19 @@ export default function Setup() {
                 {item.action && (
                   <div className="pl-4 space-y-0.5">
                     <p className="text-muted-foreground">Fix:</p>
-                    <p className="text-foreground/90 whitespace-pre-wrap">{item.action}</p>
+                    <div className="flex items-start gap-1.5">
+                      <p className="text-foreground/90 whitespace-pre-wrap flex-1">{item.action}</p>
+                      <CopyButton text={item.action} />
+                    </div>
                   </div>
                 )}
                 {item.firstLook && (
                   <div className="pl-4 space-y-0.5">
                     <p className="text-muted-foreground">First place to look:</p>
-                    <p className="text-foreground/80 whitespace-pre-wrap">{item.firstLook}</p>
+                    <div className="flex items-start gap-1.5">
+                      <p className="text-foreground/80 whitespace-pre-wrap flex-1">{item.firstLook}</p>
+                      <CopyButton text={item.firstLook} />
+                    </div>
                   </div>
                 )}
               </div>
