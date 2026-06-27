@@ -13,7 +13,14 @@ import {
 interface CoherenceReport {
   coherent: boolean;
   overallStatus: "GREEN" | "AMBER" | "RED";
-  items: { domain: string; component: string; actual: string; message: string }[];
+  items: {
+    domain: string;
+    component: string;
+    actual: string;
+    message: string;
+    action?: string;
+    firstLook?: string;
+  }[];
   measuredAt: string;
 }
 
@@ -472,9 +479,74 @@ export default function Setup() {
     );
   }
 
-  // ─── Bootstrapped but system is not GREEN — allow wizard re-entry ─────────
+  // ─── Bootstrapped but system is not GREEN — show targeted repair view ──────
   if (authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN") {
-    // Fall through to wizard steps so user can repair configuration
+    const degradedItems = coherence.items.filter(i => i.actual !== "coherent");
+    const isRed = coherence.overallStatus === "RED";
+    const statusColor = isRed ? "text-red-500 dark:text-red-400" : "text-amber-500 dark:text-amber-400";
+    const borderColor = isRed ? "border-red-900/40 bg-red-950/20" : "border-amber-900/30 bg-amber-950/20";
+
+    return (
+      <Screen>
+        <div className="space-y-6 max-w-md">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Wrench className={`h-5 w-5 ${statusColor}`} />
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                System repair
+              </p>
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Something needs attention
+            </h1>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Your system was commissioned, but {degradedItems.length === 1 ? "one component has" : "some components have"} degraded since then.
+              Review the items below and follow the recommended steps to restore full coherence.
+            </p>
+          </div>
+
+          <div className={`border rounded-md divide-y divide-border/30 overflow-hidden font-mono text-xs ${borderColor}`} data-testid="panel-repair-list">
+            {degradedItems.map((item, idx) => (
+              <div key={idx} className="px-4 py-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className={statusColor}>✗</span>
+                  <span className="font-semibold text-foreground">{item.domain} — {item.component}</span>
+                </div>
+                <p className="text-foreground/70 pl-4">{item.message}</p>
+                {item.action && (
+                  <div className="pl-4 space-y-0.5">
+                    <p className="text-muted-foreground">Fix:</p>
+                    <p className="text-foreground/90 whitespace-pre-wrap">{item.action}</p>
+                  </div>
+                )}
+                {item.firstLook && (
+                  <div className="pl-4 space-y-0.5">
+                    <p className="text-muted-foreground">First place to look:</p>
+                    <p className="text-foreground/80 whitespace-pre-wrap">{item.firstLook}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { window.location.href = "/"; }}
+              className="gap-2 text-muted-foreground hover:text-foreground"
+              data-testid="button-repair-return-to-app"
+            >
+              <Home className="h-4 w-4" />
+              Return to app
+            </Button>
+            <p className="text-xs text-muted-foreground font-mono">
+              Status: <span className={statusColor}>{coherence.overallStatus}</span>
+            </p>
+          </div>
+        </div>
+      </Screen>
+    );
   }
 
   // ─── Step 0: Welcome ──────────────────────────────────────────────────────

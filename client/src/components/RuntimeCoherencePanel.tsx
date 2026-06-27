@@ -184,9 +184,9 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
                 key={item.component}
                 className="pl-1 text-foreground/80 underline underline-offset-2 hover:text-foreground text-left block"
                 onClick={() => { window.location.href = "/setup"; }}
-                data-testid={`button-coherence-run-wizard-${item.component}`}
+                data-testid={`button-coherence-run-repair-${item.component}`}
               >
-                Run Setup Wizard →
+                View repair steps →
               </button>
             ) : (
               <div key={item.component} className="pl-1 text-foreground/80 whitespace-pre-wrap">
