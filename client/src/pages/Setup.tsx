@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Loader2, ArrowRight, CheckCircle2, XCircle,
-  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward
+  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward, Info, X
 } from "lucide-react";
 
 type Provider = "ollama" | "lmstudio" | "openai" | "custom";
@@ -149,6 +149,7 @@ export default function Setup() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [autoSkippedAccount, setAutoSkippedAccount] = useState(false);
+  const [skippedBannerVisible, setSkippedBannerVisible] = useState(true);
 
   const { data: authStatus } = useQuery<{ bootstrapped: boolean; user: { username: string } | null }>({
     queryKey: ["/api/auth/status"],
@@ -159,9 +160,17 @@ export default function Setup() {
       setCreatedUsername(authStatus.user.username);
       setAccountTimestamp(new Date().toISOString());
       setAutoSkippedAccount(true);
+      setSkippedBannerVisible(true);
       setStep(2);
     }
   }, [authStatus, step]);
+
+  useEffect(() => {
+    if (autoSkippedAccount && skippedBannerVisible) {
+      const timer = setTimeout(() => setSkippedBannerVisible(false), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [autoSkippedAccount, skippedBannerVisible]);
 
   // ── Step 1: Account ──────────────────────────────────────────────────────
   const [username, setUsername] = useState("");
@@ -482,6 +491,26 @@ export default function Setup() {
     return (
       <Screen progress={<StepIndicator current={1} skipped={autoSkippedAccount ? [0] : []} />}>
         <div className="space-y-6">
+          {autoSkippedAccount && skippedBannerVisible && (
+            <div
+              className="flex items-start gap-2.5 rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-sm text-blue-800 dark:border-blue-800/50 dark:bg-blue-950/40 dark:text-blue-300"
+              data-testid="banner-skipped-account"
+            >
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="flex-1">
+                You're already signed in as <span className="font-semibold">{createdUsername}</span> — account setup was skipped.
+              </span>
+              <button
+                type="button"
+                onClick={() => setSkippedBannerVisible(false)}
+                className="shrink-0 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 p-0.5 transition-colors"
+                aria-label="Dismiss"
+                data-testid="button-dismiss-skipped-banner"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <div className="space-y-1">
             <p className="text-xs font-mono text-muted-foreground">Step 2 of 3 — AI Endpoint</p>
             <h2 className="text-xl font-semibold">Connect your AI</h2>
