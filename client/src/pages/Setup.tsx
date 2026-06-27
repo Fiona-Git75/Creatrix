@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -174,7 +174,27 @@ export default function Setup() {
   const { data: coherence } = useQuery<CoherenceReport>({
     queryKey: ["/api/system/coherence"],
     enabled: authStatus?.bootstrapped === true,
+    // Mirror the same polling contract as RuntimeCoherencePanel:
+    // GREEN → no auto-refetch; AMBER/RED → re-check every 30s so recovery is detected.
+    refetchInterval: (query) => {
+      const d = query.state.data as CoherenceReport | undefined;
+      if (!d || d.overallStatus !== "GREEN") return 30_000;
+      return false;
+    },
   });
+
+  // Track whether the repair view was ever shown so we can detect recovery.
+  const wasInRepairView = useRef(false);
+  if (authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN") {
+    wasInRepairView.current = true;
+  }
+
+  // When coherence recovers to GREEN while the repair view was active, navigate home.
+  useEffect(() => {
+    if (wasInRepairView.current && coherence?.overallStatus === "GREEN") {
+      setLocation("/");
+    }
+  }, [coherence?.overallStatus, setLocation]);
 
   useEffect(() => {
     if (authStatus?.user && step === 0) {
