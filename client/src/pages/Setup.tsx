@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Loader2, ArrowRight, CheckCircle2, XCircle,
-  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench
+  Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward
 } from "lucide-react";
 
 type Provider = "ollama" | "lmstudio" | "openai" | "custom";
@@ -31,21 +31,69 @@ interface BootstrapStep {
   timestamp: string;
 }
 
-function StepIndicator({ current }: { current: number }) {
+const STEP_LABELS = ["Account", "AI Connection", "Services"];
+
+function StepIndicator({ current, skipped = [] }: { current: number; skipped?: number[] }) {
   return (
-    <div className="flex items-center gap-1.5">
-      {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-        <div
-          key={i}
-          className={`h-1 rounded-full transition-all duration-300 ${
-            i < current
-              ? "w-8 bg-primary"
-              : i === current
-              ? "w-8 bg-primary/50"
-              : "w-4 bg-muted"
-          }`}
-        />
-      ))}
+    <div className="flex items-start gap-0">
+      {STEP_LABELS.map((label, i) => {
+        const isSkipped = skipped.includes(i);
+        const isComplete = !isSkipped && i < current;
+        const isCurrent = i === current;
+        const isFuture = !isSkipped && !isComplete && !isCurrent;
+
+        return (
+          <div key={i} className="flex items-start">
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold transition-all duration-300 ${
+                  isSkipped
+                    ? "bg-muted text-muted-foreground"
+                    : isComplete
+                    ? "bg-primary text-primary-foreground"
+                    : isCurrent
+                    ? "bg-primary/15 text-primary border-2 border-primary/50"
+                    : "bg-muted text-muted-foreground border border-border"
+                }`}
+                data-testid={`step-indicator-${i}`}
+              >
+                {isSkipped ? (
+                  <SkipForward className="h-3 w-3" />
+                ) : isComplete ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                ) : (
+                  i + 1
+                )}
+              </div>
+              <div className="flex flex-col items-center">
+                <span
+                  className={`text-xs whitespace-nowrap font-medium ${
+                    isSkipped
+                      ? "text-muted-foreground/60 line-through"
+                      : isCurrent
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </span>
+                {isSkipped && (
+                  <span className="text-xs text-muted-foreground/70 whitespace-nowrap" data-testid={`step-skipped-label-${i}`}>
+                    Already set up
+                  </span>
+                )}
+              </div>
+            </div>
+            {i < STEP_LABELS.length - 1 && (
+              <div
+                className={`h-px w-8 mt-3 mx-1 transition-all duration-300 ${
+                  i < current || isSkipped ? "bg-primary/40" : "bg-border"
+                }`}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -100,6 +148,7 @@ function RecordRow({
 export default function Setup() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
+  const [autoSkippedAccount, setAutoSkippedAccount] = useState(false);
 
   const { data: authStatus } = useQuery<{ bootstrapped: boolean; user: { username: string } | null }>({
     queryKey: ["/api/auth/status"],
@@ -109,6 +158,7 @@ export default function Setup() {
     if (authStatus?.user && step === 0) {
       setCreatedUsername(authStatus.user.username);
       setAccountTimestamp(new Date().toISOString());
+      setAutoSkippedAccount(true);
       setStep(2);
     }
   }, [authStatus, step]);
@@ -430,7 +480,7 @@ export default function Setup() {
     const canProbe = endpoint.trim().length > 0 && (!needsKey || apiKey.trim().length > 0);
 
     return (
-      <Screen progress={<StepIndicator current={1} />}>
+      <Screen progress={<StepIndicator current={1} skipped={autoSkippedAccount ? [0] : []} />}>
         <div className="space-y-6">
           <div className="space-y-1">
             <p className="text-xs font-mono text-muted-foreground">Step 2 of 3 — AI Endpoint</p>
@@ -606,7 +656,7 @@ export default function Setup() {
 
   if (step === 3) {
     return (
-      <Screen progress={<StepIndicator current={2} />}>
+      <Screen progress={<StepIndicator current={2} skipped={autoSkippedAccount ? [0] : []} />}>
         <div className="space-y-6">
           <div className="space-y-1">
             <p className="text-xs font-mono text-muted-foreground">Step 3 of 3 — Services</p>
