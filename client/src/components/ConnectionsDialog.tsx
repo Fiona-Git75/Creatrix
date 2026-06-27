@@ -845,7 +845,11 @@ function SettingsTab() {
     staleTime: 15_000,
   });
 
-  const { data: systemCoherence } = useQuery<{ coherent: boolean; overallStatus: string }>({
+  const { data: systemCoherence } = useQuery<{
+    coherent: boolean;
+    overallStatus: "GREEN" | "AMBER" | "RED";
+    items: { component: string; actual: "coherent" | "degraded" | "absent"; message: string; action?: string }[];
+  }>({
     queryKey: ["/api/system/coherence"],
     refetchInterval: 30_000,
     staleTime: 15_000,
@@ -1152,7 +1156,40 @@ function SettingsTab() {
 
       {/* System */}
       <div className="space-y-3">
-        <h3 className="text-sm font-medium">System</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-medium">System</h3>
+          {systemCoherence && (() => {
+            const status = systemCoherence.overallStatus;
+            const problemItems = systemCoherence.items.filter(i => i.actual !== "coherent");
+            const tooltipText = status === "GREEN"
+              ? "All systems coherent — everything is running as commissioned."
+              : problemItems.length > 0
+                ? problemItems.map(i => `${i.component}: ${i.message}${i.action ? ` ${i.action}` : ""}`).join("\n")
+                : status === "AMBER"
+                  ? "One or more systems are degraded."
+                  : "One or more systems are absent or unconfigured.";
+            const dotColor = status === "GREEN"
+              ? "bg-green-500"
+              : status === "AMBER"
+                ? "bg-amber-400"
+                : "bg-red-500";
+            return (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor} cursor-default`}
+                      data-testid="status-system-coherence"
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs whitespace-pre-line">
+                    {tooltipText}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          })()}
+        </div>
         <p className="text-xs text-muted-foreground">
           Re-run the setup wizard to repair a degraded or uncommissioned system state.
         </p>
