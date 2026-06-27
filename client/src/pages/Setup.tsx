@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +100,18 @@ function RecordRow({
 export default function Setup() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
+
+  const { data: authStatus } = useQuery<{ bootstrapped: boolean; user: { username: string } | null }>({
+    queryKey: ["/api/auth/status"],
+  });
+
+  useEffect(() => {
+    if (authStatus?.user && step === 0) {
+      setCreatedUsername(authStatus.user.username);
+      setAccountTimestamp(new Date().toISOString());
+      setStep(2);
+    }
+  }, [authStatus, step]);
 
   // ── Step 1: Account ──────────────────────────────────────────────────────
   const [username, setUsername] = useState("");
@@ -238,6 +250,7 @@ export default function Setup() {
     onSuccess: (data) => {
       setBootstrapId(data.bootstrap_id);
       setCompletedAt(data.completed_at);
+      queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] });
     },
   });
 

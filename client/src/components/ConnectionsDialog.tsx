@@ -845,6 +845,12 @@ function SettingsTab() {
     staleTime: 15_000,
   });
 
+  const { data: systemCoherence } = useQuery<{ coherent: boolean; overallStatus: string }>({
+    queryKey: ["/api/system/coherence"],
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
   const [rootFolder, setRootFolder] = useState<string>("");
   const [whisperEndpoint, setWhisperEndpoint] = useState<string>("");
   const [searchEndpoint, setSearchEndpoint] = useState<string>("");
@@ -1141,6 +1147,24 @@ function SettingsTab() {
             <SelectItem value="dark">Dark</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+      <Separator />
+
+      {/* System */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">System</h3>
+        <p className="text-xs text-muted-foreground">
+          Re-run the setup wizard to repair a degraded or uncommissioned system state.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={systemCoherence?.overallStatus === "GREEN"}
+          onClick={() => { window.location.href = "/setup"; }}
+          data-testid="button-run-setup-wizard"
+        >
+          Run Setup Wizard
+        </Button>
       </div>
     </div>
     </ScrollArea>

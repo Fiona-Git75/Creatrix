@@ -179,9 +179,19 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
       {firstDegraded?.firstLook && (
         <div className="mb-2">
           <div className="text-muted-foreground mb-0.5">First place to look:</div>
-          <div className="pl-1 text-foreground/80 whitespace-pre-wrap">
-            {firstDegraded.firstLook}
-          </div>
+          {firstDegraded.domain === "Identity" ? (
+            <button
+              className="pl-1 text-foreground/80 underline underline-offset-2 hover:text-foreground text-left"
+              onClick={() => { window.location.href = "/setup"; }}
+              data-testid="button-coherence-run-wizard"
+            >
+              Run Setup Wizard →
+            </button>
+          ) : (
+            <div className="pl-1 text-foreground/80 whitespace-pre-wrap">
+              {firstDegraded.firstLook}
+            </div>
+          )}
         </div>
       )}
 

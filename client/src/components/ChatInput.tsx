@@ -21,7 +21,7 @@ interface ChatInputProps {
   inputRef?: RefObject<HTMLTextAreaElement>;
 }
 
-export function ChatInput({ onSend, isLoading, placeholder = "Send a message...", inputRef }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, placeholder = "Send a message or paste an image…", inputRef }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const internalRef = useRef<HTMLTextAreaElement>(null);
