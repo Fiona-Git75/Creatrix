@@ -201,6 +201,24 @@ export default function Setup() {
     refetchInterval: 30_000,
   });
 
+  // Countdown banner for the repair view: counts down 30→0 and resets on each poll.
+  const [repairCountdown, setRepairCountdown] = useState(30);
+  const inRepairView = authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN";
+
+  // Reset to 30 each time the coherence query resolves (measuredAt changes = new poll).
+  useEffect(() => {
+    if (inRepairView) setRepairCountdown(30);
+  }, [coherence?.measuredAt]);
+
+  // Tick down every second while the repair view is active.
+  useEffect(() => {
+    if (!inRepairView) return;
+    const id = setInterval(() => {
+      setRepairCountdown(prev => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [inRepairView]);
+
   // Track whether the repair view was ever shown so we can detect recovery.
   const wasInRepairView = useRef(false);
   if (authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN") {
@@ -595,6 +613,10 @@ export default function Setup() {
               Status: <span className={statusColor}>{coherence.overallStatus}</span>
             </p>
           </div>
+
+          <p className="text-xs text-muted-foreground font-mono text-center" data-testid="text-repair-countdown">
+            Checking again in {repairCountdown}s…
+          </p>
         </div>
       </Screen>
     );
