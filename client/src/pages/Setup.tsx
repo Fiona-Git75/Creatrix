@@ -545,17 +545,22 @@ export default function Setup() {
 
           <div className={`border rounded-md divide-y divide-border/30 overflow-hidden font-mono text-xs ${borderColor}`} data-testid="panel-repair-list">
             {degradedItems.map((item, idx) => (
-              <div key={idx} className="px-4 py-3 space-y-1.5">
+              <div key={idx} className="px-4 py-3 space-y-1.5" data-testid={`repair-item-${item.component}`}>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {item.domain}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className={statusColor}>✗</span>
-                  <span className="font-semibold text-foreground">{item.domain} — {item.component}</span>
+                  <span className="font-semibold text-foreground">{item.component}</span>
                 </div>
                 <p className="text-foreground/70 pl-4">{item.message}</p>
                 {item.action && (
                   <div className="pl-4 space-y-0.5">
                     <p className="text-muted-foreground">Fix:</p>
                     <div className="flex items-start gap-1.5">
-                      <p className="text-foreground/90 whitespace-pre-wrap flex-1">{item.action}</p>
+                      <p className="text-foreground/90 whitespace-pre-wrap flex-1">
+                        <span className="font-medium text-foreground/60">{item.component}: </span>{item.action}
+                      </p>
                       <CopyButton text={item.action} />
                     </div>
                   </div>
@@ -564,7 +569,9 @@ export default function Setup() {
                   <div className="pl-4 space-y-0.5">
                     <p className="text-muted-foreground">First place to look:</p>
                     <div className="flex items-start gap-1.5">
-                      <p className="text-foreground/80 whitespace-pre-wrap flex-1">{item.firstLook}</p>
+                      <p className="text-foreground/80 whitespace-pre-wrap flex-1">
+                        <span className="font-medium text-foreground/60">{item.component}: </span>{item.firstLook}
+                      </p>
                       <CopyButton text={item.firstLook} />
                     </div>
                   </div>
