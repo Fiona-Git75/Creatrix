@@ -1156,15 +1156,28 @@ function SettingsTab() {
         <p className="text-xs text-muted-foreground">
           Re-run the setup wizard to repair a degraded or uncommissioned system state.
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={systemCoherence?.overallStatus === "GREEN"}
-          onClick={() => { window.location.href = "/setup"; }}
-          data-testid="button-run-setup-wizard"
-        >
-          Run Setup Wizard
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-block">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={systemCoherence?.overallStatus === "GREEN"}
+                  onClick={() => { window.location.href = "/setup"; }}
+                  data-testid="button-run-setup-wizard"
+                >
+                  Run Setup Wizard
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {systemCoherence?.overallStatus === "GREEN" && (
+              <TooltipContent>
+                System is healthy — wizard is only available when status is degraded
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
     </ScrollArea>
