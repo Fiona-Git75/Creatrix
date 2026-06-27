@@ -186,11 +186,11 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
                 onClick={() => { window.location.href = "/setup"; }}
                 data-testid={`button-coherence-run-repair-${item.component}`}
               >
-                View repair steps →
+                <span className="font-medium text-foreground/60">{item.component}: </span>View repair steps →
               </button>
             ) : (
               <div key={item.component} className="pl-1 text-foreground/80 whitespace-pre-wrap">
-                {item.firstLook}
+                <span className="font-medium text-foreground/60">{item.component}: </span>{item.firstLook}
               </div>
             )
           ))}
