@@ -195,13 +195,10 @@ export default function Setup() {
   const { data: coherence } = useQuery<CoherenceReport>({
     queryKey: ["/api/system/coherence"],
     enabled: authStatus?.bootstrapped === true,
-    // Mirror the same polling contract as RuntimeCoherencePanel:
-    // GREEN → no auto-refetch; AMBER/RED → re-check every 30s so recovery is detected.
-    refetchInterval: (query) => {
-      const d = query.state.data as CoherenceReport | undefined;
-      if (!d || d.overallStatus !== "GREEN") return 30_000;
-      return false;
-    },
+    // Poll every 30s regardless of status:
+    //   GREEN  → detect mid-session degradation so the summary page stays accurate
+    //   AMBER/RED → detect recovery so the repair view can redirect home
+    refetchInterval: 30_000,
   });
 
   // Track whether the repair view was ever shown so we can detect recovery.
