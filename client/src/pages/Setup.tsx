@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -147,6 +148,7 @@ function RecordRow({
 
 export default function Setup() {
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [step, setStep] = useState(0);
   const [autoSkippedAccount, setAutoSkippedAccount] = useState(false);
   const [skippedBannerVisible, setSkippedBannerVisible] = useState(true);
@@ -154,6 +156,12 @@ export default function Setup() {
   const { data: authStatus } = useQuery<{ bootstrapped: boolean; user: { username: string } | null }>({
     queryKey: ["/api/auth/status"],
   });
+
+  useEffect(() => {
+    if (authStatus?.bootstrapped) {
+      setLocation("/");
+    }
+  }, [authStatus?.bootstrapped, setLocation]);
 
   useEffect(() => {
     if (authStatus?.user && step === 0) {
@@ -365,6 +373,9 @@ export default function Setup() {
   function handleEnter() {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/status"] });
   }
+
+  // ─── Guard: already bootstrapped ─────────────────────────────────────────
+  if (authStatus?.bootstrapped) return null;
 
   // ─── Step 0: Welcome ──────────────────────────────────────────────────────
 
