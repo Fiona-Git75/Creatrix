@@ -22,6 +22,9 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      // Allows server-side integration tests (living in client/src/__tests__/) to
+      // import server modules without ../../../../ relative paths.
+      "@server": path.resolve(import.meta.dirname, "server"),
     },
   },
 });
