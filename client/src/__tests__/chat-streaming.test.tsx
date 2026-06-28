@@ -82,20 +82,36 @@ function encodeEvents(events: object[]): Uint8Array {
 }
 
 /**
- * Mirror of the SSE parsing loop from Chat.tsx handleSendMessage.
+ * Mirror of the fixed SSE parsing loop from Chat.tsx handleSendMessage.
  * Kept here as a standalone function so tests can run without rendering
  * the full page. Must be kept in sync with the algorithm in Chat.tsx.
+ *
+ * Key structural rule (matches Chat.tsx):
+ *   JSON parsing is isolated in its own try/catch so only genuine decode
+ *   failures are silently skipped.  Event-processing runs outside that catch,
+ *   so error events propagate instead of being swallowed as parse failures.
+ *
+ * Returns `error` when an SSE "error" event is encountered (mirrors the
+ * `throw new Error(data.message)` path in Chat.tsx, caught by its outer
+ * handler and surfaced as a toast).  Content accumulated before the error
+ * event is preserved so callers can assert partial output.
+ *
+ * When the stream closes without a "done" event (network drop / provider
+ * crash), `done` is false and `content` holds whatever arrived — callers
+ * assert the partial content is still accessible.
  */
 async function consumeSseStream(stream: ReadableStream<Uint8Array>): Promise<{
   conversationId: string | null;
   content: string;
   done: boolean;
+  error: string | null;
 }> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let conversationId: string | null = null;
   let content = "";
   let done = false;
+  let error: string | null = null;
 
   while (true) {
     const { done: streamDone, value } = await reader.read();
@@ -106,22 +122,33 @@ async function consumeSseStream(stream: ReadableStream<Uint8Array>): Promise<{
 
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
+
+      // Isolated JSON-parse catch — only malformed lines are skipped here.
+      // Event processing runs below this block, outside the catch.
+      let data: any;
       try {
-        const data = JSON.parse(line.slice(6));
-        if (data.type === "conversation_id" && conversationId === null) {
-          conversationId = data.id;
-        } else if (data.type === "content") {
-          content += data.content;
-        } else if (data.type === "done") {
-          done = true;
-        }
+        data = JSON.parse(line.slice(6));
       } catch {
-        // Malformed event — skip, same as the component does
+        continue; // Malformed JSON — skip this line
+      }
+
+      if (data.type === "conversation_id" && conversationId === null) {
+        conversationId = data.id;
+      } else if (data.type === "content") {
+        content += data.content;
+      } else if (data.type === "done") {
+        done = true;
+      } else if (data.type === "error") {
+        // Mirror Chat.tsx: throw outside the JSON-parse catch so the error
+        // reaches the outer handler.  In the helper we capture and return it
+        // so the test can assert it was surfaced.
+        error = data.message || "Stream error from provider";
+        return { conversationId, content, done, error };
       }
     }
   }
 
-  return { conversationId, content, done };
+  return { conversationId, content, done, error };
 }
 
 describe("SSE streaming pipeline (Chat.tsx handleSendMessage logic)", () => {
@@ -217,6 +244,52 @@ describe("SSE streaming pipeline (Chat.tsx handleSendMessage logic)", () => {
       ]),
     );
     expect(result.conversationId).toBe("first-id");
+  });
+
+  it("returns accumulated content when the stream closes without a done event", async () => {
+    // Simulates a mid-stream network drop or provider crash: the stream ends
+    // (ReadableStream closes) without ever sending { type: "done" }.
+    // Whatever content arrived before the close must be preserved so the
+    // caller can display it rather than losing it silently.
+    const result = await consumeSseStream(
+      fakeStream([
+        encodeEvents([
+          { type: "conversation_id", id: "drop-conv" },
+          { type: "content", content: "Partial respon" },
+          { type: "content", content: "se before drop" },
+          // ← no { type: "done" } — stream closes abruptly here
+        ]),
+      ]),
+    );
+
+    expect(result.conversationId).toBe("drop-conv");
+    expect(result.content).toBe("Partial response before drop");
+    expect(result.done).toBe(false);
+    expect(result.error).toBeNull();
+  });
+
+  it("surfaces the error message and preserves partial content when an error event arrives", async () => {
+    // Simulates a provider crash mid-stream that sends { type: "error" }
+    // before closing (e.g. token limit exceeded, upstream timeout).
+    // Chat.tsx throws `new Error(data.message)` on this event; the helper
+    // mirrors that by capturing the message and returning early so callers
+    // can surface it via toast/UI without losing whatever arrived first.
+    const result = await consumeSseStream(
+      fakeStream([
+        encodeEvents([
+          { type: "conversation_id", id: "err-conv" },
+          { type: "content", content: "Some content" },
+          { type: "error", message: "Provider crashed" },
+          // any events after the error should not be processed
+          { type: "content", content: " should not appear" },
+        ]),
+      ]),
+    );
+
+    expect(result.error).toBe("Provider crashed");
+    expect(result.content).toBe("Some content");
+    expect(result.done).toBe(false);
+    expect(result.conversationId).toBe("err-conv");
   });
 });
 

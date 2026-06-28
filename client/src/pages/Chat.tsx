@@ -546,6 +546,10 @@ export default function Chat() {
     setStreamingContent("");
     setToolEvents([]);
 
+    // Declared outside try/finally so both blocks share the same binding.
+    let streamDoneReceived = false;
+    let keepPartialContent = false;
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -584,57 +588,79 @@ export default function Chat() {
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
 
-            if (data.type === "conversation_id" && !activeConversationId) {
-              setActiveConversationId(data.id);
-            } else if (data.type === "content") {
-              accumulated += data.content;
-              setStreamingContent(accumulated);
-            } else if (data.type === "tool_call") {
-              const eventId = `tool-${++eventCounter}`;
-              activeToolEvents.set(data.capability, eventId);
-              setToolEvents(prev => [...prev, {
-                id: eventId,
-                capability: data.capability as CapabilityName,
-                args: data.args || {},
-                status: "running",
-              }]);
-            } else if (data.type === "confirm_required") {
-              const eventId = `tool-${++eventCounter}`;
-              activeToolEvents.set(data.capability, eventId);
-              setToolEvents(prev => [...prev, {
-                id: eventId,
-                capability: data.capability as CapabilityName,
-                args: data.args || {},
-                status: "pending_confirm",
-                confirmId: data.confirmId,
-              }]);
-            } else if (data.type === "tool_result") {
-              const eventId = activeToolEvents.get(data.capability);
-              if (eventId) {
-                setToolEvents(prev => prev.map(e =>
-                  e.id === eventId
-                    ? { ...e, status: data.status === "success" ? "success" : "error", result: data.result, error: data.error }
-                    : e
-                ));
-              }
-              if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
-                setOpenDocId((data.result as any).id);
-              }
-            } else if (data.type === "done") {
-              setStreamingContent("");
-              setToolEvents([]);
-              queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
-            } else if (data.type === "error") {
-              throw new Error(data.message);
+          // Parse JSON first in an isolated try/catch so that only genuine
+          // JSON decode failures are silently skipped.  Event-processing code
+          // below runs outside this catch, so intentional throws (e.g. on
+          // "error" events) propagate to the outer handler instead of being
+          // silently swallowed alongside malformed lines.
+          let data: any;
+          try {
+            data = JSON.parse(line.slice(6));
+          } catch {
+            continue; // Malformed JSON — skip this line
+          }
+
+          if (data.type === "conversation_id" && !activeConversationId) {
+            setActiveConversationId(data.id);
+          } else if (data.type === "content") {
+            accumulated += data.content;
+            setStreamingContent(accumulated);
+          } else if (data.type === "tool_call") {
+            const eventId = `tool-${++eventCounter}`;
+            activeToolEvents.set(data.capability, eventId);
+            setToolEvents(prev => [...prev, {
+              id: eventId,
+              capability: data.capability as CapabilityName,
+              args: data.args || {},
+              status: "running",
+            }]);
+          } else if (data.type === "confirm_required") {
+            const eventId = `tool-${++eventCounter}`;
+            activeToolEvents.set(data.capability, eventId);
+            setToolEvents(prev => [...prev, {
+              id: eventId,
+              capability: data.capability as CapabilityName,
+              args: data.args || {},
+              status: "pending_confirm",
+              confirmId: data.confirmId,
+            }]);
+          } else if (data.type === "tool_result") {
+            const eventId = activeToolEvents.get(data.capability);
+            if (eventId) {
+              setToolEvents(prev => prev.map(e =>
+                e.id === eventId
+                  ? { ...e, status: data.status === "success" ? "success" : "error", result: data.result, error: data.error }
+                  : e
+              ));
             }
-          } catch (parseError) {
-            // Skip invalid JSON lines
+            if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
+              setOpenDocId((data.result as any).id);
+            }
+          } else if (data.type === "done") {
+            streamDoneReceived = true;
+            setStreamingContent("");
+            setToolEvents([]);
+            queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
+          } else if (data.type === "error") {
+            // Throw outside the JSON-parse catch so the error reaches the
+            // outer handler and is shown to the user via toast.
+            throw new Error(data.message || "Stream error from provider");
           }
         }
+      }
+
+      // Stream closed without a "done" event (network drop / provider crash).
+      // Keep whatever arrived so the user can read the partial response, and
+      // surface a toast explaining that the response was cut short.
+      if (!streamDoneReceived && accumulated) {
+        keepPartialContent = true;
+        toast({
+          title: "Connection dropped",
+          description: "The response was cut short. Partial content is shown above.",
+          variant: "destructive",
+        });
       }
     } catch (error: any) {
       toast({
@@ -644,7 +670,10 @@ export default function Chat() {
       });
     } finally {
       setIsLoading(false);
-      setStreamingContent("");
+      // Preserve partial content on abrupt drops; clear on clean done or errors.
+      if (!keepPartialContent) {
+        setStreamingContent("");
+      }
       setToolEvents([]);
     }
   };
