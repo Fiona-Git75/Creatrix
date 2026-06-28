@@ -22,7 +22,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Router } from "wouter";
-import { GreenSummaryPanel } from "../components/GreenSummaryPanel";
+import { GreenSummaryPanel, type GreenSummaryPanelProps } from "../components/GreenSummaryPanel";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -45,8 +45,8 @@ const COHERENCE_GREEN = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderPanel(
-  authStatus = AUTH_STATUS_GREEN,
-  coherence = COHERENCE_GREEN,
+  authStatus: GreenSummaryPanelProps["authStatus"] = AUTH_STATUS_GREEN,
+  coherence: GreenSummaryPanelProps["coherence"] = COHERENCE_GREEN,
 ) {
   return render(
     <Router>

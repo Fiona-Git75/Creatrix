@@ -126,7 +126,6 @@ function buildPollingClient() {
         refetchOnWindowFocus: false,
       },
     },
-    logger: { log: () => {}, warn: () => {}, error: () => {} },
   });
 }
 
@@ -371,7 +370,7 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
   it("shows the GREEN summary panel on initial render when coherence is GREEN", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      logger: { log: () => {}, warn: () => {}, error: () => {} },
+  
     });
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
@@ -386,7 +385,7 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
   it("GREEN panel disappears and repair panel appears when cache is updated to AMBER", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      logger: { log: () => {}, warn: () => {}, error: () => {} },
+  
     });
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
@@ -407,7 +406,7 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
   it("GREEN panel disappears and repair panel appears when cache is updated to RED", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      logger: { log: () => {}, warn: () => {}, error: () => {} },
+  
     });
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
@@ -426,7 +425,7 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
   it("GREEN panel re-appears and repair panel does not persist when cache oscillates AMBER then back to GREEN", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      logger: { log: () => {}, warn: () => {}, error: () => {} },
+  
     });
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
@@ -451,7 +450,7 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
   it("GREEN panel re-appears and repair panel does not persist when cache oscillates RED then back to GREEN", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      logger: { log: () => {}, warn: () => {}, error: () => {} },
+  
     });
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
