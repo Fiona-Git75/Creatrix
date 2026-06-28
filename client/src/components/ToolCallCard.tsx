@@ -70,16 +70,59 @@ interface ToolCallCardProps {
   onConfirm?: (confirmId: string, approved: boolean) => void;
 }
 
+const CONSULTANT_COLLAPSED_KEY = "consultant-collapsed";
+
+function isConsultantCollapsed(id: string): boolean {
+  try {
+    const stored = localStorage.getItem(CONSULTANT_COLLAPSED_KEY);
+    if (!stored) return false;
+    const set: string[] = JSON.parse(stored);
+    return set.includes(id);
+  } catch {
+    return false;
+  }
+}
+
+function setConsultantCollapsed(id: string, collapsed: boolean): void {
+  try {
+    const stored = localStorage.getItem(CONSULTANT_COLLAPSED_KEY);
+    let set: string[] = stored ? JSON.parse(stored) : [];
+    if (collapsed) {
+      if (!set.includes(id)) set.push(id);
+    } else {
+      set = set.filter((v) => v !== id);
+    }
+    localStorage.setItem(CONSULTANT_COLLAPSED_KEY, JSON.stringify(set));
+  } catch {
+    // ignore
+  }
+}
+
 export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(
-    event.capability === "ask_consultant" && event.status === "success"
-  );
+  const isConsultant = event.capability === "ask_consultant";
+
+  const [expanded, setExpanded] = useState(() => {
+    if (isConsultant && event.status === "success") {
+      return !isConsultantCollapsed(event.id);
+    }
+    return false;
+  });
 
   useEffect(() => {
-    if (event.capability === "ask_consultant" && event.status === "success") {
-      setExpanded(true);
+    if (isConsultant && event.status === "success") {
+      if (!isConsultantCollapsed(event.id)) {
+        setExpanded(true);
+      }
     }
-  }, [event.capability, event.status]);
+  }, [isConsultant, event.status, event.id]);
+
+  function handleToggleExpanded() {
+    const next = !expanded;
+    setExpanded(next);
+    if (isConsultant) {
+      setConsultantCollapsed(event.id, !next);
+    }
+  }
 
   const label = LABELS[event.capability] ?? event.capability.replace(/_/g, " ");
   const hint = argHint(event.capability, event.args);
@@ -169,7 +212,7 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
       >
         <div
           className={`flex items-center gap-2 px-3 py-1.5 ${hasDetail ? "cursor-pointer" : ""}`}
-          onClick={() => hasDetail && setExpanded(!expanded)}
+          onClick={() => hasDetail && handleToggleExpanded()}
         >
           {event.status === "running" ? (
             <Loader2 className="h-3 w-3 animate-spin text-violet-500/60 shrink-0" />
@@ -221,7 +264,7 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
     >
       <div
         className={`flex items-center gap-2 px-3 py-1.5 ${hasDetail ? "cursor-pointer" : ""}`}
-        onClick={() => hasDetail && setExpanded(!expanded)}
+        onClick={() => hasDetail && handleToggleExpanded()}
       >
         {event.status === "running" && (
           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60 shrink-0" />
