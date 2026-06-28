@@ -1,5 +1,5 @@
 /**
- * Tests for the repair countdown timer in Setup.tsx.
+ * Tests for the repair countdown timer in SetupPostBootstrap.tsx.
  *
  * The countdown must anchor to a real timestamp (Date.now() + 30s) rather than
  * purely decrementing a counter. This ensures that even when the browser
@@ -9,6 +9,9 @@
  * These tests use vi.useFakeTimers() to control both Date.now() and setInterval,
  * allowing simulation of a "late" interval tick (the kind a throttled background
  * tab produces).
+ *
+ * Renders SetupPostBootstrap directly — fully decoupled from Setup.tsx so that
+ * new browser-API-dependent imports in Setup.tsx cannot break these tests.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -26,7 +29,7 @@ vi.mock("wouter", async (importOriginal) => {
 });
 
 import { Router } from "wouter";
-import Setup from "../pages/Setup";
+import { SetupPostBootstrap } from "../components/SetupPostBootstrap";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -49,16 +52,15 @@ function buildClient(coherence: object) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
-  client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
   client.setQueryData(["/api/system/coherence"], coherence);
   return client;
 }
 
-function renderSetup(client: QueryClient) {
+function renderComponent(client: QueryClient) {
   return render(
     <QueryClientProvider client={client}>
       <Router>
-        <Setup />
+        <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
       </Router>
     </QueryClientProvider>,
   );
@@ -66,7 +68,7 @@ function renderSetup(client: QueryClient) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("Setup — repair countdown drift prevention", () => {
+describe("SetupPostBootstrap — repair countdown drift prevention", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -79,7 +81,7 @@ describe("Setup — repair countdown drift prevention", () => {
   it("shows 30s immediately when the repair view mounts", async () => {
     const client = buildClient(makeAmberCoherence("2026-06-28T00:00:00.000Z"));
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     const banner = screen.getByText(/Checking again in/i);
@@ -89,7 +91,7 @@ describe("Setup — repair countdown drift prevention", () => {
   it("shows the correct value even when the interval fires late (background tab simulation)", async () => {
     const client = buildClient(makeAmberCoherence("2026-06-28T00:00:00.000Z"));
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     // Advance time by 5 seconds but delay the interval tick by an extra 3s to
@@ -113,7 +115,7 @@ describe("Setup — repair countdown drift prevention", () => {
   it("never goes below 0 when called after the target has passed", async () => {
     const client = buildClient(makeAmberCoherence("2026-06-28T00:00:00.000Z"));
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     // Advance far past the 30-second window.
@@ -128,7 +130,7 @@ describe("Setup — repair countdown drift prevention", () => {
   it("resets to ~30s when a new coherence poll arrives (measuredAt changes)", async () => {
     const client = buildClient(makeAmberCoherence("2026-06-28T00:00:00.000Z"));
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     // Advance 20 seconds so the countdown is visibly low (~10s remaining).
