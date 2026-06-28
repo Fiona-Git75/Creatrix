@@ -136,10 +136,28 @@ describe("Setup — repair countdown drift prevention", () => {
       vi.advanceTimersByTime(20_000);
     });
 
-    // Simulate a new poll arriving with an updated measuredAt. React Query
-    // notifies subscribers via a setTimeout(0) internally, so we advance fake
-    // time by 0ms inside the same act() to flush that callback before React
-    // processes the state update.
+    // Simulate a new poll arriving with an updated measuredAt.
+    //
+    // TIMING DEPENDENCY NOTE:
+    // React Query (as of v5) batches subscriber notifications through an internal
+    // setTimeout(0) after setQueryData(). Under vi.useFakeTimers(), that callback
+    // is frozen until fake time advances. The vi.advanceTimersByTime(0) call
+    // flushes *only* the zero-delay React Query notification callback, which
+    // triggers the useEffect watching coherence?.measuredAt and sets a fresh
+    // repairCountdownTarget anchored to Date.now() (still at the 20s mark in
+    // fake-time). Without this flush, the useEffect runs on the *next* act()
+    // boundary after fake time has already moved forward, causing the new target
+    // to be computed from a later timestamp and making the countdown appear lower
+    // than 28s — indistinguishable from the stale decrement-by-1 bug this test
+    // is designed to catch.
+    //
+    // FRAGILITY RISK: This flush is a white-box dependency on React Query's
+    // internal notification strategy. If React Query ever changes from
+    // setTimeout(0) to a synchronous or microtask-based notification, this
+    // advanceTimersByTime(0) call becomes a no-op and the test may still pass
+    // (correctly, through a different flush path) or may need updating. If
+    // the reset test starts failing unexpectedly after a React Query upgrade,
+    // check whether the notification mechanism changed and adjust accordingly.
     await act(async () => {
       client.setQueryData(
         ["/api/system/coherence"],
