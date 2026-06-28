@@ -44,8 +44,10 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
 
   useImagePaste(onPastedImages);
 
+  const hasLargeImage = attachedImages.some(img => img.sizeBytes > limitBytes);
+
   const handleSubmit = () => {
-    if (value.trim() && !isLoading) {
+    if (value.trim() && !isLoading && !hasLargeImage) {
       onSend(value.trim(), attachedImages.length > 0 ? attachedImages : undefined);
       setValue("");
       setAttachedImages([]);
@@ -77,8 +79,6 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const hasLargeImage = attachedImages.some(img => img.sizeBytes > limitBytes);
-
   return (
     <div className="border-t bg-background">
       <div className="max-w-3xl mx-auto p-4">
@@ -90,7 +90,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
-              This image is over {limitMb} MB and may be rejected by the connection's vision model.{" "}
+              An attached image exceeds the {limitMb} MB limit for this connection. Remove or resize it before sending.{" "}
               To resize on macOS/Linux: <code className="font-mono bg-amber-100 dark:bg-amber-900/50 px-1 rounded">sips -Z 1920 yourimage.jpg</code>{" "}
               or compress online at{" "}
               <a
@@ -101,7 +101,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
               >
                 squoosh.app
               </a>
-              . You can still send it.
+              .
             </span>
           </div>
         )}
@@ -173,15 +173,20 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
             data-testid="input-chat-message"
             aria-label="Chat message input"
           />
-          <Button
-            size="icon"
-            onClick={handleSubmit}
-            disabled={!value.trim() || isLoading}
-            data-testid="button-send-message"
-            aria-label="Send message"
+          <span
+            title={hasLargeImage ? `Remove the oversized image (limit: ${limitMb} MB) before sending` : undefined}
+            className="shrink-0"
           >
-            <Send className="h-4 w-4" />
-          </Button>
+            <Button
+              size="icon"
+              onClick={handleSubmit}
+              disabled={!value.trim() || isLoading || hasLargeImage}
+              data-testid="button-send-message"
+              aria-label="Send message"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </span>
         </div>
         <p className="text-xs text-muted-foreground text-center mt-2">
           Press Enter to send, Shift+Enter for new line
