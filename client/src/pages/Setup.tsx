@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   Loader2, ArrowRight, CheckCircle2, XCircle,
   Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward, Info, X, Home,
-  Copy, Check
+  Copy, Check, Download
 } from "lucide-react";
 import { GreenSummaryPanel } from "@/components/GreenSummaryPanel";
 
@@ -44,7 +44,7 @@ function CopyReportButton({ buildReport }: { buildReport: () => string }) {
     <button
       onClick={handleCopy}
       data-testid="button-copy-report"
-      className="flex items-center gap-2 w-full justify-center py-2 px-3 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-white/5 transition-colors font-mono"
+      className="flex items-center gap-2 flex-1 justify-center py-2 px-3 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-white/5 transition-colors font-mono"
     >
       {copied ? (
         <>
@@ -57,6 +57,29 @@ function CopyReportButton({ buildReport }: { buildReport: () => string }) {
           Copy report
         </>
       )}
+    </button>
+  );
+}
+
+function DownloadReportButton({ buildReport }: { buildReport: () => string }) {
+  const handleDownload = () => {
+    const text = buildReport();
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "repair-report.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <button
+      onClick={handleDownload}
+      data-testid="button-download-report"
+      className="flex items-center gap-2 flex-1 justify-center py-2 px-3 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-white/5 transition-colors font-mono"
+    >
+      <Download className="h-3.5 w-3.5" />
+      Download report
     </button>
   );
 }
@@ -594,7 +617,10 @@ export default function Setup() {
             })()}
           </div>
 
-          <CopyReportButton buildReport={buildReport} />
+          <div className="flex gap-2">
+            <CopyReportButton buildReport={buildReport} />
+            <DownloadReportButton buildReport={buildReport} />
+          </div>
 
           <div className="flex items-center justify-between pt-2">
             <Button
