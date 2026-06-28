@@ -3,7 +3,7 @@
  *
  * The component tracks whether the repair view was ever rendered via a ref. Only
  * when that ref is true AND coherence recovers to GREEN does it navigate to "/".
- * This file verifies two scenarios:
+ * This file verifies three scenarios:
  *
  *   1. First-time setup path  — bootstrapped=false → bootstrapped=true + GREEN.
  *      The repair view never renders, so `wasInRepairView` stays false and no
@@ -13,6 +13,11 @@
  *      The repair view DOES render during the AMBER phase, so `wasInRepairView`
  *      is set to true, and the effect must call setLocation("/") once coherence
  *      returns to GREEN.
+ *
+ *   3. Transient dip within one batched update — bootstrapped=true + GREEN, then
+ *      AMBER and back to GREEN within the same act(). React batches both writes
+ *      so the repair view never commits to the DOM, `wasInRepairView` stays false,
+ *      and no redirect fires.
  *
  * wouter's `useLocation` is mocked so we can assert whether setLocation was called
  * without needing a real browser navigation environment.
@@ -158,5 +163,39 @@ describe("Setup — wasInRepairView redirect guard", () => {
     await waitFor(() => {
       expect(mockSetLocation).toHaveBeenCalledWith("/");
     });
+  });
+
+  // ── Test 3: transient dip within one poll cycle must NOT flash the repair view
+  //
+  // Sequence: bootstrapped=true + GREEN (green panel visible) → within the same
+  // React batched update (one act()), coherence briefly becomes AMBER and then
+  // immediately returns to GREEN. Because React flushes both writes as a single
+  // commit, the AMBER state never reaches the DOM. The repair panel must never
+  // appear and wasInRepairView must stay false, so no redirect fires.
+
+  it("never renders the repair panel or redirects when AMBER appears and recovers within the same act()", async () => {
+    const client = buildClient({
+      authStatus: AUTH_BOOTSTRAPPED,
+      coherence: COHERENCE_GREEN,
+    });
+
+    const { queryByTestId } = renderSetup(client);
+
+    // Sanity-check: repair panel is absent on the initial GREEN render.
+    expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // Simulate a transient failure that resolves within the same poll cycle.
+    // Both setQueryData calls happen inside a single act(), so React batches
+    // them into one render pass — the intermediate AMBER state never commits.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_AMBER);
+      client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
+    });
+
+    // The repair panel must never have appeared in the DOM.
+    expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // wasInRepairView was never set, so no redirect should have fired.
+    expect(mockSetLocation).not.toHaveBeenCalledWith("/");
   });
 });
