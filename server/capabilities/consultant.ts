@@ -43,6 +43,37 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 
 const ALLOWED_IMAGE_EXTENSIONS = new Set(Object.keys(EXTENSION_TO_MIME));
 
+// Detect MIME type from raw base64 data by inspecting magic bytes.
+// Only the first ~12 characters of the base64 string are needed (covers 8 decoded bytes).
+// Falls back to image/jpeg when the signature is unrecognised.
+function detectMimeTypeFromBase64(b64: string): string {
+  // Decode just enough bytes to read the magic signature
+  const prefix = Buffer.from(b64.slice(0, 16), "base64");
+
+  // JPEG: FF D8 FF
+  if (prefix[0] === 0xff && prefix[1] === 0xd8 && prefix[2] === 0xff) return "image/jpeg";
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    prefix[0] === 0x89 && prefix[1] === 0x50 && prefix[2] === 0x4e && prefix[3] === 0x47 &&
+    prefix[4] === 0x0d && prefix[5] === 0x0a && prefix[6] === 0x1a && prefix[7] === 0x0a
+  ) return "image/png";
+
+  // GIF: 47 49 46 38 (GIF8)
+  if (prefix[0] === 0x47 && prefix[1] === 0x49 && prefix[2] === 0x46 && prefix[3] === 0x38) return "image/gif";
+
+  // WebP: 52 49 46 46 ?? ?? ?? ?? 57 45 42 50 (RIFF....WEBP)
+  if (
+    prefix[0] === 0x52 && prefix[1] === 0x49 && prefix[2] === 0x46 && prefix[3] === 0x46 &&
+    prefix[8] === 0x57 && prefix[9] === 0x45 && prefix[10] === 0x42 && prefix[11] === 0x50
+  ) return "image/webp";
+
+  // BMP: 42 4D (BM)
+  if (prefix[0] === 0x42 && prefix[1] === 0x4d) return "image/bmp";
+
+  return "image/jpeg";
+}
+
 function resolveImagePath(
   filePath: string,
   ctx: Pick<CapabilityContext, "rootFolder" | "libraryPaths">
@@ -178,12 +209,12 @@ export const consultantCapability: CapabilityDefinition = {
       allMimeTypes.push(EXTENSION_TO_MIME[ext] ?? "image/jpeg");
     }
 
-    // Singular image_base64 — MIME type unknown, default to jpeg.
+    // Singular image_base64 — detect MIME type from magic bytes.
     // Base64 inflates by ~4/3 — reverse to estimate original byte count.
     if (imageBase64Arg) {
       checkImageSize(Math.ceil(imageBase64Arg.length * 0.75), connection.provider, connection.maxImageSizeMb);
       allImages.push(imageBase64Arg);
-      allMimeTypes.push("image/jpeg");
+      allMimeTypes.push(detectMimeTypeFromBase64(imageBase64Arg));
     }
 
     // Plural image_paths → size-check + convert each to base64 with MIME detection
@@ -196,11 +227,11 @@ export const consultantCapability: CapabilityDefinition = {
       allMimeTypes.push(EXTENSION_TO_MIME[ext] ?? "image/jpeg");
     }
 
-    // Plural image_base64s — MIME type unknown, default to jpeg
+    // Plural image_base64s — detect MIME type from magic bytes
     for (const b64 of imageBase64sArg) {
       checkImageSize(Math.ceil(b64.length * 0.75), connection.provider, connection.maxImageSizeMb);
       allImages.push(b64);
-      allMimeTypes.push("image/jpeg");
+      allMimeTypes.push(detectMimeTypeFromBase64(b64));
     }
 
     const userMessage: MultimodalMessage = {
