@@ -226,6 +226,7 @@ export const consultantCapability: CapabilityDefinition = {
       consultant: consultantName,
       question,
       answer: answer.trim(),
+      image_count: allImages.length,
     };
   },
 };

@@ -198,8 +198,17 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
   if (event.capability === "ask_consultant") {
     const consultantName = String(event.args.consultant_name ?? "");
     const question = String(event.args.question ?? "");
-    const result = event.result as { consultant?: string; question?: string; answer?: string } | undefined;
+    const result = event.result as { consultant?: string; question?: string; answer?: string; image_count?: number } | undefined;
     const answer = result?.answer;
+
+    // Count images from args (available immediately, even while running)
+    const argImageCount =
+      (event.args.image_path ? 1 : 0) +
+      (event.args.image_base64 ? 1 : 0) +
+      ((event.args.image_paths as string[] | undefined)?.length ?? 0) +
+      ((event.args.image_base64s as string[] | undefined)?.length ?? 0);
+    // Prefer the authoritative count from the result once available
+    const imageCount = result?.image_count ?? (argImageCount > 0 ? argImageCount : 0);
 
     return (
       <div
@@ -222,6 +231,19 @@ export function ToolCallCard({ event, onConfirm }: ToolCallCardProps) {
           <span className="font-medium text-foreground/80">
             {consultantName ? `${consultantName}` : "Consultant"}
           </span>
+          {imageCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600/70 dark:text-violet-400/70 text-[10px] font-medium shrink-0"
+              data-testid={`consultant-image-count-${event.id}`}
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="1" y="3" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                <circle cx="5.5" cy="6.5" r="1" fill="currentColor"/>
+                <path d="M1 11l3.5-3 2.5 2.5 3-3.5 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {imageCount === 1 ? "1 image" : `${imageCount} images`}
+            </span>
+          )}
           {event.status === "running" && (
             <span className="text-violet-500/50 text-[10px] ml-auto">thinking…</span>
           )}
