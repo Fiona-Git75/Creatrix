@@ -158,6 +158,51 @@ describe("SetupPostBootstrap — wasInRepairView redirect guard", () => {
     });
   });
 
+  // ── Test 4: two successive poll cycles — AMBER commits then GREEN recovers ────
+  //
+  // Sequence: bootstrapped=true + GREEN → first act(): coherence → AMBER (repair
+  // panel commits to the DOM, wasInRepairView is set to true) → second act():
+  // coherence → GREEN (repair panel is removed). After the second flush the panel
+  // must no longer be in the DOM. Because wasInRepairView was set during the AMBER
+  // commit, the redirect effect also fires — the test asserts both facts.
+
+  it("hides the repair panel after two rapid poll cycles (AMBER then GREEN) and fires the redirect", async () => {
+    const client = buildClient(COHERENCE_GREEN);
+
+    const { queryByTestId } = renderComponent(client);
+
+    // Sanity: starts GREEN, no repair panel.
+    expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // First poll cycle: GREEN → AMBER. React commits this separately, so the
+    // repair panel actually mounts and wasInRepairView is set to true.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_AMBER);
+    });
+
+    // waitFor retries until the assertion passes, giving React Query time to
+    // propagate the cache update and trigger the re-render.
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+
+    // Second poll cycle: AMBER → GREEN. The repair panel is removed from the DOM.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
+    });
+
+    // Panel must be gone after recovery; waitFor retries until the GREEN render
+    // commits, mirroring the same async-flush pattern used for the AMBER phase.
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+    });
+
+    // wasInRepairView was set during the AMBER commit, so the redirect must fire.
+    await waitFor(() => {
+      expect(mockSetLocation).toHaveBeenCalledWith("/");
+    });
+  });
+
   // ── Test 3: transient dip within one poll cycle must NOT flash the repair view
   //
   // Sequence: bootstrapped=true + GREEN (green panel visible) → within the same
