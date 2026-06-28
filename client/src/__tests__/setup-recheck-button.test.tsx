@@ -284,4 +284,67 @@ describe("SetupPostBootstrap — Re-check button triggers recovery correctly", (
     // wasInRepairView is false because the repair panel never rendered.
     expect(mockSetLocation).not.toHaveBeenCalledWith("/");
   });
+
+  it("button stays disabled with spinner for the full round-trip — not just on click", async () => {
+    // Strategy: give the QueryClient a controlled queryFn so the refetch
+    // triggered by invalidateQueries can be held in-flight until we release it.
+    // This confirms isFetching stays true (and thus the button stays disabled)
+    // for the WHOLE fetch duration, not merely the synchronous click frame.
+    let releaseFetch!: (data: object) => void;
+    const fetchHeld = new Promise<object>((resolve) => {
+      releaseFetch = resolve;
+    });
+
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          staleTime: Infinity,
+          queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+            // Only the coherence query will refetch in this test; route it to
+            // our controlled promise so we can hold it in-flight as long as needed.
+            if (queryKey[0] === "/api/system/coherence") return fetchHeld;
+            return Promise.resolve(null);
+          },
+        },
+      },
+    });
+    client.setQueryData(["/api/system/coherence"], AMBER_COHERENCE);
+
+    render(
+      <QueryClientProvider client={client}>
+        <Router>
+          <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
+        </Router>
+      </QueryClientProvider>,
+    );
+
+    // Repair panel is visible (AMBER cache).
+    await waitFor(() => {
+      expect(screen.getByTestId("button-recheck-now")).toBeInTheDocument();
+    });
+
+    // Click Re-check → invalidateQueries → fetch starts → isFetching = true.
+    await act(async () => {
+      screen.getByTestId("button-recheck-now").click();
+    });
+
+    // While the fetch is in-flight the button must be disabled + spinner visible.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    // Release the fetch — isFetching drops to false → button returns to idle.
+    await act(async () => {
+      releaseFetch(AMBER_COHERENCE);
+    });
+
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeNull();
+    });
+  });
 });
