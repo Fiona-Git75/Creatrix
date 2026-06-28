@@ -1,12 +1,17 @@
 /**
- * Tests for the DownloadReportButton inside RepairPanel.
+ * Tests for the DownloadReportButton and CopyReportButton inside RepairPanel.
  *
- * Clicking the button must:
+ * DownloadReportButton clicking must:
  *  1. Be present in the repair view.
  *  2. Create a Blob containing the serialised repair report.
  *  3. Trigger a browser file download with filename "repair-report.txt".
  *  4. The Blob content must match the output of buildReport() for the same
  *     coherence data.
+ *
+ * CopyReportButton clicking must:
+ *  1. Be present in the repair view.
+ *  2. Call navigator.clipboard.writeText with the buildReport() output.
+ *  3. A second click after the "copied" state resets also works correctly.
  *
  * The DOM file-download dance (createObjectURL → <a>.click → revokeObjectURL)
  * is verified by spying on the relevant globals. Blob content is captured by
@@ -176,5 +181,56 @@ describe("DownloadReportButton — repair view", () => {
 
     expect(capturedBlobContent).not.toBeNull();
     expect(capturedBlobContent).toBe(expectedReport());
+  });
+});
+
+// ── CopyReportButton tests ────────────────────────────────────────────────────
+
+describe("CopyReportButton — repair view", () => {
+  let writeTextSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    writeTextSpy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders the Copy report button in the repair view", () => {
+    renderPanel();
+    expect(screen.getByTestId("button-copy-report")).toBeInTheDocument();
+  });
+
+  it("clicking the button calls navigator.clipboard.writeText with the buildReport() output", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByTestId("button-copy-report"));
+
+    expect(writeTextSpy).toHaveBeenCalledTimes(1);
+    expect(writeTextSpy).toHaveBeenCalledWith(expectedReport());
+  });
+
+  it("a second click after the copied state resets also writes the correct content", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPanel();
+
+    await user.click(screen.getByTestId("button-copy-report"));
+    expect(writeTextSpy).toHaveBeenCalledTimes(1);
+    expect(writeTextSpy).toHaveBeenLastCalledWith(expectedReport());
+
+    // Advance past the 2000 ms "copied" reset timeout.
+    vi.advanceTimersByTime(2100);
+
+    await user.click(screen.getByTestId("button-copy-report"));
+    expect(writeTextSpy).toHaveBeenCalledTimes(2);
+    expect(writeTextSpy).toHaveBeenLastCalledWith(expectedReport());
+
+    vi.useRealTimers();
   });
 });
