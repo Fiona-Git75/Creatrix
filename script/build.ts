@@ -46,8 +46,19 @@ async function runTests() {
   console.log("tests passed.");
 }
 
+async function runTypeCheck() {
+  console.log("running type check...");
+  const result = spawnSync("npx", ["tsc", "--noEmit"], { stdio: "inherit" });
+  if (result.status !== 0) {
+    console.error("type check failed — aborting build");
+    process.exit(result.status ?? 1);
+  }
+  console.log("type check passed.");
+}
+
 async function buildAll() {
   await runTests();
+  await runTypeCheck();
 
   await rm("dist", { recursive: true, force: true });
 

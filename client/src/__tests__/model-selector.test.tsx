@@ -19,46 +19,45 @@ import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ModelSelector } from "../components/ModelSelector";
+import type { Model } from "../components/ModelSelector";
 import type { Connection } from "@shared/schema";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const CONN: Connection = {
-  id: 42,
+  id: "test-conn-1",
   name: "Local Ollama",
   provider: "ollama",
   endpoint: "http://localhost:11434",
-  apiKey: null,
   defaultModel: "llama3.2:3b",
   isDefault: true,
-  projectId: null,
-  folderPath: null,
+  orderIndex: 0,
 };
 
-const MODEL_A = {
+const MODEL_A: Model = {
   id: "llama3.2:3b",
   name: "Llama 3.2 3B",
   size: "2.0 GB",
-  toolSupport: "native" as const,
+  toolSupport: "native",
   supportsVision: false,
 };
 
-const MODEL_B = {
+const MODEL_B: Model = {
   id: "mistral:7b",
   name: "Mistral 7B",
   size: "4.1 GB",
-  toolSupport: "text" as const,
+  toolSupport: "text",
   supportsVision: false,
 };
 
 const PROVIDER_STATUS_OK = {
   providers: [
     {
-      connectionId: 42,
+      connectionId: "test-conn-1",
       name: "Local Ollama",
       type: "ollama",
       status: "online" as const,
-      models: [MODEL_A],
+      models: [MODEL_A] as Model[],
     },
   ],
 };
@@ -66,11 +65,11 @@ const PROVIDER_STATUS_OK = {
 const PROVIDER_STATUS_MULTI = {
   providers: [
     {
-      connectionId: 42,
+      connectionId: "test-conn-1",
       name: "Local Ollama",
       type: "ollama",
       status: "online" as const,
-      models: [MODEL_A, MODEL_B],
+      models: [MODEL_A, MODEL_B] as Model[],
     },
   ],
 };
@@ -78,11 +77,11 @@ const PROVIDER_STATUS_MULTI = {
 const PROVIDER_STATUS_EMPTY = {
   providers: [
     {
-      connectionId: 42,
+      connectionId: "test-conn-1",
       name: "Local Ollama",
       type: "ollama",
       status: "online" as const,
-      models: [],
+      models: [] as Model[],
     },
   ],
 };
@@ -90,18 +89,28 @@ const PROVIDER_STATUS_EMPTY = {
 const PROVIDER_STATUS_OFFLINE = {
   providers: [
     {
-      connectionId: 42,
+      connectionId: "test-conn-1",
       name: "Local Ollama",
       type: "ollama",
       status: "offline" as const,
-      models: [],
+      models: [] as Model[],
     },
   ],
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeClient(providerStatus: typeof PROVIDER_STATUS_OK) {
+interface ProviderStatus {
+  providers: {
+    connectionId: string;
+    name: string;
+    type: string;
+    status: "online" | "offline";
+    models: Model[];
+  }[];
+}
+
+function makeClient(providerStatus: ProviderStatus) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -115,7 +124,7 @@ interface RenderOptions {
   selectedModel?: string;
   connectionId?: string | null;
   onModelChange?: (id: string) => void;
-  providerStatus?: typeof PROVIDER_STATUS_OK;
+  providerStatus?: ProviderStatus;
 }
 
 function renderSelector({
