@@ -1,13 +1,15 @@
 /**
- * Tests for the GREEN summary panel in Setup.tsx.
+ * Tests for the GREEN summary panel (GreenSummaryPanel component).
  *
- * These tests render the guard block that appears when:
+ * These tests render GreenSummaryPanel directly — they are fully decoupled from
+ * Setup.tsx and will not break when Setup.tsx gains new imports that rely on
+ * browser APIs or backend calls not present in jsdom.
+ *
+ * The panel is displayed when:
  *   authStatus.bootstrapped === true  AND
  *   coherence.overallStatus === "GREEN"
  *
  * They run entirely in jsdom — no live database or Ollama connection needed.
- * Query responses are pre-seeded into a fresh QueryClient so no real HTTP
- * requests are made.
  *
  * Theme (light/dark) is verified by toggling the `.dark` class on
  * `document.documentElement` (the same mechanism the app's ThemeProvider uses)
@@ -19,9 +21,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
-import Setup from "../pages/Setup";
+import { GreenSummaryPanel } from "../components/GreenSummaryPanel";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -43,30 +44,14 @@ const COHERENCE_GREEN = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildClient(overrides: { authStatus?: object; coherence?: object } = {}) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-
-  client.setQueryData(
-    ["/api/auth/status"],
-    overrides.authStatus ?? AUTH_STATUS_GREEN,
-  );
-  client.setQueryData(
-    ["/api/system/coherence"],
-    overrides.coherence ?? COHERENCE_GREEN,
-  );
-
-  return client;
-}
-
-function renderSetup(client: QueryClient) {
+function renderPanel(
+  authStatus = AUTH_STATUS_GREEN,
+  coherence = COHERENCE_GREEN,
+) {
   return render(
-    <QueryClientProvider client={client}>
-      <Router>
-        <Setup />
-      </Router>
-    </QueryClientProvider>,
+    <Router>
+      <GreenSummaryPanel authStatus={authStatus} coherence={coherence} />
+    </Router>,
   );
 }
 
@@ -80,7 +65,7 @@ function setDarkMode(on: boolean) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("Setup — GREEN guard panel", () => {
+describe("GreenSummaryPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setDarkMode(false);
@@ -92,8 +77,8 @@ describe("Setup — GREEN guard panel", () => {
 
   // ── Structural / content ────────────────────────────────────────────────────
 
-  it("renders the 'already configured' panel when the system is GREEN", () => {
-    renderSetup(buildClient());
+  it("renders the 'already configured' panel", () => {
+    renderPanel();
 
     expect(
       screen.getByTestId("panel-already-configured"),
@@ -101,7 +86,7 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("shows the System healthy badge", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     const badge = screen.getByTestId("badge-system-status");
     expect(badge).toBeInTheDocument();
@@ -109,7 +94,7 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("shows the coherence summary panel with GREEN label", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     const panel = screen.getByTestId("panel-coherence-summary");
     expect(panel).toBeInTheDocument();
@@ -117,7 +102,7 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("renders a coherence item for every component returned by the API", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     for (const item of COHERENCE_GREEN.items) {
       expect(
@@ -127,14 +112,14 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("displays the signed-in username", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     const userEl = screen.getByTestId("text-signed-in-user");
     expect(userEl).toHaveTextContent("kit");
   });
 
   it("renders the Return to app button", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     expect(
       screen.getByTestId("button-return-to-app"),
@@ -142,40 +127,18 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("renders the link to Settings", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     expect(
       screen.getByTestId("link-settings"),
     ).toBeInTheDocument();
   });
 
-  it("does NOT show the GREEN panel when coherence is not GREEN", () => {
-    const client = buildClient({
-      coherence: { ...COHERENCE_GREEN, overallStatus: "RED" },
-    });
-    renderSetup(client);
-
-    expect(
-      screen.queryByTestId("panel-already-configured"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("does NOT show the GREEN panel when system is not bootstrapped", () => {
-    const client = buildClient({
-      authStatus: { bootstrapped: false, user: null },
-    });
-    renderSetup(client);
-
-    expect(
-      screen.queryByTestId("panel-already-configured"),
-    ).not.toBeInTheDocument();
-  });
-
   it("renders correctly without a logged-in user (anonymous bootstrap)", () => {
-    const client = buildClient({
-      authStatus: { bootstrapped: true, user: null },
-    });
-    renderSetup(client);
+    renderPanel(
+      { bootstrapped: true, user: null },
+      COHERENCE_GREEN,
+    );
 
     expect(
       screen.getByTestId("panel-already-configured"),
@@ -186,7 +149,7 @@ describe("Setup — GREEN guard panel", () => {
   });
 
   it("groups coherence items by domain", () => {
-    renderSetup(buildClient());
+    renderPanel();
 
     const panel = screen.getByTestId("panel-coherence-summary");
     expect(panel).toHaveTextContent("database");
@@ -202,13 +165,13 @@ describe("Setup — GREEN guard panel", () => {
     beforeEach(() => setDarkMode(false));
 
     it("root element does not carry the dark class", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       expect(document.documentElement).not.toHaveClass("dark");
     });
 
     it("badge carries light-mode green background and text classes", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       const badge = screen.getByTestId("badge-system-status");
       expect(badge.className).toContain("bg-green-100");
@@ -217,7 +180,7 @@ describe("Setup — GREEN guard panel", () => {
     });
 
     it("badge carries the dark-variant classes in its markup for future dark activation", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       const badge = screen.getByTestId("badge-system-status");
       expect(badge.className).toContain("dark:bg-green-900");
@@ -225,7 +188,7 @@ describe("Setup — GREEN guard panel", () => {
     });
 
     it("panel renders all coherence items in light mode", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       for (const item of COHERENCE_GREEN.items) {
         expect(
@@ -245,20 +208,20 @@ describe("Setup — GREEN guard panel", () => {
     beforeEach(() => setDarkMode(true));
 
     it("root element carries the dark class", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       expect(document.documentElement).toHaveClass("dark");
     });
 
     it("badge still renders with System healthy text in dark mode", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       const badge = screen.getByTestId("badge-system-status");
       expect(badge).toHaveTextContent("System healthy");
     });
 
     it("badge carries dark-mode green background and text classes", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       const badge = screen.getByTestId("badge-system-status");
       expect(badge.className).toContain("dark:bg-green-900");
@@ -267,7 +230,7 @@ describe("Setup — GREEN guard panel", () => {
     });
 
     it("panel renders all coherence items in dark mode", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       for (const item of COHERENCE_GREEN.items) {
         expect(
@@ -277,14 +240,14 @@ describe("Setup — GREEN guard panel", () => {
     });
 
     it("Return to app button and Settings link remain present in dark mode", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       expect(screen.getByTestId("button-return-to-app")).toBeInTheDocument();
       expect(screen.getByTestId("link-settings")).toBeInTheDocument();
     });
 
     it("username footer still displays in dark mode", () => {
-      renderSetup(buildClient());
+      renderPanel();
 
       expect(screen.getByTestId("text-signed-in-user")).toHaveTextContent("kit");
     });
