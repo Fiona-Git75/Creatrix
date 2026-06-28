@@ -75,6 +75,16 @@ const COHERENCE_AMBER = {
   ],
 };
 
+const COHERENCE_RED = {
+  coherent: false,
+  overallStatus: "RED" as const,
+  measuredAt: "2026-06-27T00:00:01.000Z",
+  items: [
+    { domain: "database", component: "PostgreSQL", actual: "unreachable", message: "Connection refused" },
+    { domain: "ai",       component: "Ollama",     actual: "unreachable", message: "Cannot connect" },
+  ],
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildClient(coherence: object) {
@@ -198,6 +208,55 @@ describe("SetupPostBootstrap — wasInRepairView redirect guard", () => {
     });
 
     // wasInRepairView was set during the AMBER commit, so the redirect must fire.
+    await waitFor(() => {
+      expect(mockSetLocation).toHaveBeenCalledWith("/");
+    });
+  });
+
+  // ── Test 5: AMBER → RED → AMBER → GREEN — ref persists through all states ────
+  //
+  // Sequence: AMBER (repair panel mounts, wasInRepairView set) → RED (panel stays,
+  // different visual treatment but still non-GREEN) → AMBER (panel stays) → GREEN
+  // (panel removed, redirect fires). Each transition is its own act() to ensure
+  // React commits each state separately and the ref is never accidentally cleared.
+
+  it("fires the redirect after AMBER → RED → AMBER → GREEN across four separate poll cycles", async () => {
+    const client = buildClient(COHERENCE_AMBER);
+
+    const { queryByTestId } = renderComponent(client);
+
+    // Phase 1: AMBER — repair panel mounts, wasInRepairView becomes true.
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+
+    // Phase 2: RED — panel stays visible (non-GREEN), ref remains true.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_RED);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+
+    // Phase 3: back to AMBER — panel still visible, ref still true.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_AMBER);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+
+    // Phase 4: GREEN — panel is removed and redirect must fire.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+    });
+
     await waitFor(() => {
       expect(mockSetLocation).toHaveBeenCalledWith("/");
     });
