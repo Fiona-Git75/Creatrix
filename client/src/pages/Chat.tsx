@@ -133,6 +133,7 @@ function ChatContent({
   pinnedDocId,
   onTogglePin,
   onUpdateToolEvents,
+  maxImageSizeMb,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -144,6 +145,7 @@ function ChatContent({
   connections: Connection[];
   selectedConnectionId: string | null;
   selectedModel: string;
+  maxImageSizeMb: number;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -408,14 +410,14 @@ function ChatContent({
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
-              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} />
+              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} maxImageSizeMb={maxImageSizeMb} />
             </>
           ) : (
             <div className="flex-1 flex flex-col">
               <div className="flex-1">
                 <EmptyState onStartChatting={() => chatInputRef.current?.focus()} onOpenSettings={onOpenSettings} />
               </div>
-              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} />
+              <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} maxImageSizeMb={maxImageSizeMb} />
             </div>
           )}
         </main>
@@ -512,6 +514,8 @@ export default function Chat() {
   }, [connections, providerStatus?.providers, selectedConnectionId]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
+  const activeConnection = connections.find(c => c.id === selectedConnectionId) ?? null;
+  const activeMaxImageSizeMb = activeConnection?.maxImageSizeMb ?? (activeConnection?.provider === "ollama" ? 10 : 20);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -690,6 +694,7 @@ export default function Chat() {
           pinnedDocId={pinnedDocId}
           onTogglePin={setPinnedDocId}
           onUpdateToolEvents={setToolEvents}
+          maxImageSizeMb={activeMaxImageSizeMb}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

@@ -3,8 +3,7 @@ import { Send, Paperclip, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
-const LARGE_IMAGE_THRESHOLD_MB = 10;
-const LARGE_IMAGE_THRESHOLD_BYTES = LARGE_IMAGE_THRESHOLD_MB * 1024 * 1024;
+const DEFAULT_MAX_IMAGE_SIZE_MB = 20;
 
 export interface AttachedImage {
   base64: string;
@@ -19,9 +18,12 @@ interface ChatInputProps {
   isLoading?: boolean;
   placeholder?: string;
   inputRef?: RefObject<HTMLTextAreaElement>;
+  maxImageSizeMb?: number;
 }
 
-export function ChatInput({ onSend, isLoading, placeholder = "Send a message or paste an image…", inputRef }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, placeholder = "Send a message or paste an image…", inputRef, maxImageSizeMb }: ChatInputProps) {
+  const limitMb = maxImageSizeMb ?? DEFAULT_MAX_IMAGE_SIZE_MB;
+  const limitBytes = limitMb * 1024 * 1024;
   const [value, setValue] = useState("");
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const internalRef = useRef<HTMLTextAreaElement>(null);
@@ -113,7 +115,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const hasLargeImage = attachedImages.some(img => img.sizeBytes > LARGE_IMAGE_THRESHOLD_BYTES);
+  const hasLargeImage = attachedImages.some(img => img.sizeBytes > limitBytes);
 
   return (
     <div className="border-t bg-background">
@@ -126,7 +128,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
-              This image is over {LARGE_IMAGE_THRESHOLD_MB} MB and may be rejected by the vision model.{" "}
+              This image is over {limitMb} MB and may be rejected by the connection's vision model.{" "}
               To resize on macOS/Linux: <code className="font-mono bg-amber-100 dark:bg-amber-900/50 px-1 rounded">sips -Z 1920 yourimage.jpg</code>{" "}
               or compress online at{" "}
               <a
@@ -164,7 +166,7 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
-                {img.sizeBytes > LARGE_IMAGE_THRESHOLD_BYTES && (
+                {img.sizeBytes > limitBytes && (
                   <div className="absolute bottom-0.5 left-0.5 right-0.5 flex items-center justify-center">
                     <AlertTriangle className="h-3 w-3 text-amber-400 drop-shadow" />
                   </div>
