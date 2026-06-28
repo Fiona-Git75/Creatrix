@@ -46,7 +46,8 @@ const ALLOWED_IMAGE_EXTENSIONS = new Set(Object.keys(EXTENSION_TO_MIME));
 // Detect MIME type from raw base64 data by inspecting magic bytes.
 // Only the first ~12 characters of the base64 string are needed (covers 8 decoded bytes).
 // Falls back to image/jpeg when the signature is unrecognised.
-function detectMimeTypeFromBase64(b64: string): string {
+// Exported for unit testing.
+export function detectMimeTypeFromBase64(b64: string): string {
   // Decode just enough bytes to read the magic signature
   const prefix = Buffer.from(b64.slice(0, 16), "base64");
 
