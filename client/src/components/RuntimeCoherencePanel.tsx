@@ -128,7 +128,7 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
   }
 
   // ── AMBER / RED mode — always expanded ────────────────────────────────────
-  const degradedDomains = [...new Set(degradedItems.map(i => i.domain))];
+  const degradedDomains = Array.from(new Set(degradedItems.map(i => i.domain)));
 
   return (
     <div

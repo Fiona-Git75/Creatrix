@@ -24,6 +24,8 @@ export default function AppSidebarExample() {
             setConversations((prev) => prev.filter((c) => c.id !== id));
           }}
           onProjectChange={() => {}}
+          onOpenSettings={() => {}}
+          onOpenDocs={() => {}}
         />
         <div className="flex-1 bg-background p-4">
           <p className="text-muted-foreground">Main content area</p>

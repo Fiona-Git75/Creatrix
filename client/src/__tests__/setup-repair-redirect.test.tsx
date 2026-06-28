@@ -71,7 +71,6 @@ const COHERENCE_AMBER = {
 function buildClient(opts: { authStatus: object; coherence: object }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    logger: { log: () => {}, warn: () => {}, error: () => {} },
   });
   client.setQueryData(["/api/auth/status"], opts.authStatus);
   client.setQueryData(["/api/system/coherence"], opts.coherence);

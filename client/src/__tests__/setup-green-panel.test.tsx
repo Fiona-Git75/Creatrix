@@ -46,7 +46,6 @@ const COHERENCE_GREEN = {
 function buildClient(overrides: { authStatus?: object; coherence?: object } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-    logger: { log: () => {}, warn: () => {}, error: () => {} },
   });
 
   client.setQueryData(

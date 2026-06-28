@@ -475,7 +475,7 @@ export default function Setup() {
   // ─── Guard: system is already healthy — show read-only summary ───────────
   if (authStatus?.bootstrapped && coherence?.overallStatus === "GREEN") {
     const username = authStatus.user?.username ?? "";
-    const domains = [...new Set(coherence.items.map(i => i.domain))];
+    const domains = Array.from(new Set(coherence.items.map(i => i.domain)));
     return (
       <Screen>
         <div className="space-y-8 w-full max-w-lg" data-testid="panel-already-configured">

@@ -171,17 +171,17 @@ app.use((req, res, next) => {
 
             const manifest = await loadManifest();
             if (!manifest.bootstrapped) return;
-            syslog("info", "runtime",
+            syslog("info", "system",
               `Manifest loaded — commissioned by ${manifest.bootstrappedBy} on ${manifest.bootstrappedAt?.slice(0, 10) ?? "unknown"}`);
             const report = await measureCoherence(manifest);
             for (const item of report.items) {
               const level = item.actual === "coherent" ? "info" : item.actual === "degraded" ? "warn" : "error";
               const icon = item.actual === "coherent" ? "✓" : "⚠";
-              syslog(level, "runtime", `${icon} ${item.component} — ${item.message}`,
+              syslog(level, "system", `${icon} ${item.component} — ${item.message}`,
                 item.action ? `action: ${item.action}` : undefined);
             }
             const n = report.items.filter(i => i.actual === "coherent").length;
-            syslog(report.coherent ? "info" : "warn", "runtime",
+            syslog(report.coherent ? "info" : "warn", "system",
               `Coherence: ${n}/${report.items.length} item${report.items.length !== 1 ? "s" : ""} coherent`);
           } catch (e) {
             console.error("[runtime] coherence check failed:", e);

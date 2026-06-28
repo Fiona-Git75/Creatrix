@@ -849,7 +849,7 @@ function SettingsTab() {
   const { data: systemCoherence } = useQuery<{
     coherent: boolean;
     overallStatus: "GREEN" | "AMBER" | "RED";
-    items: { component: string; actual: "coherent" | "degraded" | "absent"; message: string; action?: string }[];
+    items: { domain: string; component: string; actual: "coherent" | "degraded" | "absent"; message: string; action?: string }[];
   }>({
     queryKey: ["/api/system/coherence"],
     refetchInterval: 30_000,

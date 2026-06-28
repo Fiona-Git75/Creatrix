@@ -57,8 +57,8 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
       processImageFiles(imageFiles);
     };
 
-    document.addEventListener("paste", handleDocumentPaste as EventListener);
-    return () => document.removeEventListener("paste", handleDocumentPaste as EventListener);
+    document.addEventListener("paste", handleDocumentPaste as unknown as EventListener);
+    return () => document.removeEventListener("paste", handleDocumentPaste as unknown as EventListener);
   // processImageFiles is defined in the same render scope; no external deps needed
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

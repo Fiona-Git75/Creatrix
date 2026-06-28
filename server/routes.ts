@@ -1491,7 +1491,7 @@ export async function registerRoutes(
       const whisperEndpoint = (settings as any).whisperEndpoint as string | undefined;
       const searchEndpoint  = (settings as any).searchEndpoint  as string | undefined;
 
-      function svcToSubstrate(key: string, endpoint: string | undefined) {
+      const svcToSubstrate = (key: string, endpoint: string | undefined) => {
         const svc = getServiceState(key);
         if (!svc || svc.status === "probing") {
           return { status: "unknown" as const, latencyMs: null, endpoint: endpoint ?? null };

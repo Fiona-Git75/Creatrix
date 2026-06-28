@@ -132,6 +132,7 @@ function ChatContent({
   onDocChange,
   pinnedDocId,
   onTogglePin,
+  onUpdateToolEvents,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -155,6 +156,7 @@ function ChatContent({
   onDocChange: (id: string | null | undefined) => void;
   pinnedDocId: string | null;
   onTogglePin: (docId: string | null) => void;
+  onUpdateToolEvents: (updater: (prev: ToolEvent[]) => ToolEvent[]) => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -391,7 +393,7 @@ function ChatContent({
                           key={event.id}
                           event={event}
                           onConfirm={event.confirmId ? async (confirmId, approved) => {
-                            setToolEvents(prev => prev.map(e =>
+                            onUpdateToolEvents(prev => prev.map(e =>
                               e.id === event.id
                                 ? { ...e, status: approved ? "running" : "cancelled" }
                                 : e
@@ -687,6 +689,7 @@ export default function Chat() {
           onDocChange={setOpenDocId}
           pinnedDocId={pinnedDocId}
           onTogglePin={setPinnedDocId}
+          onUpdateToolEvents={setToolEvents}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
