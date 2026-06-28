@@ -22,7 +22,7 @@ const PROVIDER_DEFAULTS: Record<Provider, { endpoint: string; label: string }> =
 const TOTAL_STEPS = 4;
 
 /** How long the skipped-account banner stays visible (ms). Raise this on slow connections. */
-const SKIPPED_BANNER_TIMEOUT_MS = 6000;
+export const SKIPPED_BANNER_TIMEOUT_MS = 6000;
 
 type ProbePhase = "enter" | "probing" | "select" | "saving" | "done";
 type ServiceState = "idle" | "probing" | "ok" | "fail" | "skip";

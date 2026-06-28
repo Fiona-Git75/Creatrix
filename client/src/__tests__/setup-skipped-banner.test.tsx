@@ -34,7 +34,7 @@ vi.mock("wouter", async (importOriginal) => {
 });
 
 import { Router } from "wouter";
-import Setup from "../pages/Setup";
+import Setup, { SKIPPED_BANNER_TIMEOUT_MS } from "../pages/Setup";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -43,8 +43,8 @@ const AUTH_WITH_EXISTING_USER = {
   user: { username: "kit" },
 };
 
-// Must match SKIPPED_BANNER_TIMEOUT_MS in Setup.tsx.
-const TIMEOUT_MS = 6000;
+// Alias for readability — always in sync with the production constant.
+const TIMEOUT_MS = SKIPPED_BANNER_TIMEOUT_MS;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
