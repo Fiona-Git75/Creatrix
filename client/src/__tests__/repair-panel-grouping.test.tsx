@@ -193,4 +193,33 @@ describe("RepairPanel — domain grouping", () => {
     expect(screen.getAllByTestId(/^repair-item-/)).toHaveLength(items.length);
   });
 
+  it("places two items with different unknown domains in one 'Other' group without merging or dropping either", () => {
+    // Both "Networking" and "Storage" are outside DOMAIN_ORDER.
+    // They must share a single "Other" header and both be present in that group.
+    const items = [
+      ...TWO_DOMAIN_ITEMS,
+      { domain: "Networking", component: "DNS resolver", actual: "unreachable", message: "Cannot reach DNS" },
+      { domain: "Storage",    component: "Object store",  actual: "missing",     message: "S3 bucket not found" },
+    ];
+    renderPanel(items);
+
+    // Both items must appear in the DOM.
+    expect(screen.getByTestId("repair-item-DNS resolver")).toBeInTheDocument();
+    expect(screen.getByTestId("repair-item-Object store")).toBeInTheDocument();
+
+    // There must be exactly one "Other" header — the two unknown domains share one group.
+    expect(screen.getAllByText(/^other$/i)).toHaveLength(1);
+
+    // Both items must be inside that single "Other" group.
+    const repairList = screen.getByTestId("panel-repair-list");
+    const otherHeader = within(repairList).getByText(/^other$/i);
+    const otherGroup = otherHeader.closest("[data-testid='panel-repair-list'] > div") as HTMLElement;
+    expect(otherGroup).not.toBeNull();
+    expect(within(otherGroup).getByTestId("repair-item-DNS resolver")).toBeInTheDocument();
+    expect(within(otherGroup).getByTestId("repair-item-Object store")).toBeInTheDocument();
+
+    // Total item count must match — nothing dropped.
+    expect(screen.getAllByTestId(/^repair-item-/)).toHaveLength(items.length);
+  });
+
 });
