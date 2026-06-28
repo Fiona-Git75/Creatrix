@@ -31,6 +31,35 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function CopyReportButton({ buildReport }: { buildReport: () => string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(buildReport()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      data-testid="button-copy-report"
+      className="flex items-center gap-2 w-full justify-center py-2 px-3 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-white/5 transition-colors font-mono"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5 text-green-400" />
+          <span className="text-green-400">Report copied</span>
+        </>
+      ) : (
+        <>
+          <Copy className="h-3.5 w-3.5" />
+          Copy report
+        </>
+      )}
+    </button>
+  );
+}
+
 interface CoherenceReport {
   coherent: boolean;
   overallStatus: "GREEN" | "AMBER" | "RED";
@@ -542,6 +571,18 @@ export default function Setup() {
     const statusColor = isRed ? "text-red-500 dark:text-red-400" : "text-amber-500 dark:text-amber-400";
     const borderColor = isRed ? "border-red-900/40 bg-red-950/20" : "border-amber-900/30 bg-amber-950/20";
 
+    const buildReport = () => {
+      const lines: string[] = [`=== System Repair Report (${coherence.overallStatus}) ===`, ""];
+      degradedItems.forEach(item => {
+        lines.push(`[${item.domain}] ${item.component}`);
+        lines.push(`✗ ${item.message}`);
+        if (item.action) lines.push(`Fix: ${item.action}`);
+        if (item.firstLook) lines.push(`First look: ${item.firstLook}`);
+        lines.push("");
+      });
+      return lines.join("\n").trimEnd();
+    };
+
     return (
       <Screen>
         <div className="space-y-6 max-w-md">
@@ -597,6 +638,8 @@ export default function Setup() {
               </div>
             ))}
           </div>
+
+          <CopyReportButton buildReport={buildReport} />
 
           <div className="flex items-center justify-between pt-2">
             <Button
