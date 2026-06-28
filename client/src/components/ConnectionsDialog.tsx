@@ -221,7 +221,7 @@ function SortableConnectionCard({
 
   return (
     <div ref={setNodeRef} style={style}>
-      <Card className="p-4">
+      <Card className="p-4 group">
         {editingId === connection.id ? (
           <form onSubmit={onEditSubmit} className="space-y-4">
             <div className="flex items-center justify-between">
@@ -341,7 +341,7 @@ function SortableConnectionCard({
             <div
               {...attributes}
               {...listeners}
-              className="mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 touch-none"
+              className="mt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 touch-none opacity-0 group-hover:opacity-100 transition-opacity"
               data-testid={`drag-handle-${connection.id}`}
             >
               <GripVertical className="h-4 w-4" />
