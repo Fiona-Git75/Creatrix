@@ -196,6 +196,7 @@ vi.mock("@server/health", () => ({
 // ── Test server lifecycle ─────────────────────────────────────────────────────
 
 import { registerRoutes } from "@server/routes";
+import { createProvider } from "@server/providers";
 
 let baseUrl: string;
 let httpServer: Server;
@@ -380,5 +381,106 @@ describe("/api/chat SSE streaming — server route emits correct event format", 
   it("returns HTTP 400 when the message field is absent", async () => {
     const { status } = await postChat({ connectionId: TEST_CONN_ID });
     expect(status).toBe(400);
+  });
+});
+
+// ── Provider-resolution suite ─────────────────────────────────────────────────
+//
+// The previous suite confirms SSE event format but treats the provider as an
+// opaque mock.  These tests verify that the route's provider-resolution
+// plumbing is correctly wired: createProvider must be called with the
+// connection matching the request's connectionId, and the provider it returns
+// must be the one that actually generates the stream.
+//
+// The "swap" test confirms that swapping to a different connection (with a
+// different provider type) still routes through the same resolution path —
+// guarding against regressions where a new provider type silently bypasses
+// createProvider and ends up using a stale or wrong provider instance.
+
+describe("/api/chat SSE streaming — provider resolution is wired end-to-end", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStorageMocks();
+  });
+
+  it("calls createProvider with the connection matching the request connectionId", async () => {
+    mockGenerateStream.mockImplementationOnce(async (_msgs, _model, onChunk) => {
+      onChunk({ type: "content", content: "resolved" });
+    });
+
+    await postChat(CHAT_BODY);
+
+    // createProvider must have been called exactly once with the connection
+    // that storage returned for TEST_CONN_ID — confirming the resolution path
+    // ran rather than a cached or hard-coded provider being used.
+    expect(createProvider).toHaveBeenCalledTimes(1);
+    expect(createProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ id: TEST_CONN_ID }),
+    );
+  });
+
+  it("the provider returned by createProvider is the one that streams the chunks", async () => {
+    mockGenerateStream.mockImplementationOnce(async (_msgs, _model, onChunk) => {
+      onChunk({ type: "content", content: "from-mock" });
+    });
+
+    const { body } = await postChat(CHAT_BODY);
+    const events = parseSseEvents(body);
+
+    // mockGenerateStream is the generateStream method on the object returned by
+    // the createProvider mock — if the route resolved and used the provider
+    // correctly, it must have been called exactly once.
+    expect(mockGenerateStream).toHaveBeenCalledTimes(1);
+
+    // And the content it emitted must appear in the SSE response, proving the
+    // provider's output travels through the route all the way to the client.
+    const contentEvents = events.filter((e) => e.type === "content");
+    const accumulated = contentEvents
+      .map((e) => (e as { content: string }).content)
+      .join("");
+    expect(accumulated).toBe("from-mock");
+  });
+
+  it("streaming still works after swapping to an OpenAI connection", async () => {
+    // Override the storage mock so the route resolves a different connection —
+    // one with provider: "openai" — simulating the user switching connections.
+    const OPENAI_CONN_ID = "conn-openai-99";
+    const openaiConnection = {
+      id: OPENAI_CONN_ID,
+      name: "OpenAI GPT-4",
+      provider: "openai",
+      endpoint: "https://api.openai.com/v1",
+      apiKey: "sk-test",
+      defaultModel: "gpt-4",
+      isDefault: false,
+      orderIndex: 1,
+    };
+    mockStorage.getConnection.mockResolvedValueOnce(openaiConnection);
+
+    mockGenerateStream.mockImplementationOnce(async (_msgs, _model, onChunk) => {
+      onChunk({ type: "content", content: "openai-response" });
+    });
+
+    const { body } = await postChat({
+      message: "hello",
+      connectionId: OPENAI_CONN_ID,
+      model: "gpt-4",
+    });
+    const events = parseSseEvents(body);
+
+    // createProvider must have been called with the OpenAI connection, not the
+    // default Ollama one — confirming provider resolution re-runs per request.
+    expect(createProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ id: OPENAI_CONN_ID, provider: "openai" }),
+    );
+
+    // The mock provider (returned by createProvider regardless of provider type)
+    // must still be the source of the streamed chunks.
+    expect(mockGenerateStream).toHaveBeenCalledTimes(1);
+    const accumulated = events
+      .filter((e) => e.type === "content")
+      .map((e) => (e as { content: string }).content)
+      .join("");
+    expect(accumulated).toBe("openai-response");
   });
 });
