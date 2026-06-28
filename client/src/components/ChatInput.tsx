@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, RefObject, ChangeEvent } from "react";
+import { useState, useRef, useEffect, useCallback, KeyboardEvent, ClipboardEvent, RefObject, ChangeEvent } from "react";
 import { Send, Paperclip, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useImagePaste, processImageFiles } from "@/hooks/use-image-paste";
 
 const DEFAULT_MAX_IMAGE_SIZE_MB = 20;
 
@@ -37,33 +38,11 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
     }
   }, [value]);
 
-  // Document-level paste: catches pastes that happen before the user clicks
-  // into the textarea (e.g. Cmd+V immediately after taking a screenshot).
-  // Guard: skip when another input or textarea has focus — their own paste
-  // handlers should run undisturbed. Plain-text pastes are also ignored here
-  // because no image files will be present.
-  useEffect(() => {
-    const handleDocumentPaste = (e: ClipboardEvent) => {
-      const active = document.activeElement;
-      // If any input or textarea has focus, let its own handler run.
-      // This includes the chat textarea itself (covered by onPaste prop)
-      // and any other focusable form field that should not be interrupted.
-      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
-
-      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter(
-        f => f.type.startsWith("image/"),
-      );
-      if (imageFiles.length === 0) return;
-
-      e.preventDefault();
-      processImageFiles(imageFiles);
-    };
-
-    document.addEventListener("paste", handleDocumentPaste as unknown as EventListener);
-    return () => document.removeEventListener("paste", handleDocumentPaste as unknown as EventListener);
-  // processImageFiles is defined in the same render scope; no external deps needed
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const onPastedImages = useCallback((images: AttachedImage[]) => {
+    setAttachedImages(prev => [...prev, ...images]);
   }, []);
+
+  useImagePaste(onPastedImages);
 
   const handleSubmit = () => {
     if (value.trim() && !isLoading) {
@@ -83,32 +62,15 @@ export function ChatInput({ onSend, isLoading, placeholder = "Send a message or 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
-    processImageFiles(files);
+    processImageFiles(files, onPastedImages);
     e.target.value = "";
-  };
-
-  const processImageFiles = (files: File[]) => {
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        const base64 = dataUrl.split(",")[1];
-        const mimeType = file.type || "image/jpeg";
-        const previewUrl = dataUrl;
-        setAttachedImages(prev => [
-          ...prev,
-          { base64, mimeType, name: file.name, sizeBytes: file.size, previewUrl },
-        ]);
-      };
-      reader.readAsDataURL(file);
-    });
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const imageFiles = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
     e.preventDefault();
-    processImageFiles(imageFiles);
+    processImageFiles(imageFiles, onPastedImages);
   };
 
   const removeImage = (index: number) => {
