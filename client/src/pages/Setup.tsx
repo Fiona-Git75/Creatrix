@@ -21,6 +21,9 @@ const PROVIDER_DEFAULTS: Record<Provider, { endpoint: string; label: string }> =
 
 const TOTAL_STEPS = 4;
 
+/** How long the skipped-account banner stays visible (ms). Raise this on slow connections. */
+const SKIPPED_BANNER_TIMEOUT_MS = 6000;
+
 type ProbePhase = "enter" | "probing" | "select" | "saving" | "done";
 type ServiceState = "idle" | "probing" | "ok" | "fail" | "skip";
 
@@ -168,7 +171,7 @@ export default function Setup() {
 
   useEffect(() => {
     if (autoSkippedAccount && skippedBannerVisible) {
-      const timer = setTimeout(() => setSkippedBannerVisible(false), 6000);
+      const timer = setTimeout(() => setSkippedBannerVisible(false), SKIPPED_BANNER_TIMEOUT_MS);
       return () => clearTimeout(timer);
     }
   }, [autoSkippedAccount, skippedBannerVisible]);
