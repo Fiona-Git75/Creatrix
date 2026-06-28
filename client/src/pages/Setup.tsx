@@ -231,23 +231,27 @@ export default function Setup() {
     refetchInterval: 30_000,
   });
 
-  // Countdown banner for the repair view: counts down 30→0 and resets on each poll.
+  // Countdown banner for the repair view: anchors to a real timestamp so
+  // background-tab timer throttling cannot cause the display to drift.
+  const [repairCountdownTarget, setRepairCountdownTarget] = useState<number>(() => Date.now() + 30_000);
   const [repairCountdown, setRepairCountdown] = useState(30);
   const inRepairView = authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN";
 
-  // Reset to 30 each time the coherence query resolves (measuredAt changes = new poll).
+  // Reset the target timestamp each time the coherence query resolves (measuredAt
+  // changes = new poll fired). The displayed value derives from this anchor.
   useEffect(() => {
-    if (inRepairView) setRepairCountdown(30);
+    if (inRepairView) setRepairCountdownTarget(Date.now() + 30_000);
   }, [coherence?.measuredAt]);
 
-  // Tick down every second while the repair view is active.
+  // Tick every second while the repair view is active. Each tick re-reads Date.now()
+  // so that a throttled interval (background tab) still shows the correct value.
   useEffect(() => {
     if (!inRepairView) return;
     const id = setInterval(() => {
-      setRepairCountdown(prev => (prev > 0 ? prev - 1 : 0));
+      setRepairCountdown(Math.max(0, Math.round((repairCountdownTarget - Date.now()) / 1000)));
     }, 1000);
     return () => clearInterval(id);
-  }, [inRepairView]);
+  }, [inRepairView, repairCountdownTarget]);
 
   // Track whether the repair view was ever shown so we can detect recovery.
   const wasInRepairView = useRef(false);
