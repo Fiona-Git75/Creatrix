@@ -2,14 +2,18 @@
  * Tests that the GREEN summary panel correctly transitions to the repair view
  * when the coherence polling detects a degraded status.
  *
+ * These tests render SetupPostBootstrap directly — they are fully decoupled from
+ * Setup.tsx and will not break when Setup.tsx gains new imports that rely on
+ * browser APIs or backend calls not present in jsdom.
+ *
  * Two suites:
  *
  * Suite A — "polling path" (primary)
  *   Exercises the full network + refetchInterval code path.
  *   `fetch` is mocked at the global level so the default QueryFn issues real
  *   network-shaped requests (caught by the stub), and `vi.useFakeTimers` is
- *   used to advance 30 seconds and fire the `refetchInterval` that Setup.tsx
- *   registers on /api/system/coherence.
+ *   used to advance 30 seconds and fire the `refetchInterval` that
+ *   SetupPostBootstrap registers on /api/system/coherence.
  *
  *   Concretely this verifies:
  *     1. The refetchInterval wiring in the component actually fires after 30s.
@@ -26,7 +30,7 @@ import { render, screen, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { getQueryFn } from "../lib/queryClient";
-import Setup from "../pages/Setup";
+import { SetupPostBootstrap } from "../components/SetupPostBootstrap";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -76,10 +80,9 @@ const COHERENCE_RED = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Build a mock fetch function that:
- *   - Returns AUTH_BOOTSTRAPPED for /api/auth/status (always)
- *   - Returns the provided coherenceResponses in order for /api/system/coherence,
- *     using the last element indefinitely once the list is exhausted.
+ * Build a mock fetch function that returns the provided coherenceResponses in
+ * order for /api/system/coherence, using the last element indefinitely once
+ * the list is exhausted.
  */
 function makeFetch(coherenceResponses: object[]) {
   let coherenceCallIdx = 0;
@@ -92,10 +95,6 @@ function makeFetch(coherenceResponses: object[]) {
           headers: { "Content-Type": "application/json" },
         }),
       );
-
-    if (typeof url === "string" && url.includes("/api/auth/status")) {
-      return json(AUTH_BOOTSTRAPPED);
-    }
 
     if (typeof url === "string" && url.includes("/api/system/coherence")) {
       const idx = Math.min(coherenceCallIdx, coherenceResponses.length - 1);
@@ -131,11 +130,14 @@ function buildPollingClient() {
   });
 }
 
-function renderSetup(client: QueryClient) {
+function renderComponent(client: QueryClient) {
   return render(
     <QueryClientProvider client={client}>
       <Router>
-        <Setup />
+        {/* Stable wrapper so container.firstChild never changes between GREEN and repair renders */}
+        <div data-testid="component-root">
+          <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
+        </div>
       </Router>
     </QueryClientProvider>,
   );
@@ -143,7 +145,7 @@ function renderSetup(client: QueryClient) {
 
 // ── Suite A: polling path ─────────────────────────────────────────────────────
 
-describe("Setup — GREEN → repair transition via refetchInterval polling (network path)", () => {
+describe("SetupPostBootstrap — GREEN → repair transition via refetchInterval polling (network path)", () => {
   beforeEach(() => {
     // Fake only setInterval / clearInterval (React Query's refetchInterval
     // mechanism) and Date.  We deliberately leave setTimeout real so that
@@ -167,7 +169,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
 
     // Render and let the initial fetch settle (microtasks, not timers).
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     // After the initial fetch the GREEN summary panel must be visible.
@@ -177,7 +179,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
 
     // Advance fake timers by 30 seconds — this fires the refetchInterval that
-    // Setup.tsx registered on /api/system/coherence, triggering a real fetch.
+    // SetupPostBootstrap registered on /api/system/coherence, triggering a real fetch.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
@@ -196,7 +198,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     const client = buildPollingClient();
 
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     await waitFor(() => {
@@ -219,7 +221,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     const client = buildPollingClient();
 
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     await waitFor(() => {
@@ -241,7 +243,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     const client = buildPollingClient();
 
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     await waitFor(() => {
@@ -266,7 +268,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     let container!: HTMLElement;
 
     await act(async () => {
-      ({ container } = renderSetup(client));
+      ({ container } = renderComponent(client));
     });
 
     await waitFor(() => {
@@ -295,7 +297,7 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
     const client = buildPollingClient();
 
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     // Initial fetch → GREEN panel visible.
@@ -328,17 +330,16 @@ describe("Setup — GREEN → repair transition via refetchInterval polling (net
 
 // ── Suite B: cache-update path (supplemental conditional-rendering checks) ───
 
-describe("Setup — GREEN → repair transition via cache update (rendering logic)", () => {
+describe("SetupPostBootstrap — GREEN → repair transition via cache update (rendering logic)", () => {
   it("shows the GREEN summary panel on initial render when coherence is GREEN", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
       logger: { log: () => {}, warn: () => {}, error: () => {} },
     });
-    client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
     await act(async () => {
-      renderSetup(client);
+      renderComponent(client);
     });
 
     expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
@@ -350,10 +351,9 @@ describe("Setup — GREEN → repair transition via cache update (rendering logi
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
       logger: { log: () => {}, warn: () => {}, error: () => {} },
     });
-    client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
-    renderSetup(client);
+    renderComponent(client);
 
     expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
 
@@ -372,10 +372,9 @@ describe("Setup — GREEN → repair transition via cache update (rendering logi
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
       logger: { log: () => {}, warn: () => {}, error: () => {} },
     });
-    client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
-    renderSetup(client);
+    renderComponent(client);
 
     await act(async () => {
       client.setQueryData(["/api/system/coherence"], COHERENCE_RED);
@@ -392,10 +391,9 @@ describe("Setup — GREEN → repair transition via cache update (rendering logi
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
       logger: { log: () => {}, warn: () => {}, error: () => {} },
     });
-    client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
     client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
 
-    renderSetup(client);
+    renderComponent(client);
 
     expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
     expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();

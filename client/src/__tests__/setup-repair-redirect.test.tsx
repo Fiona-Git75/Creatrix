@@ -1,13 +1,18 @@
 /**
- * Tests for the auto-redirect logic in Setup.tsx that is guarded by `wasInRepairView`.
+ * Tests for the auto-redirect logic in SetupPostBootstrap that is guarded by
+ * `wasInRepairView`.
+ *
+ * These tests render SetupPostBootstrap directly — they are fully decoupled from
+ * Setup.tsx and will not break when Setup.tsx gains new imports that rely on
+ * browser APIs or backend calls not present in jsdom.
  *
  * The component tracks whether the repair view was ever rendered via a ref. Only
  * when that ref is true AND coherence recovers to GREEN does it navigate to "/".
  * This file verifies three scenarios:
  *
- *   1. First-time setup path  — bootstrapped=false → bootstrapped=true + GREEN.
+ *   1. First-time setup path  — bootstrapped=true + GREEN from the start.
  *      The repair view never renders, so `wasInRepairView` stays false and no
- *      redirect should fire even though the final status is GREEN.
+ *      redirect should fire even though the status is GREEN.
  *
  *   2. AMBER → GREEN recovery — bootstrapped=true + AMBER → bootstrapped=true + GREEN.
  *      The repair view DOES render during the AMBER phase, so `wasInRepairView`
@@ -27,7 +32,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// ── Mock wouter before importing Setup ────────────────────────────────────────
+// ── Mock wouter before importing SetupPostBootstrap ───────────────────────────
 // We replace useLocation so we can spy on the setLocation call that the
 // redirect effect issues. All other wouter exports (Router, Link, useRoute …)
 // are passed through from the real module so the component tree stays intact.
@@ -44,11 +49,10 @@ vi.mock("wouter", async (importOriginal) => {
 
 // Import AFTER the mock is registered so the mock is in effect.
 import { Router } from "wouter";
-import Setup from "../pages/Setup";
+import { SetupPostBootstrap } from "../components/SetupPostBootstrap";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const AUTH_NOT_BOOTSTRAPPED = { bootstrapped: false, user: null };
 const AUTH_BOOTSTRAPPED = { bootstrapped: true, user: { username: "kit" } };
 
 const COHERENCE_GREEN = {
@@ -73,20 +77,19 @@ const COHERENCE_AMBER = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildClient(opts: { authStatus: object; coherence: object }) {
+function buildClient(coherence: object) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
-  client.setQueryData(["/api/auth/status"], opts.authStatus);
-  client.setQueryData(["/api/system/coherence"], opts.coherence);
+  client.setQueryData(["/api/system/coherence"], coherence);
   return client;
 }
 
-function renderSetup(client: QueryClient) {
+function renderComponent(client: QueryClient) {
   return render(
     <QueryClientProvider client={client}>
       <Router>
-        <Setup />
+        <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
       </Router>
     </QueryClientProvider>,
   );
@@ -94,46 +97,39 @@ function renderSetup(client: QueryClient) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("Setup — wasInRepairView redirect guard", () => {
+describe("SetupPostBootstrap — wasInRepairView redirect guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   // ── Test 1: first-time setup must NOT redirect ─────────────────────────────
   //
-  // Sequence: bootstrapped=false (wizard visible) → update to bootstrapped=true
-  // with GREEN coherence. The repair view was never rendered, so the ref stays
-  // false and setLocation must not be called with "/".
+  // Scenario: system appears bootstrapped + GREEN immediately (no repair phase).
+  // The repair view was never rendered, so the ref stays false and setLocation
+  // must not be called with "/".
 
-  it("does NOT redirect when bootstrapped=false transitions directly to bootstrapped=true + GREEN (normal first-time setup)", async () => {
-    const client = buildClient({
-      authStatus: AUTH_NOT_BOOTSTRAPPED,
-      coherence: COHERENCE_GREEN,
-    });
+  it("does NOT redirect when system appears bootstrapped + GREEN on the very first render", async () => {
+    const client = buildClient(COHERENCE_GREEN);
 
-    renderSetup(client);
-
-    // Simulate first-time setup completing: system becomes bootstrapped with
-    // GREEN coherence without ever passing through the repair view.
     await act(async () => {
-      client.setQueryData(["/api/auth/status"], AUTH_BOOTSTRAPPED);
-      // coherence was already GREEN — no AMBER phase occurred
+      renderComponent(client);
     });
 
-    // The redirect effect must not fire: wasInRepairView was never set true.
     expect(mockSetLocation).not.toHaveBeenCalledWith("/");
   });
 
-  // Variant: even if data arrives simultaneously bootstrapped + GREEN on first
-  // render, the repair view never shows so there must be no redirect.
-  it("does NOT redirect when system appears bootstrapped + GREEN on the very first render", async () => {
-    const client = buildClient({
-      authStatus: AUTH_BOOTSTRAPPED,
-      coherence: COHERENCE_GREEN,
+  // Variant: GREEN coherence arriving slightly after mount (loading → GREEN).
+  // Still no repair phase, so no redirect.
+  it("does NOT redirect when coherence arrives as GREEN without passing through repair", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
 
+    renderComponent(client);
+
+    // Coherence arrives GREEN for the first time — no AMBER phase occurred.
     await act(async () => {
-      renderSetup(client);
+      client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
     });
 
     expect(mockSetLocation).not.toHaveBeenCalledWith("/");
@@ -145,13 +141,10 @@ describe("Setup — wasInRepairView redirect guard", () => {
   // update coherence to GREEN → effect fires → setLocation("/") called.
 
   it("DOES redirect to '/' when coherence recovers from AMBER to GREEN after the repair view was shown", async () => {
-    const client = buildClient({
-      authStatus: AUTH_BOOTSTRAPPED,
-      coherence: COHERENCE_AMBER,
-    });
+    const client = buildClient(COHERENCE_AMBER);
 
     // Initial render: bootstrapped=true, AMBER → repair view renders, ref set.
-    renderSetup(client);
+    renderComponent(client);
 
     // Simulate coherence recovering to GREEN.
     await act(async () => {
@@ -174,12 +167,9 @@ describe("Setup — wasInRepairView redirect guard", () => {
   // appear and wasInRepairView must stay false, so no redirect fires.
 
   it("never renders the repair panel or redirects when AMBER appears and recovers within the same act()", async () => {
-    const client = buildClient({
-      authStatus: AUTH_BOOTSTRAPPED,
-      coherence: COHERENCE_GREEN,
-    });
+    const client = buildClient(COHERENCE_GREEN);
 
-    const { queryByTestId } = renderSetup(client);
+    const { queryByTestId } = renderComponent(client);
 
     // Sanity-check: repair panel is absent on the initial GREEN render.
     expect(queryByTestId("panel-repair-list")).not.toBeInTheDocument();
