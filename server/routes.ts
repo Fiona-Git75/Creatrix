@@ -10,7 +10,7 @@ import { embedChunks } from "./rag/embeddings";
 import { listCapabilities, invokeCapability, getCapability } from "./capabilities";
 import { probeNotionConnected } from "./capabilities/notion";
 import { requestConfirmation, resolveConfirmation } from "./confirm";
-import { querySubstrate, computeCoherence } from "./health";
+import { getServiceState, getAllServiceStates } from "./runtime/service-runtime";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
 import { getProvidersStatus, startBackgroundRefresh, resolveModelToProvider, fetchModelProfile, scanConnection, scanConnectionLite } from "./providers/discovery";
 import type { ToolSupport } from "./providers/discovery";
@@ -1482,38 +1482,54 @@ export async function registerRoutes(
   });
 
   // === Substrate health / coherence ===
-  // Returns the truth coherence of the system: whether every active tool has
-  // a working substrate behind it. Never blocks on a live probe — returns
-  // cached result and kicks off a background refresh if stale.
+  // Returns cached service-runtime state — no live probe fires here.
+  // Background probes run every 30 s (kicked off in server/index.ts at startup).
+  // Response shape is backward-compatible so existing frontend consumers are unaffected.
   app.get("/api/substrate/health", async (_req: Request, res: Response) => {
     try {
       const settings = await storage.getSettings();
       const whisperEndpoint = (settings as any).whisperEndpoint as string | undefined;
       const searchEndpoint  = (settings as any).searchEndpoint  as string | undefined;
 
+      function svcToSubstrate(key: string, endpoint: string | undefined) {
+        const svc = getServiceState(key);
+        if (!svc || svc.status === "probing") {
+          return { status: "unknown" as const, latencyMs: null, endpoint: endpoint ?? null };
+        }
+        return {
+          status: svc.ready ? ("up" as const) : ("down" as const),
+          latencyMs: svc.latencyMs,
+          endpoint: endpoint ?? null,
+          detail: svc.detail,
+          action: svc.action,
+          firstLook: svc.firstLook,
+        };
+      }
+
       const substrates = {
-        whisper: querySubstrate("whisper", whisperEndpoint),
-        search:  querySubstrate("search",  searchEndpoint),
+        whisper: svcToSubstrate("whisper", whisperEndpoint),
+        search:  svcToSubstrate("searxng", searchEndpoint),
       };
 
-      // Mirror active-tool logic from /api/tools/status
-      const rootFolder = settings.rootFolder;
-      const notionAvailable = await probeNotionConnected();
-      const activeToolNames = listCapabilities()
-        .filter(c => {
-          if (c.requires?.rootFolder      && !rootFolder)      return false;
-          if (c.requires?.whisperEndpoint && !whisperEndpoint) return false;
-          if (c.requires?.notion          && !notionAvailable) return false;
-          return true;
-        })
-        .map(c => c.name);
+      const issues: string[] = [];
+      if (substrates.whisper.status === "down") issues.push(`Whisper: ${(substrates.whisper as any).detail ?? "unreachable"}`);
+      if (substrates.search.status  === "down") issues.push(`SearXNG: ${(substrates.search  as any).detail ?? "unreachable"}`);
 
-      const { coherence, issues } = computeCoherence(activeToolNames, substrates);
+      const anyDown    = substrates.whisper.status === "down"    || substrates.search.status === "down";
+      const anyUnknown = substrates.whisper.status === "unknown" || substrates.search.status === "unknown";
+      const coherence  = anyDown ? "red" : anyUnknown ? "amber" : "green";
+
       res.json({ coherence, substrates, issues, checkedAt: Date.now() });
     } catch (error) {
       console.error("Error fetching substrate health:", error);
       res.status(500).json({ error: "Failed to get substrate health" });
     }
+  });
+
+  // === Service runtime state ===
+  // Rich view of all service definitions, their live readiness state, and runtime logs.
+  app.get("/api/services/state", (_req: Request, res: Response) => {
+    res.json({ services: getAllServiceStates(), lastUpdatedAt: Date.now() });
   });
 
   // === Settings ===

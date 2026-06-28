@@ -115,6 +115,28 @@ app.use((req, res, next) => {
       log("Initializing storage…");
       await storage.initialize?.();
       log("Storage ready");
+      // Kick off service runtime probes in background — not blocking startup.
+      import("./runtime/service-runtime").then(async ({ probeAll, startBackgroundProbes }) => {
+        try {
+          const s = await storage.getSettings();
+          await probeAll({
+            postgres: process.env.DATABASE_URL ?? null,
+            searxng:  (s as any).searchEndpoint  ?? null,
+            whisper:  (s as any).whisperEndpoint  ?? null,
+          });
+          log("Service runtime: initial probe complete");
+          startBackgroundProbes(async () => {
+            const settings = await storage.getSettings();
+            return {
+              postgres: process.env.DATABASE_URL ?? null,
+              searxng:  (settings as any).searchEndpoint  ?? null,
+              whisper:  (settings as any).whisperEndpoint ?? null,
+            };
+          });
+        } catch (e) {
+          log(`Service runtime: startup probe failed — ${e}`);
+        }
+      });
       log("Initializing routes…");
       await registerRoutes(httpServer, app);
       log("Routes registered");

@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { getProvidersStatus } from "../providers/discovery";
+import { getServiceState } from "./service-runtime";
 import type { RuntimeManifest } from "./manifest";
 
 // ── Runtime Coherence ─────────────────────────────────────────────────────────
@@ -31,19 +32,6 @@ export interface CoherenceReport {
   manifest: Pick<RuntimeManifest, "bootstrapped" | "bootstrapId" | "bootstrappedAt" | "bootstrappedBy">;
   items: CoherenceItem[];
   measuredAt: string;
-}
-
-async function probeUrl(url: string, timeoutMs = 3000): Promise<boolean> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const r = await fetch(url, { signal: controller.signal });
-    clearTimeout(t);
-    return r.ok || r.status < 500;
-  } catch {
-    clearTimeout(t);
-    return false;
-  }
 }
 
 function providerLabel(provider: string): string {
@@ -247,36 +235,50 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
   }
 
   // ── Knowledge: SearXNG ─────────────────────────────────────────────────────
-  if (expects.services.searxng.configured && expects.services.searxng.endpoint) {
-    const ep = expects.services.searxng.endpoint;
-    const reachable = await probeUrl(ep);
+  // Authoritative state comes from the service runtime — SearXNG owns its probe
+  // logic, failure interpretation, and firstLook hint. Coherence just reads it.
+  if (expects.services.searxng.configured) {
+    const svc = getServiceState("searxng");
+    const ready = svc?.ready ?? false;
+    const isProbing = !svc || svc.status === "probing";
     items.push({
       domain: "Knowledge",
       component: "Search",
       expected: "commissioned and reachable",
-      actual: reachable ? "coherent" : "degraded",
-      message: reachable
-        ? "SearXNG is reachable."
-        : "SearXNG was commissioned but is currently unreachable.",
-      action: reachable ? undefined : "Start SearXNG: `docker compose up searxng`",
-      firstLook: reachable ? undefined : firstLookFor("", "searxng"),
+      actual: isProbing ? "degraded" : ready ? "coherent" : "degraded",
+      message: ready
+        ? `SearXNG ready — ${svc!.detail}`
+        : svc?.status === "not_configured"
+        ? "SearXNG was commissioned but is no longer configured in Settings."
+        : isProbing
+        ? "SearXNG status is being determined…"
+        : `SearXNG not ready — ${svc?.detail ?? "unknown"}`,
+      action: ready ? undefined : svc?.action,
+      firstLook: ready ? undefined : svc?.firstLook,
     });
   }
 
   // ── Media: Whisper ─────────────────────────────────────────────────────────
-  if (expects.services.whisper.configured && expects.services.whisper.endpoint) {
-    const ep = expects.services.whisper.endpoint;
-    const reachable = await probeUrl(`${ep.replace(/\/$/, "")}/health`);
+  // Authoritative state comes from the service runtime — Whisper owns its probe
+  // logic, including the model-loaded check that the old probeUrl() missed.
+  if (expects.services.whisper.configured) {
+    const svc = getServiceState("whisper");
+    const ready = svc?.ready ?? false;
+    const isProbing = !svc || svc.status === "probing";
     items.push({
       domain: "Media",
       component: "Whisper",
-      expected: "commissioned and reachable",
-      actual: reachable ? "coherent" : "degraded",
-      message: reachable
-        ? "Whisper is reachable."
-        : "Whisper was commissioned but is currently unreachable.",
-      action: reachable ? undefined : "Start Whisper: `docker compose up whisper`",
-      firstLook: reachable ? undefined : firstLookFor("", "whisper"),
+      expected: "commissioned and model loaded",
+      actual: isProbing ? "degraded" : ready ? "coherent" : "degraded",
+      message: ready
+        ? `Whisper ready — ${svc!.detail}`
+        : svc?.status === "not_configured"
+        ? "Whisper was commissioned but is no longer configured in Settings."
+        : isProbing
+        ? "Whisper status is being determined…"
+        : `Whisper not ready — ${svc?.detail ?? "unknown"}`,
+      action: ready ? undefined : svc?.action,
+      firstLook: ready ? undefined : svc?.firstLook,
     });
   }
 
