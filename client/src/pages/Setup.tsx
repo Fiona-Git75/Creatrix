@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   Loader2, ArrowRight, CheckCircle2, XCircle,
   Circle, Wifi, WifiOff, Shield, Database, Cpu, Wrench, SkipForward, Info, X, Home,
-  Copy, Check, Download
+  Copy, Check, Download, RefreshCw
 } from "lucide-react";
 import { GreenSummaryPanel } from "@/components/GreenSummaryPanel";
 
@@ -245,7 +245,7 @@ export default function Setup() {
     queryKey: ["/api/auth/status"],
   });
 
-  const { data: coherence } = useQuery<CoherenceReport>({
+  const { data: coherence, isFetching: coherenceIsFetching } = useQuery<CoherenceReport>({
     queryKey: ["/api/system/coherence"],
     enabled: authStatus?.bootstrapped === true,
     // Poll every 30s regardless of status:
@@ -544,11 +544,26 @@ export default function Setup() {
       <Screen>
         <div className="space-y-6 max-w-md">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Wrench className={`h-5 w-5 ${statusColor}`} />
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                System repair
-              </p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Wrench className={`h-5 w-5 ${statusColor}`} />
+                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                  System repair
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={coherenceIsFetching}
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] })}
+                className="gap-1.5 text-xs"
+                data-testid="button-recheck-now"
+              >
+                {coherenceIsFetching
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <RefreshCw className="h-3 w-3" />}
+                Re-check now
+              </Button>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">
               Something needs attention
