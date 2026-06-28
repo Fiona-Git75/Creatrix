@@ -12,6 +12,11 @@
  *
  * Renders SetupPostBootstrap directly — fully decoupled from Setup.tsx so that
  * new browser-API-dependent imports in Setup.tsx cannot break these tests.
+ *
+ * Test 5 specifically covers the Page Visibility API fix: the component listens
+ * for `visibilitychange` events and immediately snaps the countdown to the
+ * correct time-remaining value when the user returns to the tab, so no stale
+ * display is ever shown even after a heavily throttled background period.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -125,6 +130,43 @@ describe("SetupPostBootstrap — repair countdown drift prevention", () => {
 
     const banner = screen.getByText(/Checking again in/i);
     expect(banner.textContent).toContain("0s");
+  });
+
+  it("immediately snaps to correct time-remaining when the tab becomes visible after throttling", async () => {
+    // Simulate a background-tab scenario:
+    // 1. Mount the component — countdown starts at 30s
+    // 2. Use vi.setSystemTime() to jump Date.now() forward WITHOUT firing the interval
+    //    (setSystemTime advances the clock but does not run pending callbacks, matching
+    //    browser behavior where setInterval is throttled on hidden tabs)
+    // 3. Dispatch a visibilitychange event — the component's handler must immediately
+    //    call tick() and snap the countdown to the correct remaining value
+    const START = 1_000_000_000_000; // arbitrary fixed epoch ms
+    vi.setSystemTime(START);
+
+    const client = buildClient(makeAmberCoherence("2026-06-28T00:00:00.000Z"));
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Verify the countdown starts at 30s
+    expect(screen.getByText(/Checking again in/i).textContent).toContain("30s");
+
+    // Advance Date.now() by 18 seconds WITHOUT running the interval (tab was hidden)
+    vi.setSystemTime(START + 18_000);
+
+    // Tab becomes visible — dispatch visibilitychange
+    // jsdom defaults document.visibilityState to "visible", so the handler will fire tick()
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    const text = screen.getByText(/Checking again in/i).textContent ?? "";
+    const match = text.match(/(\d+)s/);
+    expect(match).not.toBeNull();
+    const displayed = parseInt(match![1], 10);
+    // 18 seconds elapsed → ~12s remaining (±1 for rounding)
+    expect(displayed).toBeGreaterThanOrEqual(11);
+    expect(displayed).toBeLessThanOrEqual(13);
   });
 
   it("resets to ~30s when a new coherence poll arrives (measuredAt changes)", async () => {

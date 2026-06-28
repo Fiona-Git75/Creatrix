@@ -47,10 +47,22 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
 
   useEffect(() => {
     if (!inRepairView) return;
-    const id = setInterval(() => {
+
+    const tick = () => {
       setRepairCountdown(Math.max(0, Math.round((repairCountdownTarget - Date.now()) / 1000)));
-    }, 1000);
-    return () => clearInterval(id);
+    };
+
+    const id = setInterval(tick, 1000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [inRepairView, repairCountdownTarget]);
 
   const wasInRepairView = useRef(false);
