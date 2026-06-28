@@ -347,4 +347,69 @@ describe("SetupPostBootstrap — Re-check button triggers recovery correctly", (
       expect(btn.querySelector(".animate-spin")).toBeNull();
     });
   });
+
+  it("button returns to idle and repair panel stays visible when the refetch rejects with an error", async () => {
+    // Strategy: same controlled-queryFn pattern as the round-trip test, but
+    // releaseFetch rejects so React Query transitions to an error state.
+    // The button must NOT stay frozen in spinner state after the rejection settles,
+    // and the cached AMBER data must still be shown (error ≠ GREEN recovery).
+    let releaseFetch!: (err: Error) => void;
+    const fetchHeld = new Promise<object>((_resolve, reject) => {
+      releaseFetch = reject;
+    });
+
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          staleTime: Infinity,
+          queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+            if (queryKey[0] === "/api/system/coherence") return fetchHeld;
+            return Promise.resolve(null);
+          },
+        },
+      },
+    });
+    client.setQueryData(["/api/system/coherence"], AMBER_COHERENCE);
+
+    render(
+      <QueryClientProvider client={client}>
+        <Router>
+          <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
+        </Router>
+      </QueryClientProvider>,
+    );
+
+    // Repair panel is visible (AMBER cache).
+    await waitFor(() => {
+      expect(screen.getByTestId("button-recheck-now")).toBeInTheDocument();
+    });
+
+    // Click Re-check → invalidateQueries → fetch starts → isFetching = true.
+    await act(async () => {
+      screen.getByTestId("button-recheck-now").click();
+    });
+
+    // While the fetch is in-flight the button must be disabled + spinner visible.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    // Reject the fetch — React Query transitions to error state; isFetching → false.
+    await act(async () => {
+      releaseFetch(new Error("network error"));
+    });
+
+    // Button must return to idle (enabled, no spinner) — not frozen.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeNull();
+    });
+
+    // The cached AMBER state must still be shown — an error does not clear it.
+    expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+  });
 });
