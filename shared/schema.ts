@@ -31,6 +31,7 @@ export const projects = pgTable("projects", {
   systemPrompt: text("system_prompt"),
   folderPath: text("folder_path"),
   createdAt: text("created_at").notNull(),
+  orderIndex: integer("order_index").default(0),
 });
 
 // Conversations table
@@ -169,6 +170,7 @@ export const projectSchema = z.object({
   systemPrompt: z.string().optional(),
   folderPath: z.string().optional(),
   createdAt: z.string(),
+  orderIndex: z.number().int().default(0),
 });
 export type Project = z.infer<typeof projectSchema>;
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });

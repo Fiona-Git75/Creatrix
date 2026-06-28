@@ -47,6 +47,7 @@ export interface IStorage {
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined>;
   deleteProject(id: string): Promise<boolean>;
+  reorderProjects(orderedIds: string[]): Promise<void>;
   
   // Conversations
   getConversations(projectId?: string): Promise<Conversation[]>;
@@ -228,13 +229,13 @@ export class MemStorage implements IStorage {
 
   // Projects
   async getProjects(): Promise<Project[]> {
-    return Array.from(this.projects.values()).sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return Array.from(this.projects.values()).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
   }
   async getProject(id: string): Promise<Project | undefined> { return this.projects.get(id); }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();
-    const project: Project = { ...insertProject, id, createdAt: new Date().toISOString() };
+    const orderIndex = this.projects.size;
+    const project: Project = { ...insertProject, id, createdAt: new Date().toISOString(), orderIndex };
     this.projects.set(id, project);
     return project;
   }
@@ -244,6 +245,12 @@ export class MemStorage implements IStorage {
     const updated: Project = { ...project, ...updates };
     this.projects.set(id, updated);
     return updated;
+  }
+  async reorderProjects(orderedIds: string[]): Promise<void> {
+    orderedIds.forEach((id, index) => {
+      const proj = this.projects.get(id);
+      if (proj) this.projects.set(id, { ...proj, orderIndex: index });
+    });
   }
   async deleteProject(id: string): Promise<boolean> {
     Array.from(this.conversations.entries()).forEach(([convId, conv]) => {
@@ -734,26 +741,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProjects(): Promise<Project[]> {
-    const result = await this.db.select().from(projects).orderBy(desc(projects.createdAt));
-    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined }));
+    const result = await this.db.select().from(projects).orderBy(projects.orderIndex);
+    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 }));
   }
   async getProject(id: string): Promise<Project | undefined> {
     const result = await this.db.select().from(projects).where(eq(projects.id, id));
     if (!result[0]) return undefined;
     const p = result[0];
-    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined };
+    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 };
   }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    await this.db.insert(projects).values({ ...insertProject, id, createdAt, description: insertProject.description ?? null, connectionId: insertProject.connectionId ?? null, systemPrompt: insertProject.systemPrompt ?? null });
-    return { ...insertProject, id, createdAt };
+    const countResult = await this.db.select().from(projects);
+    const orderIndex = countResult.length;
+    await this.db.insert(projects).values({ ...insertProject, id, createdAt, orderIndex, description: insertProject.description ?? null, connectionId: insertProject.connectionId ?? null, systemPrompt: insertProject.systemPrompt ?? null });
+    return { ...insertProject, id, createdAt, orderIndex };
   }
   async updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined> {
     const existing = await this.getProject(id);
     if (!existing) return undefined;
     await this.db.update(projects).set(updates).where(eq(projects.id, id));
     return { ...existing, ...updates };
+  }
+  async reorderProjects(orderedIds: string[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, index) =>
+        this.db.update(projects).set({ orderIndex: index }).where(eq(projects.id, id))
+      )
+    );
   }
   async deleteProject(id: string): Promise<boolean> {
     await this.db.delete(conversations).where(eq(conversations.projectId, id));

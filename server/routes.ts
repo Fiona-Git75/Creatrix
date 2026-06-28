@@ -564,6 +564,20 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/projects/reorder", async (req: Request, res: Response) => {
+    try {
+      const { orderedIds } = req.body;
+      if (!Array.isArray(orderedIds)) {
+        return res.status(400).json({ error: "orderedIds must be an array" });
+      }
+      await storage.reorderProjects(orderedIds);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error reordering projects:", error);
+      res.status(500).json({ error: "Failed to reorder projects" });
+    }
+  });
+
   app.post("/api/projects", async (req: Request, res: Response) => {
     try {
       const project = await storage.createProject(req.body);

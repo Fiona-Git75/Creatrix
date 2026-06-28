@@ -1,6 +1,23 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, Pencil, FolderOpen, BrainCircuit, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, FolderOpen, BrainCircuit, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,11 +46,121 @@ interface ProjectsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface SortableProjectCardProps {
+  project: Project;
+  editingId: string | null;
+  expandedConsultantsId: string | null;
+  formData: { name: string; description: string; systemPrompt: string; folderPath: string };
+  setFormData: (d: { name: string; description: string; systemPrompt: string; folderPath: string }) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onCancel: () => void;
+  isUpdateLoading: boolean;
+  onStartEditing: (p: Project) => void;
+  onDelete: (id: string) => void;
+  onToggleConsultants: (id: string) => void;
+}
+
+function SortableProjectCard({
+  project,
+  editingId,
+  expandedConsultantsId,
+  formData,
+  setFormData,
+  onSubmit,
+  onCancel,
+  isUpdateLoading,
+  onStartEditing,
+  onDelete,
+  onToggleConsultants,
+}: SortableProjectCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card className="p-4">
+        {editingId === project.id ? (
+          <ProjectForm
+            formData={formData}
+            setFormData={setFormData}
+            onSubmit={onSubmit}
+            onCancel={onCancel}
+            isLoading={isUpdateLoading}
+            submitLabel="Save Changes"
+          />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div
+                className="flex items-center self-start mt-0.5 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
+                {...attributes}
+                {...listeners}
+                data-testid={`drag-handle-project-${project.id}`}
+              >
+                <GripVertical className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="font-medium">{project.name}</span>
+                {project.description && (
+                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                    {project.description}
+                  </p>
+                )}
+                {project.systemPrompt && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                    System prompt configured
+                  </p>
+                )}
+                {project.folderPath && (
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 line-clamp-1">
+                    <FolderOpen className="h-3 w-3 shrink-0" />
+                    {project.folderPath}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onStartEditing(project)}
+                  data-testid={`button-edit-project-${project.id}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onDelete(project.id)}
+                  data-testid={`button-delete-project-${project.id}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <ConsultantsSection
+              projectId={project.id}
+              expanded={expandedConsultantsId === project.id}
+              onToggle={() => onToggleConsultants(project.id)}
+            />
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
   const { toast } = useToast();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedConsultantsId, setExpandedConsultantsId] = useState<string | null>(null);
+  const [localProjects, setLocalProjects] = useState<Project[] | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -41,9 +168,40 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     folderPath: "",
   });
 
-  const { data: projects = [], isLoading } = useQuery<Project[]>({
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const { data: fetchedProjects = [], isLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
   });
+
+  const projects = localProjects ?? fetchedProjects;
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      await apiRequest("POST", "/api/projects/reorder", { orderedIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+    },
+    onError: () => {
+      setLocalProjects(null);
+      toast({ title: "Failed to save order", variant: "destructive" });
+    },
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = projects.findIndex((p) => p.id === active.id);
+    const newIndex = projects.findIndex((p) => p.id === over.id);
+    const reordered = arrayMove(projects, oldIndex, newIndex);
+    setLocalProjects(reordered);
+    reorderMutation.mutate(reordered.map((p) => p.id));
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -51,6 +209,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setLocalProjects(null);
       setIsAdding(false);
       resetForm();
       toast({ title: "Project created" });
@@ -66,6 +225,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setLocalProjects(null);
       setEditingId(null);
       resetForm();
       toast({ title: "Project updated" });
@@ -81,6 +241,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setLocalProjects(null);
       toast({ title: "Project deleted" });
     },
   });
@@ -147,72 +308,39 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
               </div>
             ) : (
               <>
-                {projects.map((project) => (
-                  <Card key={project.id} className="p-4">
-                    {editingId === project.id ? (
-                      <ProjectForm
-                        formData={formData}
-                        setFormData={setFormData}
-                        onSubmit={handleSubmit}
-                        onCancel={handleCancel}
-                        isLoading={updateMutation.isPending}
-                        submitLabel="Save Changes"
-                      />
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <span className="font-medium">{project.name}</span>
-                            {project.description && (
-                              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                {project.description}
-                              </p>
-                            )}
-                            {project.systemPrompt && (
-                              <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                                System prompt configured
-                              </p>
-                            )}
-                            {project.folderPath && (
-                              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 line-clamp-1">
-                                <FolderOpen className="h-3 w-3 shrink-0" />
-                                {project.folderPath}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => startEditing(project)}
-                              data-testid={`button-edit-project-${project.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => deleteMutation.mutate(project.id)}
-                              data-testid={`button-delete-project-${project.id}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <ConsultantsSection
-                          projectId={project.id}
-                          expanded={expandedConsultantsId === project.id}
-                          onToggle={() =>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={projects.map((p) => p.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      {projects.map((project) => (
+                        <SortableProjectCard
+                          key={project.id}
+                          project={project}
+                          editingId={editingId}
+                          expandedConsultantsId={expandedConsultantsId}
+                          formData={formData}
+                          setFormData={setFormData}
+                          onSubmit={handleSubmit}
+                          onCancel={handleCancel}
+                          isUpdateLoading={updateMutation.isPending}
+                          onStartEditing={startEditing}
+                          onDelete={(id) => deleteMutation.mutate(id)}
+                          onToggleConsultants={(id) =>
                             setExpandedConsultantsId(
-                              expandedConsultantsId === project.id ? null : project.id
+                              expandedConsultantsId === id ? null : id
                             )
                           }
                         />
-                      </div>
-                    )}
-                  </Card>
-                ))}
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
 
                 {!isFormVisible && (
                   <Button
@@ -602,7 +730,7 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
                   variant="ghost"
                   size="sm"
                   className="h-6 text-xs"
-                  onClick={() => setIsAdding(false)}
+                  onClick={() => { setIsAdding(false); setConsultantForm({ ...emptyConsultantForm }); }}
                 >
                   Cancel
                 </Button>
@@ -622,12 +750,12 @@ function ConsultantsSection({ projectId, expanded, onToggle }: ConsultantsSectio
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-xs w-full justify-start text-muted-foreground hover:text-foreground"
-              onClick={() => { setIsAdding(true); setEditingId(null); }}
+              className="h-6 text-xs w-full justify-start"
+              onClick={() => setIsAdding(true)}
               data-testid={`button-add-consultant-${projectId}`}
             >
               <Plus className="h-3 w-3 mr-1" />
-              Add consultant
+              Add Consultant
             </Button>
           )}
         </div>
