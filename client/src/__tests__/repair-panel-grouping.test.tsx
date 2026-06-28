@@ -164,4 +164,33 @@ describe("RepairPanel — domain grouping", () => {
     expect(screen.getByTestId("repair-item-Ollama")).toBeInTheDocument();
   });
 
+  it("places an item with an unknown domain under 'Other' without dropping it", () => {
+    // "Networking" is not in DOMAIN_ORDER; the panel must not silently discard it.
+    const items = [
+      ...TWO_DOMAIN_ITEMS,
+      { domain: "Networking", component: "DNS resolver", actual: "unreachable", message: "Cannot reach DNS" },
+    ];
+    renderPanel(items);
+
+    // The unknown item must still appear in the list.
+    expect(screen.getByTestId("repair-item-DNS resolver")).toBeInTheDocument();
+
+    // It must be attributed to an "Other" group header — exactly one such header.
+    expect(screen.getAllByText(/^other$/i)).toHaveLength(1);
+
+    // The DNS resolver card must be inside the "Other" group, not a known domain group.
+    const repairList = screen.getByTestId("panel-repair-list");
+    const otherHeader = within(repairList).getByText(/^other$/i);
+    const otherGroup = otherHeader.closest("[data-testid='panel-repair-list'] > div") as HTMLElement;
+    expect(otherGroup).not.toBeNull();
+    expect(within(otherGroup).getByTestId("repair-item-DNS resolver")).toBeInTheDocument();
+
+    // The known-domain items must still appear correctly alongside it.
+    expect(screen.getByTestId("repair-item-Admin user")).toBeInTheDocument();
+    expect(screen.getByTestId("repair-item-Ollama")).toBeInTheDocument();
+
+    // Total item count must match — nothing dropped.
+    expect(screen.getAllByTestId(/^repair-item-/)).toHaveLength(items.length);
+  });
+
 });
