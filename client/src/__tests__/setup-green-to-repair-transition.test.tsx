@@ -326,6 +326,56 @@ describe("SetupPostBootstrap — GREEN → repair transition via refetchInterval
     });
   });
 
+  it("GREEN panel recovers correctly after RED → AMBER → GREEN mixed sequence", async () => {
+    // Sequence: GREEN (initial) → RED (first poll) → AMBER (second poll) → GREEN (third poll)
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([COHERENCE_GREEN, COHERENCE_RED, COHERENCE_AMBER, COHERENCE_GREEN]),
+    );
+
+    const client = buildPollingClient();
+
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Initial fetch → GREEN panel visible.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // First 30-second poll → RED; repair view should appear.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
+
+    // Second 30-second poll → AMBER; repair view must remain (still degraded).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
+
+    // Third 30-second poll → GREEN; GREEN panel should return, repair panel must not persist.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+      expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+    });
+  });
+
   it("GREEN panel re-appears and repair panel does not persist after AMBER → GREEN recovery", async () => {
     // Sequence: GREEN (initial) → AMBER (first poll) → GREEN (second poll)
     vi.stubGlobal("fetch", makeFetch([COHERENCE_GREEN, COHERENCE_AMBER, COHERENCE_GREEN]));
@@ -466,6 +516,49 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
     });
 
     // After the batch settles the GREEN panel must be present and repair panel must be absent.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+      expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+    });
+  });
+
+  it("GREEN panel recovers correctly after RED → AMBER → GREEN mixed sequence via cache updates", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
+
+    renderComponent(client);
+
+    // Initial state → GREEN panel visible.
+    expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // Cache update → RED; repair view must appear.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_RED);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
+
+    // Cache update → AMBER; repair view must remain (still degraded, just less severe).
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_AMBER);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
+
+    // Cache update → GREEN; GREEN panel must return and repair panel must not persist.
+    await act(async () => {
+      client.setQueryData(["/api/system/coherence"], COHERENCE_GREEN);
+    });
+
     await waitFor(() => {
       expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
       expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
