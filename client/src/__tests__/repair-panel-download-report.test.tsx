@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RepairPanel } from "../components/RepairPanel";
 
@@ -230,6 +230,50 @@ describe("CopyReportButton — repair view", () => {
     await user.click(screen.getByTestId("button-copy-report"));
     expect(writeTextSpy).toHaveBeenCalledTimes(2);
     expect(writeTextSpy).toHaveBeenLastCalledWith(expectedReport());
+
+    vi.useRealTimers();
+  });
+
+  it("shows 'Report copied' in green immediately after clicking", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPanel();
+
+    // Before click — button shows default label.
+    expect(screen.getByText("Copy report")).toBeInTheDocument();
+    expect(screen.queryByText("Report copied")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-copy-report"));
+
+    // clipboard.writeText resolves as a microtask; act() inside userEvent
+    // flushes it so setCopied(true) is committed before this assertion runs.
+    expect(screen.getByText("Report copied")).toBeInTheDocument();
+    expect(screen.queryByText("Copy report")).not.toBeInTheDocument();
+
+    // The "Report copied" span carries the green colour class.
+    expect(screen.getByText("Report copied").className).toContain("text-green-400");
+
+    vi.useRealTimers();
+  });
+
+  it("reverts to 'Copy report' after 2000 ms", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPanel();
+
+    await user.click(screen.getByTestId("button-copy-report"));
+    expect(screen.getByText("Report copied")).toBeInTheDocument();
+
+    // Advance past the 2000 ms reset timer and flush the resulting
+    // state update (setCopied(false)) through React's scheduler.
+    await act(async () => {
+      vi.advanceTimersByTime(2001);
+    });
+
+    expect(screen.queryByText("Report copied")).not.toBeInTheDocument();
+    expect(screen.getByText("Copy report")).toBeInTheDocument();
 
     vi.useRealTimers();
   });
