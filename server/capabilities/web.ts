@@ -1,4 +1,10 @@
+// ── web.ts — web_search and web_fetch tool definitions ────────────────────────
+// The SearXNG HTTP client (callSearXNG) lives in its service file alongside the
+// probe and troubleshooting guide. This file only wraps it in an AI tool schema.
+// See:  server/runtime/services/searxng.ts
+
 import type { CapabilityDefinition } from "./index";
+import { callSearXNG } from "../runtime/services/searxng";
 
 function stripTags(html: string): string {
   return html
@@ -14,28 +20,6 @@ function stripTags(html: string): string {
 }
 
 // ── Search backends ───────────────────────────────────────────────────────────
-
-async function searchViaSearXNG(
-  endpoint: string,
-  query: string,
-  maxResults: number
-): Promise<{ title: string; url: string; snippet: string }[]> {
-  const base = endpoint.replace(/\/$/, "");
-  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=general`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Creatrix/1.0", Accept: "application/json" },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) throw new Error(`SearXNG returned HTTP ${res.status}`);
-  const data = await res.json() as any;
-  return (data.results ?? [])
-    .slice(0, maxResults)
-    .map((r: any) => ({
-      title: r.title ?? "",
-      url: r.url ?? "",
-      snippet: r.content ?? r.snippet ?? "",
-    }));
-}
 
 async function searchViaDDGHtml(
   query: string,
@@ -125,7 +109,7 @@ export const webCapabilities: CapabilityDefinition[] = [
       let source: string;
 
       if (ctx.searchEndpoint) {
-        results = await searchViaSearXNG(ctx.searchEndpoint, query, maxResults);
+        results = await callSearXNG(ctx.searchEndpoint, query, maxResults);
         source = "SearXNG";
       } else {
         results = await searchViaDDGHtml(query, maxResults);

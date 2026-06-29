@@ -1,15 +1,18 @@
 // ── Whisper Service Definition ────────────────────────────────────────────────
 // canonical:   server/runtime/services/whisper.ts
-// contract:    self-contained readiness check for the Whisper transcription server.
-//              Everything needed to understand, probe, and troubleshoot this
-//              service lives here.
+// contract:    SINGLE SOURCE OF TRUTH for the Whisper integration.
+//              Everything needed to understand, probe, call, and troubleshoot
+//              this service lives here — including the HTTP client used at
+//              runtime (callWhisper). capabilities/media.ts imports that function
+//              and wraps it in an AI tool definition; no Whisper HTTP logic
+//              lives there.
 //
 // probe:       GET /v1/models — checks that the server is running AND that at
 //              least one model is loaded. A server that responds but has no
 //              models will fail every transcription call; this probe catches that.
-//              The endpoint is normalised: capabilities/media.ts may be given
-//              a base URL or a full /audio/transcriptions path; we strip the
-//              suffix and probe /v1/models on the base.
+//              The endpoint is normalised: callWhisper() may be given a base URL
+//              or a full /audio/transcriptions path; baseEndpoint() strips the
+//              suffix so both the probe and the call use the same normalisation.
 //
 // ready means: HTTP 200 AND data[] has at least one model entry.
 //              "Server running, no model loaded" is degraded, not ready.
@@ -175,3 +178,56 @@ export const WhisperService: ServiceDefinition = {
     };
   },
 };
+
+// ── Runtime call ──────────────────────────────────────────────────────────────
+// callWhisper is the HTTP client used every time the transcribe_audio tool fires.
+// It lives here — alongside the probe — so the full Whisper contract is in one
+// place: how to check it, how to call it, and what to do when it breaks.
+//
+// Note: baseEndpoint() is shared between the probe and the call so both always
+// normalise the configured URL identically.
+//
+// consumed-by: server/capabilities/media.ts → transcribe_audio tool handler
+
+export type TranscriptionResult = { url: string; transcript: string; engine: string };
+
+export async function callWhisper(
+  endpoint: string,
+  audioUrl: string,
+  language?: string
+): Promise<TranscriptionResult> {
+  const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(30000) });
+  if (!audioRes.ok) throw new Error(`Failed to fetch audio: HTTP ${audioRes.status}`);
+
+  const buffer = await audioRes.arrayBuffer();
+  const ext = audioUrl.split("?")[0].split(".").pop()?.toLowerCase() || "mp3";
+  const contentType = audioRes.headers.get("content-type") || "audio/mpeg";
+
+  const formData = new FormData();
+  formData.append("file", new Blob([buffer], { type: contentType }), `audio.${ext}`);
+  formData.append("model", "whisper-1");
+  if (language) formData.append("language", language);
+
+  const base = baseEndpoint(endpoint);
+  const transcribeUrl = base.endsWith("/audio/transcriptions")
+    ? base
+    : `${base}/audio/transcriptions`;
+
+  const response = await fetch(transcribeUrl, {
+    method: "POST",
+    body: formData,
+    signal: AbortSignal.timeout(120000),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Transcription failed (${response.status}): ${err.slice(0, 200)}`);
+  }
+
+  const result = await response.json() as any;
+  return {
+    url: audioUrl,
+    transcript: result.text,
+    engine: "Whisper (local)",
+  };
+}

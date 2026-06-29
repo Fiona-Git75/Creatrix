@@ -1,8 +1,19 @@
 // ── PostgreSQL Service Definition ─────────────────────────────────────────────
 // canonical:   server/runtime/services/postgres.ts
-// contract:    self-contained readiness check for the Postgres database.
-//              Everything needed to understand, probe, and troubleshoot this
-//              service lives here. Nothing Postgres-specific lives elsewhere.
+// contract:    probe, diagnostics, and troubleshooting guide for PostgreSQL.
+//
+// Why this file does NOT contain the data-access layer:
+//   PostgreSQL is the application database — every feature in Creatrix reads
+//   and writes through it. Its "call code" is the Drizzle ORM layer in
+//   server/storage.ts and the schema in shared/schema.ts. Collapsing those into
+//   a service file would be counterproductive; they ARE the application.
+//   SearXNG and Whisper are optional capabilities called from two places each —
+//   those HTTP clients live in their service files (searxng.ts / whisper.ts).
+//   Postgres is different in kind, not just degree.
+//
+// data layer:  server/storage.ts       (IStorage interface + DrizzleStorage impl)
+// schema:      shared/schema.ts        (Drizzle table definitions + Zod schemas)
+// session:     server/index.ts         (connect-pg-simple session middleware)
 //
 // probe:       SELECT 1 via a fresh pg.Client (same credentials as the main pool).
 //              A fresh client is used — not the shared pool — so the probe

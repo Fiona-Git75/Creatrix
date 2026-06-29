@@ -1,4 +1,10 @@
+// ── media.ts — media tool definitions (YouTube, transcription, OCR, vision) ──
+// The Whisper HTTP client (callWhisper) lives in its service file alongside the
+// probe and troubleshooting guide. This file only wraps it in an AI tool schema.
+// See:  server/runtime/services/whisper.ts
+
 import type { CapabilityDefinition } from "./index";
+import { callWhisper } from "../runtime/services/whisper";
 import fs from "fs/promises";
 import path from "path";
 
@@ -80,43 +86,11 @@ export const mediaCapabilities: CapabilityDefinition[] = [
         );
       }
 
-      const url = args.url as string;
-      const language = args.language as string | undefined;
-
-      const audioRes = await fetch(url, { signal: AbortSignal.timeout(30000) });
-      if (!audioRes.ok) throw new Error(`Failed to fetch audio: HTTP ${audioRes.status}`);
-
-      const buffer = await audioRes.arrayBuffer();
-      const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "mp3";
-      const contentType = audioRes.headers.get("content-type") || "audio/mpeg";
-
-      const formData = new FormData();
-      formData.append("file", new Blob([buffer], { type: contentType }), `audio.${ext}`);
-      formData.append("model", "whisper-1");
-      if (language) formData.append("language", language);
-
-      const base = settings.whisperEndpoint.replace(/\/$/, "");
-      const transcribeUrl = base.endsWith("/audio/transcriptions")
-        ? base
-        : `${base}/audio/transcriptions`;
-
-      const response = await fetch(transcribeUrl, {
-        method: "POST",
-        body: formData,
-        signal: AbortSignal.timeout(120000),
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Transcription failed (${response.status}): ${err.slice(0, 200)}`);
-      }
-
-      const result = await response.json() as any;
-      return {
-        url,
-        transcript: result.text,
-        engine: "Whisper (local)",
-      };
+      return await callWhisper(
+        settings.whisperEndpoint,
+        args.url as string,
+        args.language as string | undefined
+      );
     },
   },
 

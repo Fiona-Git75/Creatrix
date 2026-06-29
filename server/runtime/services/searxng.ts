@@ -1,13 +1,16 @@
 // ── SearXNG Service Definition ────────────────────────────────────────────────
 // canonical:   server/runtime/services/searxng.ts
-// contract:    self-contained readiness check for SearXNG.
-//              Everything needed to understand, probe, and troubleshoot this
-//              service lives here.
+// contract:    SINGLE SOURCE OF TRUTH for the SearXNG integration.
+//              Everything needed to understand, probe, call, and troubleshoot
+//              this service lives here — including the HTTP client used at
+//              runtime (callSearXNG). capabilities/web.ts imports that function
+//              and wraps it in an AI tool definition; no SearXNG HTTP logic
+//              lives there.
 //
 // probe:       GET /search?q=test&format=json — the exact request path that
-//              capabilities/web.ts → searchViaSearXNG() sends at runtime.
-//              If that endpoint works, the service is ready. If it doesn't,
-//              the tool call will fail the same way the probe does.
+//              callSearXNG() sends at runtime. If that endpoint works, the
+//              service is ready. If it doesn't, the tool call will fail the
+//              same way the probe does.
 //
 // ready means: HTTP 200 AND response body contains a "results" key.
 //              "Results empty" is OK — it means the engine ran and returned nothing
@@ -162,3 +165,34 @@ export const SearXNGService: ServiceDefinition = {
     };
   },
 };
+
+// ── Runtime call ──────────────────────────────────────────────────────────────
+// callSearXNG is the HTTP client used every time the web_search tool fires.
+// It lives here — alongside the probe — so the full SearXNG contract is in one
+// place: how to check it, how to call it, and what to do when it breaks.
+//
+// consumed-by: server/capabilities/web.ts → web_search tool handler
+
+export type SearchResult = { title: string; url: string; snippet: string };
+
+export async function callSearXNG(
+  endpoint: string,
+  query: string,
+  maxResults: number
+): Promise<SearchResult[]> {
+  const base = endpoint.replace(/\/$/, "");
+  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=general`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Creatrix/1.0", Accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`SearXNG returned HTTP ${res.status}`);
+  const data = await res.json() as any;
+  return (data.results ?? [])
+    .slice(0, maxResults)
+    .map((r: any) => ({
+      title: r.title ?? "",
+      url: r.url ?? "",
+      snippet: r.content ?? r.snippet ?? "",
+    }));
+}
