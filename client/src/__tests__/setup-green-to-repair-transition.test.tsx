@@ -27,7 +27,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { getQueryFn } from "../lib/queryClient";
 import { SetupPostBootstrap } from "../components/SetupPostBootstrap";
@@ -603,5 +603,131 @@ describe("SetupPostBootstrap — GREEN → repair transition via cache update (r
       expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
       expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
     });
+  });
+});
+
+// ── Suite C: window-focus path ────────────────────────────────────────────────
+
+describe("SetupPostBootstrap — window-focus triggers coherence refetch", () => {
+  /**
+   * Build a QueryClient that enables refetchOnWindowFocus.
+   * staleTime: 0 ensures data is immediately stale after the first fetch,
+   * so React Query will re-request the endpoint when the window regains focus.
+   */
+  function buildWindowFocusClient() {
+    return new QueryClient({
+      defaultOptions: {
+        queries: {
+          queryFn: getQueryFn({ on401: "returnNull" }),
+          retry: false,
+          staleTime: 0,
+          refetchOnWindowFocus: true,
+          refetchOnReconnect: false,
+        },
+      },
+    });
+  }
+
+  afterEach(() => {
+    // Reset focusManager to default browser-event-driven mode so that the
+    // override does not leak into other suites or test files.
+    focusManager.setFocused(undefined);
+    vi.restoreAllMocks();
+  });
+
+  it("no spurious repair panel when focus-triggered fetch also returns GREEN", async () => {
+    // Initial fetch → GREEN; focus-triggered fetch → also GREEN.
+    vi.stubGlobal("fetch", makeFetch([COHERENCE_GREEN, COHERENCE_GREEN]));
+
+    const client = buildWindowFocusClient();
+
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Initial fetch → GREEN panel must be visible.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // Simulate the tab losing then regaining focus.
+    // focusManager.setFocused() is the React Query v5-recommended approach for
+    // programmatically controlling focus detection in tests — more reliable than
+    // raw DOM events whose propagation jsdom does not fully replicate.
+    act(() => {
+      focusManager.setFocused(false);
+    });
+    await act(async () => {
+      focusManager.setFocused(true);
+    });
+
+    // Focus-triggered fetch returned GREEN — repair panel must not appear.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+  });
+
+  it("repair panel appears when focus-triggered fetch returns AMBER", async () => {
+    // Initial fetch → GREEN; focus-triggered fetch → AMBER (degraded).
+    vi.stubGlobal("fetch", makeFetch([COHERENCE_GREEN, COHERENCE_AMBER]));
+
+    const client = buildWindowFocusClient();
+
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Initial fetch → GREEN panel must be visible.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // Simulate the tab losing then regaining focus.
+    act(() => {
+      focusManager.setFocused(false);
+    });
+    await act(async () => {
+      focusManager.setFocused(true);
+    });
+
+    // Focus-triggered fetch returned AMBER — repair panel must appear.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
+  });
+
+  it("repair panel appears when focus-triggered fetch returns RED", async () => {
+    // Initial fetch → GREEN; focus-triggered fetch → RED (fully broken).
+    vi.stubGlobal("fetch", makeFetch([COHERENCE_GREEN, COHERENCE_RED]));
+
+    const client = buildWindowFocusClient();
+
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Initial fetch → GREEN panel must be visible.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-repair-list")).not.toBeInTheDocument();
+
+    // Simulate the tab losing then regaining focus.
+    act(() => {
+      focusManager.setFocused(false);
+    });
+    await act(async () => {
+      focusManager.setFocused(true);
+    });
+
+    // Focus-triggered fetch returned RED — repair panel must appear.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("panel-already-configured")).not.toBeInTheDocument();
   });
 });
