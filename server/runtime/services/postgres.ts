@@ -34,27 +34,32 @@ export const PostgresService: ServiceDefinition = {
 
   troubleshooting: {
     commands: [
-      "docker compose ps postgres",
-      "echo $DATABASE_URL",
+      "pg_isready -h 127.0.0.1 -p 5432",
       "psql $DATABASE_URL -c 'SELECT 1'",
-      "docker compose logs postgres --tail=30",
+      "echo $DATABASE_URL",
+      "systemctl status postgresql          # Linux (systemd)",
+      "pg_lsclusters                        # Debian/Ubuntu — lists all clusters",
     ],
     commonIssues: [
       {
         symptom: "Connection refused on port 5432",
-        action: "Start the database: docker compose up -d postgres",
+        action:
+          "PostgreSQL is not running. Start it:\n" +
+          "  Linux:  sudo systemctl start postgresql\n" +
+          "  macOS:  brew services start postgresql@16\n" +
+          "  manual: pg_ctl -D /var/lib/postgresql/data start",
       },
       {
         symptom: "Authentication failed / wrong password",
-        action: "Check DATABASE_URL in your .env file matches docker-compose.yml credentials",
+        action: "Check DATABASE_URL in your .env file — username, password and database name must match the running instance.",
       },
       {
         symptom: "Database does not exist",
-        action: "psql $DATABASE_URL -c 'CREATE DATABASE creatrix'",
+        action: "psql -U postgres -c \"CREATE DATABASE creatrix\"",
       },
       {
         symptom: "SSL connection required",
-        action: "Append ?sslmode=disable to DATABASE_URL for local Docker Postgres",
+        action: "Append ?sslmode=disable to DATABASE_URL for a local Postgres instance without TLS.",
       },
     ],
   },
@@ -68,7 +73,7 @@ export const PostgresService: ServiceDefinition = {
         detail: "DATABASE_URL environment variable is not set",
         latencyMs: null,
         action: "Set DATABASE_URL in your .env file pointing at the running Postgres instance.",
-        firstLook: "cat .env | grep DATABASE_URL",
+        firstLook: "echo $DATABASE_URL",
       };
     }
 
@@ -100,9 +105,14 @@ export const PostgresService: ServiceDefinition = {
         action: isAuth
           ? "Check DATABASE_URL credentials in your .env file."
           : isRefused
-          ? "Start Postgres: docker compose up -d postgres"
-          : "Check DATABASE_URL and ensure Postgres is running.",
-        firstLook: isRefused ? "docker compose ps postgres" : "echo $DATABASE_URL",
+          ? "PostgreSQL is not accepting connections.\n" +
+            "  Linux:  sudo systemctl start postgresql\n" +
+            "  macOS:  brew services start postgresql@16\n" +
+            "  check:  pg_isready -h 127.0.0.1 -p 5432"
+          : "Check DATABASE_URL and ensure PostgreSQL is running.",
+        firstLook: isRefused
+          ? "pg_isready -h 127.0.0.1 -p 5432"
+          : "psql $DATABASE_URL -c 'SELECT 1'",
       };
     } finally {
       await client.end().catch(() => {});

@@ -28,29 +28,34 @@ export const SearXNGService: ServiceDefinition = {
 
   troubleshooting: {
     commands: [
-      "docker compose ps searxng",
-      "docker compose logs searxng --tail=30",
       "curl -s 'http://localhost:8080/search?q=test&format=json' | head -c 200",
+      "systemctl status searxng             # Linux (systemd install)",
+      "ps aux | grep searxng",
+      "journalctl -u searxng --since '5 minutes ago'  # systemd logs",
     ],
     commonIssues: [
       {
         symptom: "HTTP 400 on /search?format=json",
         action:
-          "Add 'json' to the 'formats' list in searxng/settings.yml, then: docker compose restart searxng",
+          "Add 'json' to the 'formats' list in searxng/settings.yml, then restart SearXNG:\n" +
+          "  sudo systemctl restart searxng",
       },
       {
         symptom: "HTTP 200 but no results consistently",
         action:
-          "At least one search engine must be enabled in searxng/settings.yml under 'engines'",
+          "At least one search engine must be enabled in searxng/settings.yml under 'engines'.",
       },
       {
         symptom: "Connection refused on the configured port",
-        action: "Start container: docker compose up -d searxng",
+        action:
+          "SearXNG is not running. Start it:\n" +
+          "  systemd:  sudo systemctl start searxng\n" +
+          "  manual:   cd /path/to/searxng && python searx/webapp.py",
       },
       {
-        symptom: "Container running but returns HTML instead of JSON",
+        symptom: "HTTP 200 but response is HTML instead of JSON",
         action:
-          "Ensure 'json' is listed under 'search.formats' in searxng/settings.yml",
+          "Ensure 'json' is listed under 'search.formats' in searxng/settings.yml and the service was restarted.",
       },
     ],
   },
@@ -63,7 +68,7 @@ export const SearXNGService: ServiceDefinition = {
         detail: "No SearXNG endpoint configured",
         latencyMs: null,
         action: "Add your SearXNG URL in Settings → Search Endpoint (e.g. http://localhost:8080)",
-        firstLook: "docker compose ps searxng",
+        firstLook: "curl -s 'http://localhost:8080/search?q=test&format=json' | head -c 200",
       };
     }
 
@@ -86,9 +91,12 @@ export const SearXNGService: ServiceDefinition = {
         detail: isTimeout ? `Timed out after 6s (${base})` : `${msg} (${base})`,
         latencyMs: null,
         action: isTimeout
-          ? "SearXNG is not responding — check it started fully: docker compose logs searxng --tail=20"
-          : "Start container: docker compose up -d searxng",
-        firstLook: "docker compose ps searxng",
+          ? "SearXNG is not responding — check it started fully:\n" +
+            "  ps aux | grep searxng\n" +
+            "  journalctl -u searxng --since '5 minutes ago'"
+          : "SearXNG is not running. Start it:\n" +
+            "  sudo systemctl start searxng",
+        firstLook: `curl -s '${base}/search?q=test&format=json' | head -c 200`,
       };
     }
 
@@ -101,8 +109,9 @@ export const SearXNGService: ServiceDefinition = {
         detail: `GET /search: HTTP 400 — json format likely not enabled`,
         latencyMs,
         action:
-          "Add 'json' to the 'formats' list in searxng/settings.yml, then restart the container.",
-        firstLook: "docker compose logs searxng --tail=30",
+          "Add 'json' to the 'formats' list in searxng/settings.yml, then restart:\n" +
+          "  sudo systemctl restart searxng",
+        firstLook: `curl -sv '${base}/search?q=test&format=json' 2>&1 | tail -5`,
       };
     }
 
@@ -112,8 +121,9 @@ export const SearXNGService: ServiceDefinition = {
         status: "unreachable",
         detail: `GET /search: HTTP ${res.status}`,
         latencyMs,
-        action: "Check SearXNG container logs for errors.",
-        firstLook: "docker compose logs searxng --tail=30",
+        action: "Check SearXNG logs for errors:\n" +
+          "  journalctl -u searxng --since '5 minutes ago'",
+        firstLook: `curl -sv '${base}/search?q=test&format=json' 2>&1 | tail -10`,
       };
     }
 
@@ -127,7 +137,7 @@ export const SearXNGService: ServiceDefinition = {
         detail: "GET /search: HTTP 200 but response is not valid JSON",
         latencyMs,
         action:
-          "Ensure 'json' is in the 'formats' list in searxng/settings.yml.",
+          "Ensure 'json' is in the 'formats' list in searxng/settings.yml and restart the service.",
         firstLook: `curl -s '${base}/search?q=test&format=json' | head -c 200`,
       };
     }
@@ -138,8 +148,8 @@ export const SearXNGService: ServiceDefinition = {
         status: "degraded",
         detail: "GET /search: HTTP 200 but no 'results' key in response",
         latencyMs,
-        action: "Check SearXNG config — at least one search engine must be enabled.",
-        firstLook: "docker compose logs searxng --tail=30",
+        action: "Check SearXNG config — at least one search engine must be enabled in settings.yml.",
+        firstLook: `curl -s '${base}/search?q=test&format=json' | head -c 500`,
       };
     }
 

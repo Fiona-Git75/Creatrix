@@ -48,10 +48,10 @@ function firstLookFor(provider: string, type: "unreachable" | "schema" | "db" | 
     if (provider === "openai") return "curl https://api.openai.com/v1/models -H 'Authorization: Bearer $OPENAI_API_KEY'";
     return `curl ${provider}`;
   }
-  if (type === "db") return "docker compose ps\necho $DATABASE_URL";
+  if (type === "db") return "pg_isready -h 127.0.0.1 -p 5432\necho $DATABASE_URL";
   if (type === "schema") return "npm run db:push";
-  if (type === "whisper") return "docker compose ps whisper";
-  if (type === "searxng") return "docker compose ps searxng";
+  if (type === "whisper") return "curl -s http://localhost:9000/v1/models";
+  if (type === "searxng") return "curl -s 'http://localhost:8080/search?q=test&format=json' | head -c 200";
   if (type === "model") {
     if (provider === "ollama") return "ollama list";
     return "Check available models in Settings → Connections";

@@ -121,37 +121,57 @@ npm run dev
 
 ## Running Locally
 
-The intended local architecture is:
+The intended local architecture is fully native — every service runs directly on
+the host with no Docker layer between it and Creatrix:
 
 ```
 Host machine
-├── Creatrix       (npm start / npm run dev)
+├── Creatrix       (npm run dev)
+├── PostgreSQL     (systemctl start postgresql  /  brew services start postgresql)
 ├── Ollama         (ollama serve)
-└── Docker
-    ├── Postgres
-    └── other support services (SearXNG, Whisper, OCR, etc.)
+├── SearXNG        (systemctl start searxng)          ← optional: web search
+└── Whisper        (faster-whisper-server --model base --port 9000)  ← optional: transcription
 ```
 
-Creatrix and Ollama run directly on your machine. Docker manages only the backing services.
+**Why native over Docker?** Docker health-checks confirm containers are managed —
+not that services are accepting connections. Creatrix's coherence probes
+(`SELECT 1`, `GET /search?format=json`, `GET /v1/models`) are the authoritative
+readiness check; they work the same regardless of how the service was started,
+and they give precise feedback when something is wrong.
 
 ### Quick start
 
 ```bash
-# 1. Start support services
-docker compose up -d
+# 1. Start PostgreSQL (must be running before Creatrix starts)
+sudo systemctl start postgresql          # Linux
+# brew services start postgresql@16      # macOS
 
-# 2. Set environment (copy and edit .env.example)
+# 2. Set environment
 cp .env.example .env
+# Edit DATABASE_URL to point at your local Postgres instance
 
 # 3. Run Creatrix
 npm install
 npm run dev
+
+# 4. Optional: start search and transcription
+sudo systemctl start searxng             # or: python searx/webapp.py
+faster-whisper-server --model base --host 0.0.0.0 --port 9000
 ```
 
-The `DATABASE_URL` in `.env.example` points to the Dockerised Postgres on `localhost:5432`.
+Then open Settings in Creatrix and set:
+- Search endpoint: `http://localhost:8080`
+- Whisper endpoint: `http://localhost:9000`
+
 Creatrix auto-discovers Ollama at `localhost:11434` — no manual connection setup needed.
 
-### Full server deployment (everything in Docker)
+### Legacy: Docker backing services
+
+A `docker-compose.yml` is still included if you prefer Docker for one or more services.
+Note that Docker's green checks are not a reliable indicator of service reachability —
+Creatrix will probe the actual connection regardless.
+
+### Full server deployment (Creatrix in a container)
 
 If you want to run Creatrix itself in a container (e.g. on a VPS), a `Dockerfile` is included.
 See the **Docker Portability Note** below before running `docker compose` with a custom compose file that includes the app service.

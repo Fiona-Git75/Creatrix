@@ -13,6 +13,10 @@
 //
 // ready means: HTTP 200 AND data[] has at least one model entry.
 //              "Server running, no model loaded" is degraded, not ready.
+//
+// native run:  faster-whisper-server --model base --host 0.0.0.0 --port 9000
+//              openai-whisper-asr-webservice: uvicorn app.webservice:app \
+//                --host 0.0.0.0 --port 9000
 
 import type { ServiceDefinition, ReadinessResult } from "./index";
 
@@ -34,32 +38,39 @@ export const WhisperService: ServiceDefinition = {
 
   troubleshooting: {
     commands: [
-      "docker compose ps whisper",
-      "docker compose logs whisper --tail=30",
-      "curl -s http://localhost:9000/v1/models | jq .data",
+      "curl -s http://localhost:9000/v1/models",
+      "ps aux | grep -E 'whisper|faster-whisper'",
+      "systemctl status faster-whisper      # if installed as a systemd service",
+      "journalctl -u faster-whisper --since '5 minutes ago'",
     ],
     commonIssues: [
       {
         symptom: "Server responds but data[] is empty",
         action:
-          "The model is still downloading or failed to load. " +
-          "Check: docker compose logs whisper --tail=30",
+          "The model has not finished loading or failed to start. Check server output:\n" +
+          "  ps aux | grep whisper\n" +
+          "  journalctl -u faster-whisper --since '10 minutes ago'",
       },
       {
         symptom: "Connection refused",
-        action: "Start container: docker compose up -d whisper",
+        action:
+          "Whisper server is not running. Start it natively:\n" +
+          "  faster-whisper-server:  faster-whisper-server --model base --host 0.0.0.0 --port 9000\n" +
+          "  whisper-asr-webservice: uvicorn app.webservice:app --host 0.0.0.0 --port 9000\n" +
+          "  systemd:               sudo systemctl start faster-whisper",
       },
       {
         symptom: "Probe times out",
         action:
-          "Container may be starting up — model download can take several minutes on first run. " +
-          "Check: docker compose logs whisper --tail=10",
+          "Server is still downloading or loading the model — this can take several minutes on first run.\n" +
+          "  ps aux | grep whisper   # confirm the process is alive\n" +
+          "  curl http://localhost:9000/v1/models   # retry manually",
       },
       {
         symptom: "HTTP 404 on /v1/models",
         action:
-          "Wrong endpoint base — check the URL configured in Settings → Whisper Endpoint. " +
-          "It should be the server root (e.g. http://localhost:9000), not the transcription path.",
+          "Wrong endpoint base — configure just the server root (e.g. http://localhost:9000), " +
+          "not the /audio/transcriptions path.",
       },
     ],
   },
@@ -73,7 +84,7 @@ export const WhisperService: ServiceDefinition = {
         latencyMs: null,
         action:
           "Add your Whisper server URL in Settings → Whisper Endpoint (e.g. http://localhost:9000)",
-        firstLook: "docker compose ps whisper",
+        firstLook: "curl -s http://localhost:9000/v1/models",
       };
     }
 
@@ -97,9 +108,13 @@ export const WhisperService: ServiceDefinition = {
           : `${msg} (${base})`,
         latencyMs: null,
         action: isTimeout
-          ? "Model may still be downloading. Check: docker compose logs whisper --tail=10"
-          : "Start container: docker compose up -d whisper",
-        firstLook: "docker compose ps whisper",
+          ? "Model may still be loading (can take several minutes on first run).\n" +
+            "  ps aux | grep whisper\n" +
+            "  curl http://localhost:9000/v1/models"
+          : "Whisper server is not running. Start it:\n" +
+            "  faster-whisper-server --model base --host 0.0.0.0 --port 9000\n" +
+            "  or: sudo systemctl start faster-whisper",
+        firstLook: `curl -s ${base}/v1/models`,
       };
     }
 
@@ -114,8 +129,10 @@ export const WhisperService: ServiceDefinition = {
         action:
           res.status === 404
             ? "Wrong base URL — configure just the server root, not the /audio/transcriptions path."
-            : "Check container logs: docker compose logs whisper --tail=30",
-        firstLook: "docker compose logs whisper --tail=30",
+            : "Check Whisper server output:\n" +
+              "  ps aux | grep whisper\n" +
+              "  journalctl -u faster-whisper --since '5 minutes ago'",
+        firstLook: `curl -sv ${base}/v1/models 2>&1 | tail -10`,
       };
     }
 
@@ -128,8 +145,9 @@ export const WhisperService: ServiceDefinition = {
         status: "degraded",
         detail: "GET /v1/models: HTTP 200 but response is not valid JSON",
         latencyMs,
-        action: "Check container logs — server may be in an error state.",
-        firstLook: "docker compose logs whisper --tail=30",
+        action: "Check server output — it may be in an error state:\n" +
+          "  ps aux | grep whisper",
+        firstLook: `curl -s ${base}/v1/models | head -c 300`,
       };
     }
 
@@ -141,9 +159,10 @@ export const WhisperService: ServiceDefinition = {
         detail: "GET /v1/models: server running but no model loaded",
         latencyMs,
         action:
-          "The Whisper model has not finished loading or failed. " +
-          "Check: docker compose logs whisper --tail=30",
-        firstLook: "docker compose logs whisper --tail=30",
+          "The Whisper model has not finished loading or failed to start.\n" +
+          "  ps aux | grep whisper\n" +
+          "  journalctl -u faster-whisper --since '5 minutes ago'",
+        firstLook: `curl -s ${base}/v1/models`,
       };
     }
 
