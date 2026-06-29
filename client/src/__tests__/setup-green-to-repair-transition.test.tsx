@@ -376,6 +376,46 @@ describe("SetupPostBootstrap — GREEN → repair transition via refetchInterval
     });
   });
 
+  it("repair list shows only the AMBER-reported component after RED → AMBER switch (no stale RED items)", async () => {
+    // Sequence: GREEN (initial) → RED (PostgreSQL broken) → AMBER (Ollama broken)
+    // After the AMBER poll the list must show Ollama and must NOT show PostgreSQL.
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([COHERENCE_GREEN, COHERENCE_RED, COHERENCE_AMBER]),
+    );
+
+    const client = buildPollingClient();
+
+    await act(async () => {
+      renderComponent(client);
+    });
+
+    // Initial fetch → GREEN panel visible.
+    await waitFor(() => {
+      expect(screen.getByTestId("panel-already-configured")).toBeInTheDocument();
+    });
+
+    // First 30-second poll → RED; PostgreSQL item must appear.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repair-item-PostgreSQL")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("repair-item-Ollama")).not.toBeInTheDocument();
+
+    // Second 30-second poll → AMBER; Ollama item must appear, PostgreSQL must be gone.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repair-item-Ollama")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("repair-item-PostgreSQL")).not.toBeInTheDocument();
+  });
+
   it("GREEN panel re-appears and repair panel does not persist after AMBER → GREEN recovery", async () => {
     // Sequence: GREEN (initial) → AMBER (first poll) → GREEN (second poll)
     vi.stubGlobal("fetch", makeFetch([COHERENCE_GREEN, COHERENCE_AMBER, COHERENCE_GREEN]));
