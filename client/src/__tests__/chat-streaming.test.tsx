@@ -142,7 +142,7 @@ async function consumeSseStream(stream: ReadableStream<Uint8Array>): Promise<{
         // Mirror Chat.tsx: throw outside the JSON-parse catch so the error
         // reaches the outer handler.  In the helper we capture and return it
         // so the test can assert it was surfaced.
-        error = data.message || "Stream error from provider";
+        error = data.message || data.error || "Stream error from provider";
         return { conversationId, content, done, error };
       }
     }
@@ -290,6 +290,41 @@ describe("SSE streaming pipeline (Chat.tsx handleSendMessage logic)", () => {
     expect(result.content).toBe("Some content");
     expect(result.done).toBe(false);
     expect(result.conversationId).toBe("err-conv");
+  });
+
+  it("captures the error field when an error event has no message field", async () => {
+    // Verifies the `data.message || data.error || "Stream error from provider"`
+    // guard in Chat.tsx: a { type: "error" } event without a message field
+    // must not produce an empty/undefined toast — the fallback text is shown.
+    const result = await consumeSseStream(
+      fakeStream([
+        encodeEvents([
+          { type: "conversation_id", id: "no-msg-conv" },
+          { type: "content", content: "Partial" },
+          { type: "error" }, // no message or error field
+        ]),
+      ]),
+    );
+
+    expect(result.error).toBe("Stream error from provider");
+    expect(result.content).toBe("Partial");
+    expect(result.done).toBe(false);
+  });
+
+  it("uses the error field when message is absent but error is present", async () => {
+    // Verifies the middle fallback: `data.error` is surfaced when `data.message`
+    // is absent, preventing the toast from showing the generic fallback text.
+    const result = await consumeSseStream(
+      fakeStream([
+        encodeEvents([
+          { type: "conversation_id", id: "err-field-conv" },
+          { type: "error", error: "Token limit exceeded" },
+        ]),
+      ]),
+    );
+
+    expect(result.error).toBe("Token limit exceeded");
+    expect(result.done).toBe(false);
   });
 });
 

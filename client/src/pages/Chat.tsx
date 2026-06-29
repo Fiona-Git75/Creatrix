@@ -646,7 +646,7 @@ export default function Chat() {
           } else if (data.type === "error") {
             // Throw outside the JSON-parse catch so the error reaches the
             // outer handler and is shown to the user via toast.
-            throw new Error(data.message || "Stream error from provider");
+            throw new Error(data.message || data.error || "Stream error from provider");
           }
         }
       }
