@@ -15,6 +15,14 @@
 // schema:      shared/schema.ts        (Drizzle table definitions + Zod schemas)
 // session:     server/index.ts         (connect-pg-simple session middleware)
 //
+// backup:      scripts/services/postgres-backup.sh
+//              Dumps the database to an external drive, checks the drive is
+//              actually mounted before writing, and rotates old files.
+//              Scheduled by: scripts/services/postgres-backup.timer (systemd)
+//              Install once: sudo cp scripts/services/postgres-backup.{service,timer}
+//                            /etc/systemd/system/ && sudo systemctl enable --now
+//                            postgres-backup.timer
+//
 // probe:       SELECT 1 via a fresh pg.Client (same credentials as the main pool).
 //              A fresh client is used — not the shared pool — so the probe
 //              remains valid even if the pool itself is exhausted or degraded.
