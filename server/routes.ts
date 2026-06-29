@@ -9,6 +9,7 @@ import { chunkText } from "./rag/chunking";
 import { embedChunks } from "./rag/embeddings";
 import { listCapabilities, invokeCapability, getCapability } from "./capabilities";
 import { probeNotionConnected } from "./capabilities/notion";
+import { CREATRIX_ORIENTATION } from "./orientation";
 import { requestConfirmation, resolveConfirmation } from "./confirm";
 import { getServiceState, getAllServiceStates } from "./runtime/service-runtime";
 import { syslog, getLogs, clearLogs, setLogPersist } from "./syslog";
@@ -818,9 +819,14 @@ export async function registerRoutes(
         return { role: m.role, content: m.content };
       });
 
-      // Build system context from memories and project settings
+      // Build system context — orientation first, then project, memories, RAG, tools
       const systemParts: string[] = [];
-      
+
+      // The orientation map is always the first thing the model reads.
+      // It establishes where the model is, what surrounds it, and how to move
+      // when it reaches the edge of what it knows. Everything else builds on top.
+      systemParts.push(CREATRIX_ORIENTATION);
+
       // Get project system prompt and folder path if available
       let project: Awaited<ReturnType<typeof storage.getProject>> | undefined;
       if (projectId) {
@@ -968,8 +974,9 @@ export async function registerRoutes(
 
         lines.push(
           "",
-          "Call active tools only when the user explicitly asks (read files, search web, create notes, etc.). " +
-          "Answer conversational questions directly without tools."
+          "Reach for a tool when your thinking calls for it — when you sense a gap, want to verify something, " +
+          "or recognise that a question needs more than you currently hold. " +
+          "You do not need to be asked. Conversational exchanges that need no external knowledge need no tool."
         );
 
         systemParts.push(lines.join("\n"));
