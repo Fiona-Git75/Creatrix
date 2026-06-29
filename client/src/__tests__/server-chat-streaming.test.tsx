@@ -197,6 +197,7 @@ vi.mock("@server/health", () => ({
 
 import { registerRoutes } from "@server/routes";
 import { createProvider } from "@server/providers";
+import { invokeCapability } from "@server/capabilities";
 
 let baseUrl: string;
 let httpServer: Server;
@@ -381,6 +382,58 @@ describe("/api/chat SSE streaming — server route emits correct event format", 
   it("returns HTTP 400 when the message field is absent", async () => {
     const { status } = await postChat({ connectionId: TEST_CONN_ID });
     expect(status).toBe(400);
+  });
+
+  it("emits a done event after the provider delivers a tool_call chunk", async () => {
+    // First iteration: provider emits a native tool_call chunk (Ollama structured path).
+    // The route must collect it, invoke the capability, push results into message
+    // history, and loop — without throwing or silently dropping the chunk.
+    mockGenerateStream.mockImplementationOnce(async (_msgs, _model, onChunk) => {
+      onChunk({
+        type: "tool_call",
+        toolCall: { name: "web_search", args: { query: "test query" } },
+      });
+    });
+
+    // invokeCapability must return a structured result so runTool does not throw
+    // when it reads invocation.status.  An "error" status is the safest stub
+    // because it skips the createJournalEntry branch in the success path.
+    vi.mocked(invokeCapability).mockResolvedValueOnce({
+      capability: "web_search" as const,
+      args: { query: "test query" },
+      status: "error" as const,
+      error: "capability not available in test environment",
+    });
+
+    // Second iteration: provider returns plain content with no tool call,
+    // so the loop exits and the route writes the final done event.
+    mockGenerateStream.mockImplementationOnce(async (_msgs, _model, onChunk) => {
+      onChunk({ type: "content", content: "tool result processed" });
+    });
+
+    const { body, status } = await postChat(CHAT_BODY);
+    expect(status).toBe(200);
+
+    const events = parseSseEvents(body);
+
+    // generateStream must have been called twice: once for the tool-call
+    // iteration and once for the follow-up that returns plain content.
+    // If it was only called once the loop did not continue after tool execution.
+    expect(mockGenerateStream).toHaveBeenCalledTimes(2);
+
+    // invokeCapability must have been called with the exact tool name and args
+    // from the tool_call chunk — confirming the branch was executed, not skipped.
+    expect(vi.mocked(invokeCapability)).toHaveBeenCalledWith(
+      "web_search",
+      { query: "test query" },
+      expect.any(Object),
+    );
+
+    // Stream must end with a done event — confirming the route completed
+    // normally rather than crashing or stalling on the tool_call chunk.
+    const lastEvent = events[events.length - 1];
+    expect(lastEvent).toMatchObject({ type: "done" });
+    expect(typeof (lastEvent as { messageId: unknown }).messageId).toBe("string");
   });
 });
 
