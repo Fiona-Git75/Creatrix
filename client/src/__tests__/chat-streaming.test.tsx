@@ -507,6 +507,121 @@ describe("Chat component — message streams to the UI when a connection is acti
     );
   });
 
+  it(
+    "keeps partial content visible and returns the send button to idle when the stream cuts out without a done event",
+    async () => {
+      // Build a stream that sends a conversation_id and two content chunks but
+      // never emits a "done" event, simulating a network drop mid-response.
+      const encoder = new TextEncoder();
+      const partialEvents = [
+        { type: "conversation_id", id: CONV_ID },
+        { type: "content", content: "partial ans" },
+        { type: "content", content: "wer" },
+      ];
+      const partialStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const evt of partialEvents) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(evt)}\n\n`),
+            );
+          }
+          // Close without a "done" event — simulates a network drop.
+          controller.close();
+        },
+      });
+
+      // Override the fetch mock for this test only.  /api/chat returns the
+      // partial (no-done) stream; all other URLs fall through to the same
+      // shape as the beforeEach mock.
+      vi.mocked(fetch).mockImplementation(
+        (url: string | URL | Request) => {
+          const urlStr = String(url);
+          const json = (data: unknown) =>
+            Promise.resolve(
+              new Response(JSON.stringify(data), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            );
+
+          if (urlStr === "/api/chat") {
+            return Promise.resolve(
+              new Response(partialStream, {
+                status: 200,
+                headers: { "Content-Type": "text/event-stream" },
+              }),
+            );
+          }
+          if (urlStr.includes("/api/conversations")) return json([]);
+          if (urlStr.includes("/api/providers/status")) {
+            return json({
+              providers: [
+                {
+                  connectionId: CONN_ID,
+                  name: "Ollama (test)",
+                  status: "online",
+                  models: [{ id: MODEL_ID, name: "Llama 3" }],
+                },
+              ],
+            });
+          }
+          if (urlStr.includes("/api/system/coherence")) {
+            return json({
+              coherent: true,
+              overallStatus: "GREEN",
+              items: [{ domain: "Inference", component: "Ollama", actual: "coherent", message: "ok" }],
+              measuredAt: new Date().toISOString(),
+            });
+          }
+          if (urlStr.includes("/api/tools/status")) return json({ active: [], inactive: [] });
+          if (urlStr.includes("/api/substrate/health")) {
+            return json({ coherence: "green", substrates: {}, issues: [], checkedAt: Date.now() });
+          }
+          if (urlStr.includes("/api/status")) return json({ status: "ok", version: "test" });
+          return json([]);
+        },
+      );
+
+      renderChat();
+
+      const textarea = await screen.findByTestId("input-chat-message");
+
+      // Change the textarea value synchronously.
+      fireEvent.change(textarea, { target: { value: "ping" } });
+
+      // Click send — do NOT wrap in async act() here.  The no-done stream
+      // leaves pending React work open (the toast timer) that async act()
+      // would try to flush forever.  waitFor() below handles async flushing
+      // correctly via its own internal act wrapping.
+      fireEvent.click(screen.getByTestId("button-send-message"));
+
+      // Partial content accumulated before the drop must remain visible.
+      // Chat.tsx's finally block skips setStreamingContent("") when
+      // keepPartialContent is true, so the text stays in the streaming slot
+      // (data-testid="message-assistant-streaming").
+      await waitFor(
+        () => {
+          expect(screen.getByText("partial answer")).toBeTruthy();
+        },
+        { timeout: 8000 },
+      );
+
+      // The chat input must return to its idle (enabled) state so the user
+      // can continue typing.  The textarea is disabled={isLoading} in
+      // ChatInput.tsx, so a re-enabled textarea proves isLoading returned
+      // to false.  (The send button itself stays disabled while the textarea
+      // is empty, which is correct behaviour after a message is sent.)
+      await waitFor(
+        () => {
+          const input = screen.getByTestId("input-chat-message");
+          expect(input).not.toBeDisabled();
+        },
+        { timeout: 8000 },
+      );
+    },
+    15000,
+  );
+
   it("sends a POST to /api/chat with the correct message in the body", async () => {
     renderChat();
 
