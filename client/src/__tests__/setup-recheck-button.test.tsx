@@ -412,4 +412,110 @@ describe("SetupPostBootstrap — Re-check button triggers recovery correctly", (
     // The cached AMBER state must still be shown — an error does not clear it.
     expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
   });
+
+  it("button stays usable and invalidateQueries fires on each click after repeated failed rechecks", async () => {
+    // Strategy: the queryFn returns a fresh controlled promise on each refetch
+    // so we can independently reject the first and second attempts. This confirms
+    // that a prior error does not accumulate state that freezes the button.
+    const releaseQueue: Array<(err: Error) => void> = [];
+
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          staleTime: Infinity,
+          queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+            if (queryKey[0] === "/api/system/coherence") {
+              return new Promise<object>((_resolve, reject) => {
+                releaseQueue.push(reject);
+              });
+            }
+            return Promise.resolve(null);
+          },
+        },
+      },
+    });
+    client.setQueryData(["/api/system/coherence"], AMBER_COHERENCE);
+
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+
+    render(
+      <QueryClientProvider client={client}>
+        <Router>
+          <SetupPostBootstrap authStatus={AUTH_BOOTSTRAPPED} />
+        </Router>
+      </QueryClientProvider>,
+    );
+
+    // Repair panel is visible (AMBER cache).
+    await waitFor(() => {
+      expect(screen.getByTestId("button-recheck-now")).toBeInTheDocument();
+    });
+
+    // ── First click ─────────────────────────────────────────────────────────
+
+    await act(async () => {
+      screen.getByTestId("button-recheck-now").click();
+    });
+
+    // Button disabled while first fetch is in-flight.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    // Reject the first fetch.
+    await act(async () => {
+      releaseQueue[0](new Error("network error — attempt 1"));
+    });
+
+    // After first rejection: button must be enabled again, panel still visible.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeNull();
+    });
+    expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+
+    // invalidateQueries called at least once so far.
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+
+    // ── Second click ────────────────────────────────────────────────────────
+
+    await act(async () => {
+      screen.getByTestId("button-recheck-now").click();
+    });
+
+    // Button disabled while second fetch is in-flight.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    // Reject the second fetch.
+    await act(async () => {
+      releaseQueue[1](new Error("network error — attempt 2"));
+    });
+
+    // After second rejection: button must still be enabled, panel still visible.
+    await waitFor(() => {
+      const btn = screen.getByTestId("button-recheck-now");
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeNull();
+    });
+    expect(screen.getByTestId("panel-repair-list")).toBeInTheDocument();
+
+    // invalidateQueries must have fired on both clicks — no silent suppression.
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+    expect(invalidateSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ queryKey: ["/api/system/coherence"] }),
+    );
+    expect(invalidateSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ queryKey: ["/api/system/coherence"] }),
+    );
+  });
 });
