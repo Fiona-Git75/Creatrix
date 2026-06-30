@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 
 // ── Provenance ────────────────────────────────────────────────────────────────
 // canonical:   client/src/components/RuntimeCoherencePanel.tsx
@@ -59,6 +60,8 @@ interface RuntimeCoherencePanelProps {
 
 export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [dismissedAt, setDismissedAt] = useState<string | null>(null);
 
   const { data: report } = useQuery<CoherenceReport>({
     queryKey: ["/api/system/coherence"],
@@ -71,7 +74,15 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
     },
   });
 
+  // When a new coherence check completes after dismissal, re-show the panel.
+  useEffect(() => {
+    if (dismissed && report && report.measuredAt !== dismissedAt) {
+      setDismissed(false);
+    }
+  }, [report?.measuredAt]);
+
   if (!report || report.items.length === 0) return null;
+  if (dismissed && report.overallStatus !== "GREEN") return null;
 
   const isHealthy = report.overallStatus === "GREEN";
   const degradedItems = report.items.filter(i => i.actual !== "coherent");
@@ -139,7 +150,17 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
       }`}
       data-testid="panel-runtime-coherence"
     >
-      <div className="text-muted-foreground mb-1.5">The runtime says:</div>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-muted-foreground">The runtime says:</div>
+        <button
+          onClick={() => { setDismissed(true); setDismissedAt(report.measuredAt); }}
+          title="Dismiss until next check"
+          data-testid="button-coherence-dismiss"
+          className="text-muted-foreground hover:text-foreground transition-colors -mr-1 p-0.5 rounded hover:bg-white/10"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
 
       <div className={`font-semibold mb-2 ${statusColor(report.overallStatus)}`}>
         Runtime coherence: {report.overallStatus}
