@@ -28,6 +28,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Chat} />
+      <Route path="/setup" component={Setup} />
       <Route component={NotFound} />
     </Switch>
   );
