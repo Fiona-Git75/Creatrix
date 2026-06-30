@@ -7,15 +7,20 @@
 //              and wraps it in an AI tool definition; no Whisper HTTP logic
 //              lives there.
 //
-// probe:       GET /v1/models — checks that the server is running AND that at
-//              least one model is loaded. A server that responds but has no
-//              models will fail every transcription call; this probe catches that.
+// probe:       Two-stage. First tries GET /v1/models (OpenAI-compatible servers
+//              such as faster-whisper-server expose this and return the loaded
+//              model name — ideal). If that returns 404, falls back to a plain
+//              reachability check (GET / or GET /health) because many Whisper
+//              implementations (whisper.cpp, openai-whisper-asr-webservice) are
+//              transcription-only and have no model-registry endpoint. "Server
+//              responds" is sufficient readiness for those; /v1/models is a bonus.
 //              The endpoint is normalised: callWhisper() may be given a base URL
 //              or a full /audio/transcriptions path; baseEndpoint() strips the
 //              suffix so both the probe and the call use the same normalisation.
 //
-// ready means: HTTP 200 AND data[] has at least one model entry.
-//              "Server running, no model loaded" is degraded, not ready.
+// ready means: /v1/models HTTP 200 with data[] entry  (OpenAI-compat servers)
+//              OR server reachable at / or /health      (other implementations)
+//              "Server running, data[] empty" is degraded (model not loaded).
 //
 // native run:  faster-whisper-server --model base --host 0.0.0.0 --port 9000
 //              openai-whisper-asr-webservice: uvicorn app.webservice:app \
@@ -92,13 +97,13 @@ export const WhisperService: ServiceDefinition = {
     }
 
     const base = baseEndpoint(endpoint);
-    const url = `${base}/v1/models`;
     const start = Date.now();
 
-    let res: Response;
+    // ── Stage 1: /v1/models (OpenAI-compatible servers) ──────────────────────
+    let modelsRes: Response | null = null;
     try {
-      res = await fetch(url, {
-        signal: AbortSignal.timeout(8000), // model loading can make the first response slow
+      modelsRes = await fetch(`${base}/v1/models`, {
+        signal: AbortSignal.timeout(8000),
       });
     } catch (err: any) {
       const msg: string = err?.message ?? "Fetch failed";
@@ -121,60 +126,85 @@ export const WhisperService: ServiceDefinition = {
       };
     }
 
-    const latencyMs = Date.now() - start;
+    if (modelsRes.ok) {
+      // OpenAI-compatible server — parse model list
+      const latencyMs = Date.now() - start;
+      let body: any;
+      try { body = await modelsRes.json(); } catch { body = null; }
 
-    if (!res.ok) {
+      const models: any[] = Array.isArray(body?.data) ? body.data : [];
+      if (models.length === 0) {
+        return {
+          ready: false,
+          status: "degraded",
+          detail: "GET /v1/models: server running but no model loaded",
+          latencyMs,
+          action:
+            "The Whisper model has not finished loading or failed to start.\n" +
+            "  ps aux | grep whisper\n" +
+            "  journalctl -u faster-whisper --since '5 minutes ago'",
+          firstLook: `curl -s ${base}/v1/models`,
+        };
+      }
+
+      const modelId: string = models[0]?.id ?? "unknown";
+      return {
+        ready: true,
+        status: "ready",
+        detail: `model ${modelId} loaded`,
+        latencyMs,
+      };
+    }
+
+    // ── Stage 2: reachability fallback (non-OpenAI servers) ──────────────────
+    // /v1/models returned non-200 (commonly 404). Many Whisper implementations
+    // (whisper.cpp, openai-whisper-asr-webservice) are transcription-only and
+    // expose no model registry. Try / and /health — if either responds the
+    // server is up and we treat it as ready.
+    if (modelsRes.status !== 404) {
+      // A non-404 error from /v1/models is a real problem, not a missing endpoint
+      const latencyMs = Date.now() - start;
       return {
         ready: false,
         status: "unreachable",
-        detail: `GET /v1/models: HTTP ${res.status}`,
+        detail: `GET /v1/models: HTTP ${modelsRes.status}`,
         latencyMs,
         action:
-          res.status === 404
-            ? "Wrong base URL — configure just the server root, not the /audio/transcriptions path."
-            : "Check Whisper server output:\n" +
-              "  ps aux | grep whisper\n" +
-              "  journalctl -u faster-whisper --since '5 minutes ago'",
+          "Check Whisper server output:\n" +
+          "  ps aux | grep whisper\n" +
+          "  journalctl -u faster-whisper --since '5 minutes ago'",
         firstLook: `curl -sv ${base}/v1/models 2>&1 | tail -10`,
       };
     }
 
-    let body: any;
-    try {
-      body = await res.json();
-    } catch {
-      return {
-        ready: false,
-        status: "degraded",
-        detail: "GET /v1/models: HTTP 200 but response is not valid JSON",
-        latencyMs,
-        action: "Check server output — it may be in an error state:\n" +
-          "  ps aux | grep whisper",
-        firstLook: `curl -s ${base}/v1/models | head -c 300`,
-      };
+    for (const path of ["/health", "/"]) {
+      try {
+        const r = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(5000) });
+        if (r.ok || r.status < 500) {
+          const latencyMs = Date.now() - start;
+          return {
+            ready: true,
+            status: "ready",
+            detail: `server reachable (no /v1/models — transcription-only implementation)`,
+            latencyMs,
+          };
+        }
+      } catch {
+        // try next path
+      }
     }
 
-    const models: any[] = Array.isArray(body?.data) ? body.data : [];
-    if (models.length === 0) {
-      return {
-        ready: false,
-        status: "degraded",
-        detail: "GET /v1/models: server running but no model loaded",
-        latencyMs,
-        action:
-          "The Whisper model has not finished loading or failed to start.\n" +
-          "  ps aux | grep whisper\n" +
-          "  journalctl -u faster-whisper --since '5 minutes ago'",
-        firstLook: `curl -s ${base}/v1/models`,
-      };
-    }
-
-    const modelId: string = models[0]?.id ?? "unknown";
+    const latencyMs = Date.now() - start;
     return {
-      ready: true,
-      status: "ready",
-      detail: `GET /v1/models: model ${modelId} loaded`,
+      ready: false,
+      status: "unreachable",
+      detail: `Server did not respond at /v1/models, /health, or /`,
       latencyMs,
+      action:
+        "Whisper server is not running or not reachable at the configured URL.\n" +
+        "  faster-whisper-server --model base --host 0.0.0.0 --port 9000\n" +
+        "  or: sudo systemctl start faster-whisper",
+      firstLook: `curl -sv ${base}/ 2>&1 | tail -10`,
     };
   },
 };
