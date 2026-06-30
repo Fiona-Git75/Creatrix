@@ -1,0 +1,68 @@
+On June 20, 2026 at 2:24:27 AM UTC, fionamccoll fionamccoll@pm.me wrote:
+
+> # Title
+> Critical: Incorrect GitHub repository binding at platform level (non-user-caused, blocking sync)
+> 
+> # Description
+> Description:
+> 
+> This is a platform-level repository binding failure inside Replit. It is not user error, not local configuration, and not resolvable via the agent or project UI.
+> 
+> 🔴 Issue Summary
+> 
+> Replit is persistently syncing this project to an invalid GitHub repository:
+> 
+> https://github.com/Kitt-Kaleen/Creatrix-UI
+> 
+> This repository:
+> 
+> Does not exist (404)
+> Was never created or authorised by me
+> Is not visible in my GitHub account or organisation
+> 
+> The correct repository is:
+> 
+> https://github.com/Fiona-Git75/Creatrix
+> 
+> ✔ Verified State (User-side)
+> Local git remote is correctly configured and verified (git remote -v)
+> Correct repository exists and is accessible on GitHub
+> Multiple resets performed:
+> GitHub connector removed and re-added in Replit
+> Project restarted
+> Remote URL corrected locally
+> Despite this, Replit continues to reference or regenerate the incorrect remote binding
+> ❌ Behaviour
+> Replit retains or re-creates an invalid GitHub repository association at the platform level
+> Sync operations continue targeting a non-existent repository
+> Changes do not persist correctly because deployment target is misbound
+> Agent and UI tools both fail to expose or resolve the underlying binding source
+> 🧨 Impact
+> All commits/sync attempts are routed to an invalid repository
+> Development workflow is blocked by incorrect platform-level state
+> User-side fixes are ineffective because the binding is not exposed in any controllable interface layer
+> Significant time has been spent debugging a non-user-caused configuration failure
+> 📌 Request (Action Required)
+> 
+> Please perform a platform-level reset of the GitHub integration binding for this Replit project:
+> 
+> Remove all cached or auto-generated repository associations
+> Ensure no reference remains to:
+> Kitt-Kaleen/Creatrix-UI
+> Rebind project cleanly to:
+> Fiona-Git75/Creatrix
+> Confirm that future sync operations are targeting the correct repository only
+> ⚠️ Note
+> 
+> This issue is not resolvable via:
+> 
+> git CLI commands
+> local configuration changes
+> agent instructions
+> project-level UI settings
+> 
+> The failure exists at the platform integration layer, not the project or repository layer.
+> 
+> App Name: Creatrix UI
+> 
+> Username: fionamccoll
