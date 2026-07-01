@@ -49,7 +49,21 @@ description: Three core principles — system accountability, epistemic groundin
 - `/api/substrate/health` — background probes, cached, returns coherence: green/amber/red
 - ToolStatusChip — exposes "System truth" section showing coherence issues
 
+## Morning Roll Call pattern (server/index.ts)
+At startup, Creatrix runs all service probes and the Ollama provider scan concurrently (Promise.all), then prints a coordinated ecological status block before the browser is open. Each participant announces functional readiness in plain language — not HTTP codes. The summary line is either "All present. Welcome home." or the exact count of absent/not-ready participants with per-line remediation hints.
+
+**Why it matters:** Removes the cognitive load of evaluating whether "ready" really means ready. The answer is visible in the terminal before the browser opens. Yesterday's 12-hour SearXNG debugging session becomes one line: "Present, not ready. json format likely not enabled → Add 'json' to search.formats, then restart."
+
+## Probe design standard (SearXNG and Whisper are the canonical models)
+Each probe must distinguish:
+- NOT_RUNNING: connection refused → specific start command
+- RUNNING_NOT_READY: responding but can't serve its function → specific config fix  
+- WRONG_CONFIG: misconfigured → exact setting to change and where
+- READY: functionally ready for its ecological role
+
 ## Known remaining friction points
-1. **Library/notes path** — user must know their own filesystem path; should scan common locations
-2. **No AI + first message** — should return a human message, not a raw API error
-3. **Mid-session model drift** — if a model is removed while chatting, header selector goes stale
+1. **Runtime tool failure diagnosis** — when web_search fails mid-conversation, the error should carry the probe's specific diagnosis, not a raw exception. The fix is known; the knowledge doesn't travel to the conversation yet.
+2. **Postgres probe granularity** — ECONNREFUSED vs auth failure vs missing database name all produce "unreachable." Should distinguish so the roll call can say exactly why.
+3. **Library/notes path** — user must know their own filesystem path; should scan common locations
+4. **No AI + first message** — should return a human message, not a raw API error
+5. **Mid-session model drift** — if a model is removed while chatting, header selector goes stale
