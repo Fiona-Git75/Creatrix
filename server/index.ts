@@ -115,29 +115,117 @@ app.use((req, res, next) => {
       log("Initializing storage…");
       await storage.initialize?.();
       log("Storage ready");
-      // Kick off service runtime probes in background — not blocking startup.
-      import("./runtime/service-runtime").then(async ({ probeAll, startBackgroundProbes, getAllServiceStates }) => {
+      // ── Morning Roll Call ─────────────────────────────────────────────────────
+      // Probes services and Ollama in parallel, then prints a coordinated
+      // ecological status block — before the browser is open.
+      Promise.all([
+        import("./runtime/service-runtime"),
+        import("./providers/discovery"),
+      ]).then(async ([
+        { probeAll, startBackgroundProbes, getAllServiceStates },
+        { getProvidersStatus },
+      ]) => {
         try {
           const s = await storage.getSettings();
-          await probeAll({
-            postgres: process.env.DATABASE_URL ?? null,
-            searxng:  (s as any).searchEndpoint  ?? null,
-            whisper:  (s as any).whisperEndpoint  ?? null,
-          });
-          // Print each service's probe result so the user sees readiness in the
-          // terminal before opening Creatrix — same pattern as Ollama's discovery line.
-          const states = getAllServiceStates();
-          for (const svc of Object.values(states)) {
-            const icon   = svc.ready ? "✓" : svc.status === "not_configured" ? "–" : "✗";
-            const ms     = svc.latencyMs != null ? ` (${svc.latencyMs}ms)` : "";
-            const detail = svc.detail ? ` — ${svc.detail}` : "";
-            log(`${svc.name}: ${icon} ${svc.status}${ms}${detail}`, "service");
-            if (!svc.ready && svc.action) {
-              // First line of action is the plain-language "what to do" — commands follow on subsequent lines.
-              const hint = svc.action.split("\n")[0].replace(/:$/, "");
-              log(`  → ${hint}`, "service");
+
+          // Both probes run concurrently — neither waits for the other.
+          const [, providerScan] = await Promise.all([
+            probeAll({
+              postgres: process.env.DATABASE_URL ?? null,
+              searxng:  (s as any).searchEndpoint ?? null,
+              whisper:  (s as any).whisperEndpoint ?? null,
+            }),
+            getProvidersStatus(true),
+          ]);
+
+          // ── Compose roll call ───────────────────────────────────────────────
+          const onlineProviders  = providerScan.providers.filter(p => p.status === "online");
+          const offlineProviders = providerScan.providers.filter(p => p.status === "offline");
+          const serviceStates    = Object.values(getAllServiceStates());
+
+          // Functional readiness descriptions — ecological language, not HTTP codes.
+          const readyDesc: Record<string, string> = {
+            postgres: "Database accessible. Read/write confirmed.",
+            searxng:  "Search endpoint responding. Web search verified.",
+            whisper:  "Server responding. Audio transcription ready.",
+          };
+          const absentDesc: Record<string, string> = {
+            postgres: "Database not configured.",
+            searxng:  "Web search endpoint not configured.",
+            whisper:  "Audio transcription not configured.",
+          };
+
+          const SEP = "─".repeat(44);
+          const PAD = 14;
+          const IND = " ".repeat(PAD + 5);
+          const out: string[] = [];
+
+          out.push("");
+          out.push(SEP);
+          out.push("  Creatrix  ·  Morning Roll Call");
+          out.push(SEP);
+          out.push("");
+
+          for (const svc of serviceStates) {
+            const nm = svc.name.padEnd(PAD);
+            if (svc.ready) {
+              const whisperModel = svc.key === "whisper"
+                ? svc.detail.match(/model (.+?) loaded/)?.[1] : null;
+              const desc = whisperModel
+                ? `Model ${whisperModel} loaded. Audio transcription ready.`
+                : (readyDesc[svc.key] ?? svc.detail);
+              out.push(`  ${nm} ✓  Present. ${desc}`);
+            } else if (svc.status === "not_configured") {
+              out.push(`  ${nm} –  Absent. ${absentDesc[svc.key] ?? svc.detail}`);
+              if (svc.action) {
+                const hint = svc.action.split("\n")[0].replace(/:$/, "");
+                out.push(`  ${IND}→ ${hint}`);
+              }
+            } else if (svc.status === "degraded") {
+              const stripped = svc.detail.replace(/^GET \/\S+: /, "").replace(/HTTP \d+ — /, "");
+              out.push(`  ${nm} ⚠  Present, not ready. ${stripped}`);
+              if (svc.action) {
+                const hint = svc.action.split("\n")[0].replace(/:$/, "");
+                out.push(`  ${IND}→ ${hint}`);
+              }
+            } else {
+              out.push(`  ${nm} ✗  Absent. ${svc.detail}`);
+              if (svc.action) {
+                const hint = svc.action.split("\n")[0].replace(/:$/, "");
+                out.push(`  ${IND}→ ${hint}`);
+              }
             }
           }
+
+          // Ollama — sourced from provider discovery, not the service probe system.
+          const ollamaNm = "Ollama".padEnd(PAD);
+          if (onlineProviders.length > 0) {
+            const totalModels = onlineProviders.reduce((n, p) => n + p.models.length, 0);
+            out.push(`  ${ollamaNm} ✓  Present. ${totalModels} model${totalModels !== 1 ? "s" : ""} available. Ready for inference.`);
+          } else if (providerScan.providers.length === 0) {
+            out.push(`  ${ollamaNm} –  Absent. No inference connection configured.`);
+            out.push(`  ${IND}→ Settings → Connections`);
+          } else {
+            out.push(`  ${ollamaNm} ✗  Absent. ${offlineProviders.map(p => p.name).join(", ")} unreachable.`);
+            out.push(`  ${IND}→ Run: ollama serve`);
+          }
+
+          // Ecological summary
+          const readyCount  = serviceStates.filter(sv => sv.ready).length + (onlineProviders.length > 0 ? 1 : 0);
+          const totalCount  = serviceStates.length + 1;
+          const absentCount = totalCount - readyCount;
+
+          out.push("");
+          out.push(SEP);
+          out.push(absentCount === 0
+            ? `  Participants: ${readyCount}/${totalCount}  ·  All present.  ·  Welcome home.`
+            : `  Participants: ${readyCount}/${totalCount}  ·  ${absentCount} participant${absentCount !== 1 ? "s" : ""} absent or not ready.`);
+          out.push(SEP);
+          out.push("");
+
+          for (const line of out) console.log(line);
+
+          // ── Background probes ───────────────────────────────────────────────
           startBackgroundProbes(async () => {
             const settings = await storage.getSettings();
             return {
@@ -146,20 +234,8 @@ app.use((req, res, next) => {
               whisper:  (settings as any).whisperEndpoint ?? null,
             };
           });
-        } catch (e) {
-          log(`Service runtime: startup probe failed — ${e}`);
-        }
-      });
-      log("Initializing routes…");
-      await registerRoutes(httpServer, app);
-      log("Routes registered");
-      // Warm the provider cache once at startup so the UI has real state on first load.
-      // After the scan completes, run the runtime coherence check: compare what was
-      // commissioned during setup against what is present now, and narrate the result
-      // into the system log so it's visible at 2 a.m. without opening a debugger.
-      import("./providers/discovery").then(({ getProvidersStatus }) => {
-        getProvidersStatus(true).then(async s => {
-          log(`Discovery: ${s.providers.length} connection(s) scanned, ${s.providers.filter(p => p.status === "online").length} online`);
+
+          // ── Coherence check + syslog ────────────────────────────────────────
           try {
             const [{ loadManifest }, { measureCoherence }, { syslog }] = await Promise.all([
               import("./runtime/manifest"),
@@ -167,11 +243,7 @@ app.use((req, res, next) => {
               import("./syslog"),
             ]);
 
-            // Narrate the startup connection state into the system log so it's
-            // visible in the UI without opening a terminal.
-            const onlineProviders = s.providers.filter(p => p.status === "online");
-            const offlineProviders = s.providers.filter(p => p.status === "offline");
-            if (s.providers.length === 0) {
+            if (providerScan.providers.length === 0) {
               syslog("warn", "connection", "No connections configured — inference unavailable. Add one in Settings → Connections.");
             } else if (onlineProviders.length === 0) {
               syslog("warn", "connection",
@@ -189,7 +261,7 @@ app.use((req, res, next) => {
             const report = await measureCoherence(manifest);
             for (const item of report.items) {
               const level = item.actual === "coherent" ? "info" : item.actual === "degraded" ? "warn" : "error";
-              const icon = item.actual === "coherent" ? "✓" : "⚠";
+              const icon  = item.actual === "coherent" ? "✓" : "⚠";
               syslog(level, "system", `${icon} ${item.component} — ${item.message}`,
                 item.action ? `action: ${item.action}` : undefined);
             }
@@ -199,8 +271,11 @@ app.use((req, res, next) => {
           } catch (e) {
             console.error("[runtime] coherence check failed:", e);
           }
-        }).catch(e => console.error("[discovery] startup scan failed:", e));
-      });
+
+        } catch (e) {
+          log(`Morning roll call failed — ${e}`);
+        }
+      }).catch(e => console.error("[roll-call] startup failed:", e));
 
       app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
         const status = err.status || err.statusCode || 500;
