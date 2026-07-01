@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Shield, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { apiRequest } from "@/lib/queryClient";
 import { GreenSummaryPanel } from "@/components/GreenSummaryPanel";
 import { RepairPanel } from "@/components/RepairPanel";
 
@@ -29,6 +31,27 @@ export interface SetupPostBootstrapProps {
 export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+
+  const commissionMutation = useMutation({
+    mutationFn: async () => {
+      const now = new Date().toISOString();
+      const res = await apiRequest("POST", "/api/bootstrap/complete", {
+        steps: [
+          {
+            step: 1,
+            component: "Database + Account",
+            result: "OK",
+            detail: `Account: ${authStatus.user?.username ?? "unknown"}`,
+            timestamp: now,
+          },
+        ],
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] });
+    },
+  });
 
   const { data: coherence, isFetching: coherenceIsFetching } = useQuery<CoherenceReport>({
     queryKey: ["/api/system/coherence"],
@@ -87,6 +110,55 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
 
   if (coherence.overallStatus === "GREEN") {
     return <GreenSummaryPanel authStatus={authStatus} coherence={coherence} />;
+  }
+
+  const neverCommissioned =
+    coherence.items.length === 1 &&
+    coherence.items[0].component === "Commissioned" &&
+    coherence.items[0].actual === "absent";
+
+  if (neverCommissioned) {
+    return (
+      <div className="space-y-6 max-w-md" data-testid="panel-commission-now">
+        <div className="space-y-2">
+          <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            One step remaining
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Complete commissioning</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Your account and connections are set up, but the system has never been formally
+            commissioned. Seal the bootstrap record now — this is a one-time action.
+          </p>
+        </div>
+
+        {commissionMutation.isSuccess ? (
+          <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400" data-testid="text-commission-success">
+            <CheckCircle2 className="h-4 w-4" />
+            <span>Commissioned — verifying system state…</span>
+          </div>
+        ) : (
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={commissionMutation.isPending}
+            onClick={() => commissionMutation.mutate()}
+            data-testid="button-complete-commissioning"
+          >
+            {commissionMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sealing record…</>
+            ) : (
+              <><Shield className="h-4 w-4 mr-2" />Commission Creatrix</>
+            )}
+          </Button>
+        )}
+
+        {commissionMutation.isError && (
+          <p className="text-sm text-destructive" data-testid="text-commission-error">
+            {(commissionMutation.error as Error)?.message ?? "Failed to commission. Try again."}
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
