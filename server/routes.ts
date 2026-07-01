@@ -1061,6 +1061,26 @@ export async function registerRoutes(
             }
           }
 
+          // Enrich failed invocations with the service probe's specific diagnosis.
+          // The model receives a plain-language reason + fix so it can tell the
+          // user what is wrong and what to do — rather than relaying a raw error.
+          if (invocation.status !== "success") {
+            const TOOL_SERVICE: Partial<Record<string, string>> = {
+              web_search:       "searxng",
+              transcribe_audio: "whisper",
+            };
+            const svcKey = TOOL_SERVICE[toolName];
+            if (svcKey) {
+              const svcState = getServiceState(svcKey);
+              if (svcState && !svcState.ready && svcState.action) {
+                const diagnosis = svcState.action.split("\n")[0].replace(/:$/, "");
+                (invocation as any).error = invocation.error
+                  ? `${invocation.error} — ${diagnosis}`
+                  : diagnosis;
+              }
+            }
+          }
+
           res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: invocation.status, result: invocation.result, error: invocation.error })}\n\n`);
           return invocation;
         };

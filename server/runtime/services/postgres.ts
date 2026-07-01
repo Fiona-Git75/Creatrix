@@ -113,26 +113,82 @@ export const PostgresService: ServiceDefinition = {
         latencyMs: Date.now() - start,
       };
     } catch (err: any) {
-      const msg: string = err?.message ?? "Connection failed";
-      const isRefused = msg.includes("ECONNREFUSED") || msg.includes("connect");
-      const isAuth    = msg.includes("password") || msg.includes("authentication");
-      return {
-        ready: false,
-        status: "unreachable",
-        detail: msg,
-        latencyMs: null,
-        action: isAuth
-          ? "Check DATABASE_URL credentials in your .env file."
-          : isRefused
-          ? "PostgreSQL is not accepting connections.\n" +
-            "  Linux:  sudo systemctl start postgresql\n" +
-            "  macOS:  brew services start postgresql@16\n" +
-            "  check:  pg_isready -h 127.0.0.1 -p 5432"
-          : "Check DATABASE_URL and ensure PostgreSQL is running.",
-        firstLook: isRefused
-          ? "pg_isready -h 127.0.0.1 -p 5432"
-          : "psql $DATABASE_URL -c 'SELECT 1'",
-      };
+      const raw: string = err?.message ?? "Connection failed";
+
+      // Classify the pg error into a specific, actionable diagnosis.
+      // Each branch sets (status, detail, action, firstLook) independently so
+      // the roll call and repair panel can surface the exact reason without the
+      // user having to parse raw pg error messages.
+      const isRefused    = raw.includes("ECONNREFUSED");
+      const isTimeout    = raw.includes("timeout") || raw.includes("ETIMEDOUT") || raw.includes("timed out");
+      const isDns        = raw.includes("could not translate host") || raw.includes("ENOTFOUND");
+      const isAuth       = raw.includes("password authentication failed") || raw.includes("authentication failed");
+      const isMissingDb  = raw.includes("does not exist") && raw.includes("database");
+      const isMissingRole = raw.includes("does not exist") && raw.includes("role");
+      const isSSL        = raw.includes("SSL") || raw.includes("sslmode");
+      const isHba        = raw.includes("pg_hba.conf");
+
+      let detail:   string;
+      let status:   "unreachable" | "degraded";
+      let action:   string;
+      let firstLook: string;
+
+      if (isRefused) {
+        status    = "unreachable";
+        detail    = "Connection refused — PostgreSQL is not running or not listening on this port";
+        action    = "Start PostgreSQL:\n" +
+                    "  Linux:  sudo systemctl start postgresql\n" +
+                    "  macOS:  brew services start postgresql@16\n" +
+                    "  check:  pg_isready -h 127.0.0.1 -p 5432";
+        firstLook = "pg_isready -h 127.0.0.1 -p 5432";
+      } else if (isTimeout) {
+        status    = "unreachable";
+        detail    = "Connection timed out — PostgreSQL may be starting up or port 5432 is firewalled";
+        action    = "Check PostgreSQL is reachable:\n" +
+                    "  pg_isready -h 127.0.0.1 -p 5432\n" +
+                    "  sudo systemctl status postgresql";
+        firstLook = "pg_isready -h 127.0.0.1 -p 5432";
+      } else if (isDns) {
+        status    = "unreachable";
+        detail    = "Hostname in DATABASE_URL could not be resolved";
+        action    = "Use '127.0.0.1' or 'localhost' as the host in DATABASE_URL for local installs";
+        firstLook = "echo $DATABASE_URL";
+      } else if (isAuth) {
+        status    = "degraded";
+        detail    = "Wrong credentials — password authentication failed";
+        action    = "Check the username and password in DATABASE_URL in your .env file";
+        firstLook = "echo $DATABASE_URL | sed 's/:.*@/:***@/'";
+      } else if (isMissingDb) {
+        const dbName = raw.match(/database "([^"]+)"/)?.[1] ?? "creatrix";
+        status    = "degraded";
+        detail    = `Database '${dbName}' does not exist`;
+        action    = `Create the database:\n  psql -U postgres -c "CREATE DATABASE ${dbName}"`;
+        firstLook = `psql -U postgres -c "\\\\l" | grep ${dbName}`;
+      } else if (isMissingRole) {
+        const roleName = raw.match(/role "([^"]+)"/)?.[1] ?? "creatrix";
+        status    = "degraded";
+        detail    = `PostgreSQL user '${roleName}' does not exist`;
+        action    = `Create the user:\n  psql -U postgres -c "CREATE USER ${roleName} WITH PASSWORD 'yourpassword'"`;
+        firstLook = `psql -U postgres -c "\\\\du" | grep ${roleName}`;
+      } else if (isSSL) {
+        status    = "degraded";
+        detail    = "SSL required but not configured — DATABASE_URL needs ?sslmode=disable for a local instance";
+        action    = "Append '?sslmode=disable' to DATABASE_URL for a local instance without TLS";
+        firstLook = "echo $DATABASE_URL";
+      } else if (isHba) {
+        status    = "degraded";
+        detail    = "PostgreSQL rejected the connection — pg_hba.conf doesn't allow this user/host combination";
+        action    = "Check pg_hba.conf — ensure a rule allows your user to connect from 127.0.0.1:\n" +
+                    "  sudo cat /etc/postgresql/*/main/pg_hba.conf | grep -v '^#'";
+        firstLook = "sudo cat /etc/postgresql/*/main/pg_hba.conf | grep -v '^#'";
+      } else {
+        status    = "unreachable";
+        detail    = "Connection failed";
+        action    = "Check DATABASE_URL and ensure PostgreSQL is running:\n  pg_isready -h 127.0.0.1 -p 5432";
+        firstLook = "psql $DATABASE_URL -c 'SELECT 1'";
+      }
+
+      return { ready: false, status, detail, latencyMs: null, action, firstLook };
     } finally {
       await client.end().catch(() => {});
     }
