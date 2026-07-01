@@ -116,7 +116,7 @@ app.use((req, res, next) => {
       await storage.initialize?.();
       log("Storage ready");
       // Kick off service runtime probes in background — not blocking startup.
-      import("./runtime/service-runtime").then(async ({ probeAll, startBackgroundProbes }) => {
+      import("./runtime/service-runtime").then(async ({ probeAll, startBackgroundProbes, getAllServiceStates }) => {
         try {
           const s = await storage.getSettings();
           await probeAll({
@@ -124,7 +124,20 @@ app.use((req, res, next) => {
             searxng:  (s as any).searchEndpoint  ?? null,
             whisper:  (s as any).whisperEndpoint  ?? null,
           });
-          log("Service runtime: initial probe complete");
+          // Print each service's probe result so the user sees readiness in the
+          // terminal before opening Creatrix — same pattern as Ollama's discovery line.
+          const states = getAllServiceStates();
+          for (const svc of Object.values(states)) {
+            const icon   = svc.ready ? "✓" : svc.status === "not_configured" ? "–" : "✗";
+            const ms     = svc.latencyMs != null ? ` (${svc.latencyMs}ms)` : "";
+            const detail = svc.detail ? ` — ${svc.detail}` : "";
+            log(`${svc.name}: ${icon} ${svc.status}${ms}${detail}`, "service");
+            if (!svc.ready && svc.action) {
+              // First line of action is the plain-language "what to do" — commands follow on subsequent lines.
+              const hint = svc.action.split("\n")[0].replace(/:$/, "");
+              log(`  → ${hint}`, "service");
+            }
+          }
           startBackgroundProbes(async () => {
             const settings = await storage.getSettings();
             return {
