@@ -31,15 +31,27 @@ interface CoherenceReport {
   measuredAt: string;
 }
 
-const DOMAIN_ORDER: CoherenceDomain[] = ["Identity", "Persistence", "Inference", "Knowledge", "Media"];
+// ── Participant / relationship classification ───────────────────────────────
+// Participants are named services the habitat hosts.
+// Relationships are the functional bonds that prove those services are working.
+// No ports, no endpoints, no HTTP — the panel is for participants, not admins.
 
-function groupByDomain(items: CoherenceItem[]): Map<CoherenceDomain, CoherenceItem[]> {
-  const map = new Map<CoherenceDomain, CoherenceItem[]>();
-  for (const domain of DOMAIN_ORDER) {
-    const group = items.filter(i => i.domain === domain);
-    if (group.length > 0) map.set(domain, group);
-  }
-  return map;
+function isParticipant(item: CoherenceItem): boolean {
+  if (item.domain === "Identity") return false;      // Commissioned → relationship
+  if (item.component === "Schema") return false;     // Database access → relationship
+  if (item.component === "Default model") return false; // Model discovery → relationship
+  return true;
+}
+
+function participantLabel(item: CoherenceItem): string {
+  return item.component; // Already human-readable: Database, Ollama, Search, Whisper
+}
+
+function relationshipLabel(item: CoherenceItem): string {
+  if (item.domain === "Identity") return "Commissioned identity";
+  if (item.component === "Schema") return "Database access";
+  if (item.component === "Default model") return "Model discovery";
+  return item.component;
 }
 
 function statusColor(status: "GREEN" | "AMBER" | "RED") {
@@ -49,8 +61,8 @@ function statusColor(status: "GREEN" | "AMBER" | "RED") {
 }
 
 function shortObserved(item: CoherenceItem): string {
-  if (item.actual === "absent") return `${item.component} missing`;
-  if (item.actual === "degraded") return `${item.component} unreachable`;
+  if (item.actual === "absent") return `${item.component} not set up`;
+  if (item.actual === "degraded") return `${item.component} not available`;
   return item.component;
 }
 
@@ -90,7 +102,8 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
 
   // ── GREEN mode ─────────────────────────────────────────────────────────────
   if (isHealthy) {
-    const domains = groupByDomain(report.items);
+    const participants = report.items.filter(isParticipant);
+    const relationships = report.items.filter(i => !isParticipant(i));
     return (
       <div
         className="font-mono text-xs border rounded-md bg-card border-border/40 overflow-hidden"
@@ -99,34 +112,47 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
         <button
           onClick={() => setExpanded(e => !e)}
           className="w-full flex items-center justify-between px-3 py-2 hover:bg-accent/50 transition-colors text-left"
-          title={expanded ? "Collapse coherence summary" : "Expand coherence summary"}
+          title={expanded ? "Collapse habitat summary" : "Expand habitat summary"}
           data-testid="button-coherence-toggle"
         >
           <span className={`font-semibold ${statusColor("GREEN")}`}>
-            Runtime coherence: GREEN
+            Ready to receive work.
           </span>
           <span className="text-muted-foreground text-[10px]">{expanded ? "▲" : "▼"}</span>
         </button>
 
         {expanded && (
-          <div className="px-3 pb-2 space-y-1.5 border-t border-border/30">
-            {Array.from(domains.entries()).map(([domain, items]) => (
-              <div key={domain} className="pt-1.5">
-                <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5">
-                  {domain}
+          <div className="px-3 pb-3 space-y-3 border-t border-border/30">
+            {participants.length > 0 && (
+              <div className="pt-2">
+                <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">
+                  Participants present
                 </div>
-                {items.map(item => (
-                  <div key={item.component} className="text-foreground/80 pl-1">
-                    <span className="text-green-600 dark:text-green-400 mr-1">✓</span>
-                    {item.component}
+                {participants.map(item => (
+                  <div key={item.component} className="text-foreground/80 pl-1 leading-5">
+                    <span className="text-green-600 dark:text-green-400 mr-1.5">✓</span>
+                    {participantLabel(item)}
                   </div>
                 ))}
               </div>
-            ))}
+            )}
+            {relationships.length > 0 && (
+              <div>
+                <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">
+                  Relationships
+                </div>
+                {relationships.map(item => (
+                  <div key={item.component} className="text-foreground/80 pl-1 leading-5">
+                    <span className="text-green-600 dark:text-green-400 mr-1.5">✓</span>
+                    {relationshipLabel(item)}
+                  </div>
+                ))}
+              </div>
+            )}
             {onOpenSystemLog && (
               <button
                 onClick={onOpenSystemLog}
-                className="text-muted-foreground hover:text-foreground transition-colors pt-1 block"
+                className="text-muted-foreground hover:text-foreground transition-colors block"
                 data-testid="button-coherence-open-log"
               >
                 View system log →
@@ -150,8 +176,12 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
       }`}
       data-testid="panel-runtime-coherence"
     >
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="text-muted-foreground">The runtime says:</div>
+      <div className="flex items-center justify-between mb-2">
+        <div className={`font-semibold text-sm ${statusColor(report.overallStatus)}`}>
+          {report.overallStatus === "RED"
+            ? "Not everything is ready yet"
+            : "Almost ready"}
+        </div>
         <button
           onClick={() => { setDismissed(true); setDismissedAt(report.measuredAt); }}
           title="Dismiss until next check"
@@ -162,19 +192,9 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
         </button>
       </div>
 
-      <div className={`font-semibold mb-2 ${statusColor(report.overallStatus)}`}>
-        Runtime coherence: {report.overallStatus}
-      </div>
-
-      {degradedDomains.map(domain => (
-        <div key={domain} className="text-foreground/90 mb-2">
-          {domain} relationship degraded.
-        </div>
-      ))}
-
       {coherentItems.length > 0 && (
         <div className="mb-2">
-          <div className="text-muted-foreground mb-0.5">Expected:</div>
+          <div className="text-muted-foreground mb-0.5">Available:</div>
           {coherentItems.map(item => (
             <div key={item.component} className="pl-1 text-foreground/70">
               <span className="text-green-600 dark:text-green-400 mr-1">✓</span>
@@ -185,7 +205,7 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
       )}
 
       <div className="mb-2">
-        <div className="text-muted-foreground mb-0.5">Observed:</div>
+        <div className="text-muted-foreground mb-0.5">Not ready yet:</div>
         {degradedItems.map(item => (
           <div key={item.component} className="pl-1 text-foreground/90">
             <span className={`mr-1 ${report.overallStatus === "RED" ? "text-red-500" : "text-amber-500"}`}>
@@ -198,7 +218,7 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
 
       {degradedItems.some(i => i.firstLook) && (
         <div className="mb-2">
-          <div className="text-muted-foreground mb-0.5">First place to look:</div>
+          <div className="text-muted-foreground mb-0.5">Where to start:</div>
           {degradedItems.filter(i => i.firstLook).map(item => (
             item.domain === "Identity" ? (
               <button
@@ -207,7 +227,7 @@ export function RuntimeCoherencePanel({ onOpenSystemLog }: RuntimeCoherencePanel
                 onClick={() => { window.location.href = "/setup"; }}
                 data-testid={`button-coherence-run-repair-${item.component}`}
               >
-                <span className="font-medium text-foreground/60">{item.component}: </span>View repair steps →
+                <span className="font-medium text-foreground/60">{item.component}: </span>Finish setup →
               </button>
             ) : (
               <div key={item.component} className="pl-1 text-foreground/80 whitespace-pre-wrap">

@@ -132,7 +132,7 @@ export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, o
           <div className="flex items-center gap-2">
             <Wrench className={`h-5 w-5 ${statusColor}`} />
             <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-              System repair
+              Environment status
             </p>
           </div>
           <Button
@@ -150,11 +150,11 @@ export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, o
           </Button>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Something needs attention
+          Getting your environment ready
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Your system was commissioned, but {degradedItems.length === 1 ? "one component has" : "some components have"} degraded since then.
-          Review the items below and follow the recommended steps to restore full coherence.
+          {degradedItems.length === 1 ? "One thing isn't" : "A few things aren't"} available yet.
+          Here's what's happening and where to start.
         </p>
       </div>
 

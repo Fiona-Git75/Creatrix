@@ -158,7 +158,7 @@ describe("RepairPanel — shared elements present regardless of status", () => {
   ] as const)("%s: heading, countdown, and Re-check button all render", (_label, coherence) => {
     render(<RepairPanel coherence={coherence} {...DEFAULT_PROPS} repairCountdown={15} />);
 
-    expect(screen.getByText("Something needs attention")).toBeInTheDocument();
+    expect(screen.getByText("Getting your environment ready")).toBeInTheDocument();
     expect(screen.getByTestId("text-repair-countdown")).toHaveTextContent("Checking again in 15s");
     expect(screen.getByTestId("button-recheck-now")).toBeInTheDocument();
   });

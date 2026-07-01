@@ -83,9 +83,9 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
         component: "Commissioned",
         expected: "completed",
         actual: "absent",
-        message: "System has not been commissioned.",
-        action: "Complete the setup wizard to establish a coherent baseline.",
-        firstLook: "Open Creatrix setup wizard",
+        message: "Setup hasn't been completed yet.",
+        action: "Complete setup to prepare the environment for use.",
+        firstLook: "Open setup to finish commissioning",
       }],
       measuredAt,
     };
@@ -169,7 +169,7 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
       component: "AI Connection",
       expected: "at least one commissioned",
       actual: "absent",
-      message: "No AI connection was registered during commissioning.",
+      message: "No AI connection has been set up yet.",
       action: "Add a connection in Settings → Connections.",
       firstLook: "Settings → Connections",
     });
@@ -186,8 +186,8 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
           component: label,
           expected: "commissioned connection present",
           actual: "absent",
-          message: `${label} was commissioned at ${expected.endpoint} but is no longer in Connections.`,
-          action: "Re-add the connection in Settings → Connections.",
+          message: `${label} was set up at ${expected.endpoint} but is no longer in Connections.`,
+          action: "Add it back in Settings → Connections.",
           firstLook: "Settings → Connections",
         });
       } else if (found.status === "offline") {
@@ -196,7 +196,7 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
           component: label,
           expected: "commissioned and reachable",
           actual: "degraded",
-          message: `${label} was commissioned but is currently unreachable.`,
+          message: `${label} was set up but isn't reachable right now.`,
           action: expected.provider === "ollama"
             ? "Run `ollama serve` in a terminal."
             : expected.provider === "lmstudio"
@@ -249,10 +249,10 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
       message: ready
         ? `SearXNG ready — ${svc!.detail}`
         : svc?.status === "not_configured"
-        ? "SearXNG was commissioned but is no longer configured in Settings."
+        ? "SearXNG was set up but is no longer configured in Settings."
         : isProbing
-        ? "SearXNG status is being determined…"
-        : `SearXNG not ready — ${svc?.detail ?? "unknown"}`,
+        ? "Checking whether SearXNG is available…"
+        : `SearXNG isn't available yet — ${svc?.detail ?? "unknown"}`,
       action: ready ? undefined : svc?.action,
       firstLook: ready ? undefined : svc?.firstLook,
     });
@@ -273,10 +273,10 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
       message: ready
         ? `Whisper ready — ${svc!.detail}`
         : svc?.status === "not_configured"
-        ? "Whisper was commissioned but is no longer configured in Settings."
+        ? "Whisper was set up but is no longer configured in Settings."
         : isProbing
-        ? "Whisper status is being determined…"
-        : `Whisper not ready — ${svc?.detail ?? "unknown"}`,
+        ? "Checking whether Whisper is available…"
+        : `Whisper isn't available yet — ${svc?.detail ?? "unknown"}`,
       action: ready ? undefined : svc?.action,
       firstLook: ready ? undefined : svc?.firstLook,
     });
