@@ -200,8 +200,6 @@ export async function scanConnection(connection: Connection): Promise<ProviderSt
     const result = await provider.listModelsWithStatus();
     // "empty" means reachable but no models installed — still online
     const online = result.status === "ok" || result.status === "empty" || result.models.length > 0;
-    console.log(`[discovery] scan ${connection.name} (${connection.endpoint}): status=${result.status} models=${result.models.length} → ${online ? "online" : "offline"}`);
-
     const models: ModelEntry[] = await Promise.all(
       result.models.map(async (m): Promise<ModelEntry> => {
         const base: ModelEntry = { id: m.id, name: m.name, size: m.size };
@@ -266,6 +264,10 @@ export async function scanConnectionLite(
 let _cache: ProvidersStatusResponse | null = null;
 let _cacheTime = 0;
 const CACHE_TTL = 30_000;
+
+// Auto-discovery state: track last known outcome so we only log changes.
+// null = never run, "found"/"absent" = last result for each auto-detected type.
+const _discoveryState: Record<string, "found" | "absent"> = {};
 
 export async function getProvidersStatus(forceRefresh = false): Promise<ProvidersStatusResponse> {
   if (!forceRefresh && _cache && Date.now() - _cacheTime < CACHE_TTL) return _cache;
@@ -336,15 +338,27 @@ export async function getProvidersStatus(forceRefresh = false): Promise<Provider
 
   if (ollamaResult) {
     const base = ollamaResult.endpoint.replace("/api/tags", "");
-    console.log(`[discovery] Ollama found at ${base} — ${ollamaResult.models.length} model(s)`);
+    if (_discoveryState["ollama"] !== "found") {
+      console.log(`[discovery] Ollama found at ${base} — ${ollamaResult.models.length} model(s)`);
+    }
+    _discoveryState["ollama"] = "found";
     suggested.push({ name: "Ollama", type: "ollama", endpoint: base, models: ollamaResult.models });
   } else {
-    console.log(`[discovery] Ollama not found — probed: ${ollamaCandidates.map(ep => `${ep}/api/tags`).join(", ")}`);
+    if (_discoveryState["ollama"] !== "absent") {
+      console.log(`[discovery] Ollama not found — probed: ${ollamaCandidates.map(ep => `${ep}/api/tags`).join(", ")}`);
+    }
+    _discoveryState["ollama"] = "absent";
   }
   if (lmResult && lmResult.models.length > 0) {
     const base = lmResult.endpoint.replace("/models", "");
-    console.log(`[discovery] LM Studio found at ${base} — ${lmResult.models.length} model(s)`);
+    if (_discoveryState["lmstudio"] !== "found") {
+      console.log(`[discovery] LM Studio found at ${base} — ${lmResult.models.length} model(s)`);
+    }
+    _discoveryState["lmstudio"] = "found";
     suggested.push({ name: "LM Studio", type: "lmstudio", endpoint: base, models: lmResult.models });
+  } else if (_discoveryState["lmstudio"] === "found") {
+    console.log(`[discovery] LM Studio no longer reachable`);
+    _discoveryState["lmstudio"] = "absent";
   }
 
   const result: ProvidersStatusResponse = { providers, suggested, scannedAt: new Date().toISOString() };

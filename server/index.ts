@@ -72,13 +72,24 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-      log(logLine);
+    if (!path.startsWith("/api")) return;
+
+    const status = res.statusCode;
+    const isGet  = req.method === "GET";
+    const isErr  = status >= 400;
+    const isSlow = duration > 1000;
+
+    // GETs that succeed quickly are background polling — not worth surfacing.
+    // Log: all mutations, all errors, slow GETs (anomalies).
+    if (isGet && !isErr && !isSlow) return;
+
+    let logLine = `${req.method} ${path} ${status} in ${duration}ms`;
+    if (capturedJsonResponse && isErr) {
+      // Errors: include the message/error field only — not the full response body.
+      const msg = capturedJsonResponse.message ?? capturedJsonResponse.error ?? null;
+      if (msg) logLine += ` — ${String(msg).slice(0, 120)}`;
     }
+    log(logLine);
   });
 
   next();
