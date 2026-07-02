@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, Pencil, FolderOpen, BrainCircuit, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, FolderOpen, BrainCircuit, ChevronDown, ChevronRight, GripVertical, FileText, Upload } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Project, Connection, Consultant } from "@shared/schema";
+import type { Project, Connection, Consultant, KnowledgeDocument } from "@shared/schema";
 
 interface ProjectsDialogProps {
   open: boolean;
@@ -92,6 +92,7 @@ function SortableProjectCard({
             onCancel={onCancel}
             isLoading={isUpdateLoading}
             submitLabel="Save Changes"
+            projectId={project.id}
           />
         ) : (
           <div className="space-y-3">
@@ -378,6 +379,207 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
   );
 }
 
+// ─── Project Documents ──────────────────────────────────────────────────────
+
+function ProjectDocuments({ projectId }: { projectId: string }) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+
+  const { data: docs = [], isLoading } = useQuery<KnowledgeDocument[]>({
+    queryKey: ["/api/documents", projectId],
+    queryFn: () => fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then(r => r.json()),
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async (payload: { title: string; content: string }) => {
+      return await apiRequest("POST", "/api/documents", { ...payload, projectId, source: "upload" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents", projectId] });
+      setDocTitle("");
+      setDocContent("");
+      setIsAdding(false);
+      toast({ title: "Document added" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Failed to add document", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/documents/${id}`, undefined);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents", projectId] });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete document", variant: "destructive" });
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setDocContent((ev.target?.result as string) ?? "");
+      if (!docTitle) setDocTitle(file.name.replace(/\.[^.]+$/, ""));
+      setIsUploading(false);
+      setIsAdding(true);
+    };
+    reader.onerror = () => {
+      toast({ title: "Could not read file", variant: "destructive" });
+      setIsUploading(false);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleAdd = () => {
+    if (!docTitle.trim() || !docContent.trim()) return;
+    addMutation.mutate({ title: docTitle.trim(), content: docContent.trim() });
+  };
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Project Documents</Label>
+        <div className="flex gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs gap-1"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            data-testid="button-upload-document"
+          >
+            {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Upload file
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs gap-1"
+            onClick={() => setIsAdding(!isAdding)}
+            data-testid="button-paste-document"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Paste text
+          </Button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.md,.markdown,.csv"
+          className="hidden"
+          onChange={handleFileChange}
+          data-testid="input-document-file"
+        />
+      </div>
+
+      {isLoading && (
+        <div className="text-xs text-muted-foreground py-1 flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+        </div>
+      )}
+
+      {!isLoading && docs.length === 0 && !isAdding && (
+        <p className="text-xs text-muted-foreground py-1">
+          No documents yet. Upload a file or paste text to add one.
+        </p>
+      )}
+
+      {docs.length > 0 && (
+        <div className="space-y-1">
+          {docs.map(doc => (
+            <div
+              key={doc.id}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/40 text-sm"
+              data-testid={`doc-item-${doc.id}`}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate">{doc.title}</span>
+              {Array.isArray(doc.chunks) && (
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {doc.chunks.length} chunk{doc.chunks.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 shrink-0"
+                onClick={() => deleteMutation.mutate(doc.id)}
+                disabled={deleteMutation.isPending}
+                data-testid={`button-delete-doc-${doc.id}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isAdding && (
+        <div className="space-y-2 border rounded-md p-3 bg-muted/20">
+          <div className="space-y-1">
+            <Label htmlFor="doc-title" className="text-xs">Title</Label>
+            <Input
+              id="doc-title"
+              value={docTitle}
+              onChange={e => setDocTitle(e.target.value)}
+              placeholder="Document title"
+              className="h-8 text-sm"
+              data-testid="input-doc-title"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="doc-content" className="text-xs">Content</Label>
+            <Textarea
+              id="doc-content"
+              value={docContent}
+              onChange={e => setDocContent(e.target.value)}
+              placeholder="Paste or type document content here…"
+              className="min-h-[80px] text-sm"
+              data-testid="input-doc-content"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => { setIsAdding(false); setDocTitle(""); setDocContent(""); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleAdd}
+              disabled={!docTitle.trim() || !docContent.trim() || addMutation.isPending}
+              data-testid="button-add-document"
+            >
+              {addMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+              Add Document
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Project Form ────────────────────────────────────────────────────────────
+
 interface ProjectFormProps {
   formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string };
   setFormData: (data: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string }) => void;
@@ -385,9 +587,10 @@ interface ProjectFormProps {
   onCancel: () => void;
   isLoading: boolean;
   submitLabel: string;
+  projectId?: string;
 }
 
-function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, submitLabel }: ProjectFormProps) {
+function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, submitLabel, projectId }: ProjectFormProps) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
@@ -457,6 +660,13 @@ function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, sub
           This context will be added to all conversations in this project.
         </p>
       </div>
+
+      {projectId && (
+        <>
+          <div className="border-t pt-4 mt-2" />
+          <ProjectDocuments projectId={projectId} />
+        </>
+      )}
 
       <div className="flex gap-2 justify-end">
         <Button type="button" variant="ghost" onClick={onCancel}>
