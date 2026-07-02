@@ -35,17 +35,35 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
   const commissionMutation = useMutation({
     mutationFn: async () => {
       const now = new Date().toISOString();
-      const res = await apiRequest("POST", "/api/bootstrap/complete", {
-        steps: [
-          {
-            step: 1,
-            component: "Database + Account",
+      const steps: Array<{ step: number; component: string; result: string; detail: string; timestamp: string }> = [
+        {
+          step: 1,
+          component: "Database + Account",
+          result: "OK",
+          detail: `Account created: ${authStatus.user?.username ?? "unknown"}`,
+          timestamp: now,
+        },
+      ];
+
+      try {
+        const connsRes = await apiRequest("GET", "/api/connections");
+        const conns: Array<{ id: string; name: string; provider: string; endpoint: string; defaultModel?: string; isDefault?: boolean }> =
+          await connsRes.json();
+        const defaultConn = conns.find(c => c.isDefault) ?? conns[0];
+        if (defaultConn) {
+          steps.push({
+            step: 2,
+            component: "AI Endpoint",
             result: "OK",
-            detail: `Account: ${authStatus.user?.username ?? "unknown"}`,
+            detail: `${defaultConn.provider} @ ${defaultConn.endpoint} — model: ${defaultConn.defaultModel ?? "default"}`,
             timestamp: now,
-          },
-        ],
-      });
+          });
+        }
+      } catch {
+        // non-fatal — manifest will fall back to live-connection check
+      }
+
+      const res = await apiRequest("POST", "/api/bootstrap/complete", { steps });
       return res.json();
     },
     onSuccess: () => {
