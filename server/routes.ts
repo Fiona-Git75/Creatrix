@@ -827,6 +827,13 @@ export async function registerRoutes(
       // when it reaches the edge of what it knows. Everything else builds on top.
       systemParts.push(CREATRIX_ORIENTATION);
 
+      // Day note — user's handoff/orientation note, set manually or dictated to the AI.
+      // Injected immediately after orientation so it colours everything that follows.
+      const chatSettings = await storage.getSettings();
+      if (chatSettings?.dayNote?.trim()) {
+        systemParts.push(`\n## Day Note\n${chatSettings.dayNote.trim()}`);
+      }
+
       // Get project system prompt and folder path if available
       let project: Awaited<ReturnType<typeof storage.getProject>> | undefined;
       if (projectId) {

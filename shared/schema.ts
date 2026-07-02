@@ -81,6 +81,7 @@ export const settings = pgTable("settings", {
   whisperEndpoint: text("whisper_endpoint"),
   searchEndpoint: text("search_endpoint"),
   embeddingModel: text("embedding_model"),
+  dayNote: text("day_note"),
 });
 
 // ─── Phase 2: Library ────────────────────────────────────────────────────────
@@ -298,6 +299,7 @@ export const settingsSchema = z.object({
   whisperEndpoint: z.string().optional(),
   searchEndpoint: z.string().optional(),
   embeddingModel: z.string().optional(),
+  dayNote: z.string().optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 

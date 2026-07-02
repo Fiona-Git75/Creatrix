@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Plus, Settings, FileText, ChevronDown, FolderOpen } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useRef, useEffect } from "react";
+import { Plus, Settings, FileText, ChevronDown, FolderOpen, NotebookPen } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -19,7 +19,8 @@ import { ProjectsDialog } from "./ProjectsDialog";
 import { MorningOrientation } from "./MorningOrientation";
 import { ToolStatusChip } from "./ToolStatusChip";
 import { RuntimeCoherencePanel } from "./RuntimeCoherencePanel";
-import type { Project } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Project, Settings as AppSettings } from "@shared/schema";
 
 interface AppSidebarProps {
   conversations: Conversation[];
@@ -50,10 +51,44 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(true);
+  const [localNote, setLocalNote] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
   });
+
+  const { data: settingsData } = useQuery<AppSettings>({
+    queryKey: ["/api/settings"],
+  });
+
+  const savedNote = settingsData?.dayNote ?? "";
+
+  useEffect(() => {
+    if (localNote === null && settingsData !== undefined) {
+      setLocalNote(settingsData.dayNote ?? "");
+    }
+  }, [settingsData, localNote]);
+
+  const saveMutation = useMutation({
+    mutationFn: (note: string) => apiRequest("PATCH", "/api/settings", { dayNote: note }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/settings"] }),
+  });
+
+  const handleNoteChange = (val: string) => {
+    setLocalNote(val);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveMutation.mutate(val), 800);
+  };
+
+  const handleNoteBlur = () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const current = localNote ?? savedNote;
+    if (current !== savedNote) saveMutation.mutate(current);
+  };
+
+  const displayNote = localNote ?? savedNote;
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) ?? null;
 
@@ -154,6 +189,40 @@ export function AppSidebar({
                     </button>
                   </SidebarMenuItem>
                 </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </SidebarGroup>
+
+          {/* Day Note */}
+          <SidebarGroup className="shrink-0 border-t border-border/40">
+            <button
+              onClick={() => setNoteOpen(o => !o)}
+              className="flex items-center justify-between w-full px-4 py-1 group"
+              data-testid="button-toggle-day-note"
+            >
+              <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+                <NotebookPen className="h-3 w-3" />
+                Day Note
+              </span>
+              <ChevronDown
+                className={`h-3 w-3 text-muted-foreground transition-transform duration-150 ${noteOpen ? "" : "-rotate-90"}`}
+              />
+            </button>
+
+            {noteOpen && (
+              <SidebarGroupContent className="px-3 pb-2">
+                <textarea
+                  value={displayNote}
+                  onChange={e => handleNoteChange(e.target.value)}
+                  onBlur={handleNoteBlur}
+                  placeholder="Start here tomorrow… what did we accomplish, where did we stop, what not to revisit?"
+                  rows={4}
+                  className="w-full text-xs text-foreground bg-muted/30 border border-border/50 rounded-md p-2 resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50 leading-relaxed"
+                  data-testid="textarea-day-note"
+                />
+                {saveMutation.isPending && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">saving…</p>
+                )}
               </SidebarGroupContent>
             )}
           </SidebarGroup>
