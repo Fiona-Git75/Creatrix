@@ -834,6 +834,9 @@ export async function registerRoutes(
         if (project?.systemPrompt) {
           systemParts.push(project.systemPrompt);
         }
+        if (project?.currentTask) {
+          systemParts.push(`\n## Current Focus\n${project.currentTask}`);
+        }
       }
 
       // Gather memories from all scopes

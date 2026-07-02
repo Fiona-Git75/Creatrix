@@ -742,20 +742,20 @@ export class DatabaseStorage implements IStorage {
 
   async getProjects(): Promise<Project[]> {
     const result = await this.db.select().from(projects).orderBy(projects.orderIndex);
-    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 }));
+    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 }));
   }
   async getProject(id: string): Promise<Project | undefined> {
     const result = await this.db.select().from(projects).where(eq(projects.id, id));
     if (!result[0]) return undefined;
     const p = result[0];
-    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 };
+    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0 };
   }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
     const countResult = await this.db.select().from(projects);
     const orderIndex = countResult.length;
-    await this.db.insert(projects).values({ ...insertProject, id, createdAt, orderIndex, description: insertProject.description ?? null, connectionId: insertProject.connectionId ?? null, systemPrompt: insertProject.systemPrompt ?? null });
+    await this.db.insert(projects).values({ ...insertProject, id, createdAt, orderIndex, description: insertProject.description ?? null, connectionId: insertProject.connectionId ?? null, systemPrompt: insertProject.systemPrompt ?? null, currentTask: insertProject.currentTask ?? null });
     return { ...insertProject, id, createdAt, orderIndex };
   }
   async updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined> {

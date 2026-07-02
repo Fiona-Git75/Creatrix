@@ -50,8 +50,8 @@ interface SortableProjectCardProps {
   project: Project;
   editingId: string | null;
   expandedConsultantsId: string | null;
-  formData: { name: string; description: string; systemPrompt: string; folderPath: string };
-  setFormData: (d: { name: string; description: string; systemPrompt: string; folderPath: string }) => void;
+  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string };
+  setFormData: (d: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string }) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   isUpdateLoading: boolean;
@@ -165,6 +165,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     name: "",
     description: "",
     systemPrompt: "",
+    currentTask: "",
     folderPath: "",
   });
 
@@ -251,6 +252,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       name: "",
       description: "",
       systemPrompt: "",
+      currentTask: "",
       folderPath: "",
     });
   };
@@ -261,6 +263,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       name: project.name,
       description: project.description || "",
       systemPrompt: project.systemPrompt || "",
+      currentTask: project.currentTask || "",
       folderPath: project.folderPath || "",
     });
   };
@@ -376,8 +379,8 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
 }
 
 interface ProjectFormProps {
-  formData: { name: string; description: string; systemPrompt: string; folderPath: string };
-  setFormData: (data: { name: string; description: string; systemPrompt: string; folderPath: string }) => void;
+  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string };
+  setFormData: (data: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string }) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   isLoading: boolean;
@@ -423,6 +426,20 @@ function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, sub
         />
         <p className="text-xs text-muted-foreground">
           Filesystem tools and library browsing will be scoped to this folder when this project is active.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="project-current-task">Current Task (optional)</Label>
+        <Input
+          id="project-current-task"
+          value={formData.currentTask}
+          onChange={(e) => setFormData({ ...formData, currentTask: e.target.value })}
+          placeholder="e.g. Recursive work on plant taxonomies"
+          data-testid="input-project-current-task"
+        />
+        <p className="text-xs text-muted-foreground">
+          What you're working on right now. The model reads this at the start of every conversation.
         </p>
       </div>
 

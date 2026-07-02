@@ -117,15 +117,22 @@ export function AppSidebar({
                           onProjectChange(project.id);
                           onNewChat();
                         }}
-                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2 ${
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors flex items-start gap-2 ${
                           selectedProjectId === project.id
                             ? "bg-accent text-accent-foreground font-medium"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                         }`}
                         data-testid={`option-project-${project.id}`}
                       >
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                        <span className="truncate">{project.name}</span>
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60 mt-0.5" />
+                        <span className="min-w-0">
+                          <span className="truncate block">{project.name}</span>
+                          {project.currentTask && (
+                            <span className="text-xs font-normal opacity-60 truncate block">
+                              ↳ {project.currentTask}
+                            </span>
+                          )}
+                        </span>
                       </button>
                     </SidebarMenuItem>
                   ))}
