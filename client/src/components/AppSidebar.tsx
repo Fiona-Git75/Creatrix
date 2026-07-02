@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Plus, Settings, FileText, ChevronDown, FolderOpen, NotebookPen } from "lucide-react";
+import { Plus, Settings, FileText, ChevronDown, FolderOpen, NotebookPen, Bookmark } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -33,6 +33,7 @@ interface AppSidebarProps {
   onProjectChange: (projectId: string | null) => void;
   onOpenSettings: () => void;
   onOpenDocs: () => void;
+  onOpenMoments?: () => void;
   onOpenSystemLog?: () => void;
 }
 
@@ -47,6 +48,7 @@ export function AppSidebar({
   onProjectChange,
   onOpenSettings,
   onOpenDocs,
+  onOpenMoments,
   onOpenSystemLog,
 }: AppSidebarProps) {
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
@@ -268,6 +270,15 @@ export function AppSidebar({
           >
             <FileText className="h-4 w-4" />
             Documents
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2"
+            onClick={onOpenMoments}
+            data-testid="button-open-moments"
+          >
+            <Bookmark className="h-4 w-4" />
+            Moments
           </Button>
           <Button
             variant="ghost"

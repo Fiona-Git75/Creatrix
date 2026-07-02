@@ -12,8 +12,10 @@ import {
   type WorkspaceDoc, type InsertWorkspaceDoc,
   type SystemLog,
   type Consultant, type InsertConsultant,
+  type ConversationFlag, type InsertConversationFlag,
   users, connections, projects, conversations, memoryEntries, knowledgeDocuments, settings,
   libraryFolders, libraryItems, journalEntries, systemLogs, workspaceDocs, consultants,
+  conversationFlags,
 } from "@shared/schema";
 import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
@@ -118,6 +120,12 @@ export interface IStorage {
   clearSystemLogs(): Promise<void>;
   pruneSystemLogs(olderThanDays: number): Promise<void>;
 
+  // ─── Conversation Flags ─────────────────────────────────────────────────────
+  getFlags(projectId?: string): Promise<ConversationFlag[]>;
+  createFlag(flag: InsertConversationFlag): Promise<ConversationFlag>;
+  deleteFlag(id: string): Promise<boolean>;
+  searchFlags(query: string, projectId?: string): Promise<ConversationFlag[]>;
+
   // ─── Consultants ───────────────────────────────────────────────────────────
   getConsultants(projectId: string): Promise<Consultant[]>;
   getConsultant(id: string): Promise<Consultant | undefined>;
@@ -143,6 +151,7 @@ export class MemStorage implements IStorage {
   private _libraryFolders: Map<string, LibraryFolder>;
   private _libraryItems: Map<string, LibraryItem>;
   private _journalEntries: Map<string, JournalEntry>;
+  private _flags: Map<string, ConversationFlag>;
   private _consultants: Map<string, Consultant>;
   private settings: Settings;
 
@@ -156,6 +165,7 @@ export class MemStorage implements IStorage {
     this._libraryFolders = new Map();
     this._libraryItems = new Map();
     this._journalEntries = new Map();
+    this._flags = new Map();
     this._consultants = new Map();
     this.settings = { theme: "system", morningOrientationEnabled: false };
 
@@ -518,6 +528,30 @@ export class MemStorage implements IStorage {
     return Array.from(this._journalEntries.values())
       .filter(e => new Date(e.createdAt).getTime() >= sinceTime)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  // ─── Conversation Flags ─────────────────────────────────────────────────────
+  async getFlags(projectId?: string): Promise<ConversationFlag[]> {
+    let all = Array.from(this._flags.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (projectId) all = all.filter(f => f.projectId === projectId);
+    return all;
+  }
+  async createFlag(flag: InsertConversationFlag): Promise<ConversationFlag> {
+    const id = randomUUID();
+    const created: ConversationFlag = { ...flag, id, createdAt: new Date().toISOString() };
+    this._flags.set(id, created);
+    return created;
+  }
+  async deleteFlag(id: string): Promise<boolean> {
+    return this._flags.delete(id);
+  }
+  async searchFlags(query: string, projectId?: string): Promise<ConversationFlag[]> {
+    const lower = query.toLowerCase();
+    return (await this.getFlags(projectId)).filter(f =>
+      f.pivotSentence.toLowerCase().includes(lower) ||
+      (f.note ?? "").toLowerCase().includes(lower) ||
+      f.conversationTitle.toLowerCase().includes(lower)
+    );
   }
 
   // ─── Workspace Documents ────────────────────────────────────────────────────
@@ -1133,6 +1167,36 @@ export class DatabaseStorage implements IStorage {
   }
   private _mapJournalEntry(e: typeof journalEntries.$inferSelect): JournalEntry {
     return { ...e, type: e.type as JournalEntry["type"], detail: e.detail ?? undefined, relatedPath: e.relatedPath ?? undefined, relatedLibraryItemId: e.relatedLibraryItemId ?? undefined, relatedConversationId: e.relatedConversationId ?? undefined, resolved: e.resolved ?? false };
+  }
+
+  // ─── Conversation Flags ─────────────────────────────────────────────────────
+  async getFlags(projectId?: string): Promise<ConversationFlag[]> {
+    const rows = projectId
+      ? await this.db.select().from(conversationFlags).where(eq(conversationFlags.projectId, projectId)).orderBy(desc(conversationFlags.createdAt))
+      : await this.db.select().from(conversationFlags).orderBy(desc(conversationFlags.createdAt));
+    return rows.map(r => ({ ...r, projectId: r.projectId ?? undefined, note: r.note ?? undefined }));
+  }
+  async createFlag(flag: InsertConversationFlag): Promise<ConversationFlag> {
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    const row = { ...flag, id, createdAt, projectId: flag.projectId ?? null, note: flag.note ?? null };
+    await this.db.insert(conversationFlags).values(row);
+    return { ...flag, id, createdAt };
+  }
+  async deleteFlag(id: string): Promise<boolean> {
+    await this.db.delete(conversationFlags).where(eq(conversationFlags.id, id));
+    return true;
+  }
+  async searchFlags(query: string, projectId?: string): Promise<ConversationFlag[]> {
+    const pattern = `%${query.toLowerCase()}%`;
+    const rows = projectId
+      ? await this.db.select().from(conversationFlags).where(
+          sql`(lower(${conversationFlags.pivotSentence}) LIKE ${pattern} OR lower(coalesce(${conversationFlags.note}, '')) LIKE ${pattern} OR lower(${conversationFlags.conversationTitle}) LIKE ${pattern}) AND ${conversationFlags.projectId} = ${projectId}`
+        ).orderBy(desc(conversationFlags.createdAt))
+      : await this.db.select().from(conversationFlags).where(
+          sql`lower(${conversationFlags.pivotSentence}) LIKE ${pattern} OR lower(coalesce(${conversationFlags.note}, '')) LIKE ${pattern} OR lower(${conversationFlags.conversationTitle}) LIKE ${pattern}`
+        ).orderBy(desc(conversationFlags.createdAt));
+    return rows.map(r => ({ ...r, projectId: r.projectId ?? undefined, note: r.note ?? undefined }));
   }
 
   // ─── Workspace Documents ────────────────────────────────────────────────────

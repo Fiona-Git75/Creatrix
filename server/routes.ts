@@ -1437,6 +1437,52 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Conversation Flags ─────────────────────────────────────────────────────
+  app.get("/api/flags", async (req: Request, res: Response) => {
+    try {
+      const projectId = req.query.projectId as string | undefined;
+      const q = req.query.q as string | undefined;
+      const flags = q
+        ? await storage.searchFlags(q, projectId)
+        : await storage.getFlags(projectId);
+      res.json(flags);
+    } catch (error) {
+      console.error("Error fetching flags:", error);
+      res.status(500).json({ error: "Failed to fetch flags" });
+    }
+  });
+
+  app.post("/api/flags", async (req: Request, res: Response) => {
+    try {
+      const { conversationId, conversationTitle, projectId, messageIndex, pivotSentence, note } = req.body;
+      if (!conversationId || !pivotSentence) {
+        return res.status(400).json({ error: "conversationId and pivotSentence are required" });
+      }
+      const flag = await storage.createFlag({
+        conversationId,
+        conversationTitle: conversationTitle ?? "Conversation",
+        projectId: projectId ?? undefined,
+        messageIndex: messageIndex ?? 0,
+        pivotSentence,
+        note: note ?? undefined,
+      });
+      res.json(flag);
+    } catch (error) {
+      console.error("Error creating flag:", error);
+      res.status(500).json({ error: "Failed to create flag" });
+    }
+  });
+
+  app.delete("/api/flags/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteFlag(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting flag:", error);
+      res.status(500).json({ error: "Failed to delete flag" });
+    }
+  });
+
   // === Tool activation status ===
   app.get("/api/tools/status", async (_req: Request, res: Response) => {
     try {

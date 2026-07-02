@@ -1,8 +1,12 @@
-import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen } from "lucide-react";
+import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Source, MessageImage } from "@shared/schema";
 
 export interface Message {
@@ -16,6 +20,10 @@ export interface Message {
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  messageIndex?: number;
+  conversationId?: string;
+  conversationTitle?: string;
+  projectId?: string;
 }
 
 const SOURCE_ICONS: Record<Source["type"], React.ElementType> = {
@@ -47,14 +55,47 @@ function SourceCitations({ sources }: { sources: Source[] }) {
   );
 }
 
-export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming, messageIndex = 0, conversationId, conversationTitle, projectId }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [isFlagging, setIsFlagging] = useState(false);
+  const [pivot, setPivot] = useState("");
+  const [flagNote, setFlagNote] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [flagged, setFlagged] = useState(false);
   const isUser = message.role === "user";
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const openFlag = () => {
+    const trimmed = message.content.slice(0, 320);
+    setPivot(trimmed);
+    setFlagNote("");
+    setIsFlagging(true);
+  };
+
+  const saveFlag = async () => {
+    if (!pivot.trim() || !conversationId) return;
+    setIsSaving(true);
+    try {
+      await apiRequest("POST", "/api/flags", {
+        conversationId,
+        conversationTitle: conversationTitle ?? "Conversation",
+        projectId,
+        messageIndex,
+        pivotSentence: pivot.trim(),
+        note: flagNote.trim() || undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/flags"] });
+      setFlagged(true);
+      setIsFlagging(false);
+      setTimeout(() => setFlagged(false), 3000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -111,22 +152,79 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             <SourceCitations sources={message.sources} />
           )}
 
-          {!isUser && !isStreaming && (
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleCopy}
-                className="h-8 w-8"
-                data-testid={`button-copy-${message.id}`}
-                aria-label="Copy message"
-              >
-                {copied ? (
-                  <Check className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
+          {!isStreaming && (
+            <div className={cn(
+              "opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 mt-0.5",
+              isUser ? "justify-end" : ""
+            )}>
+              {!isUser && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleCopy}
+                  className="h-8 w-8"
+                  data-testid={`button-copy-${message.id}`}
+                  aria-label="Copy message"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+              {conversationId && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={openFlag}
+                  className="h-8 w-8"
+                  data-testid={`button-flag-${message.id}`}
+                  aria-label="Flag this moment"
+                >
+                  <Bookmark className={cn("h-4 w-4", flagged && "fill-current text-amber-500")} />
+                </Button>
+              )}
+            </div>
+          )}
+
+          {isFlagging && (
+            <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-background p-3 text-sm shadow-sm">
+              <Label className="text-xs font-medium">Pivot sentence</Label>
+              <Textarea
+                value={pivot}
+                onChange={e => setPivot(e.target.value)}
+                className="min-h-[72px] text-sm resize-none"
+                placeholder="The sentence that shifted the landscape…"
+                data-testid={`input-pivot-${message.id}`}
+              />
+              <Label className="text-xs font-medium text-muted-foreground">Note (optional)</Label>
+              <Input
+                value={flagNote}
+                onChange={e => setFlagNote(e.target.value)}
+                placeholder="What shifted, what it connects to…"
+                className="text-sm h-8"
+                data-testid={`input-flagnote-${message.id}`}
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setIsFlagging(false)}
+                  data-testid={`button-flag-cancel-${message.id}`}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={saveFlag}
+                  disabled={!pivot.trim() || isSaving}
+                  data-testid={`button-flag-save-${message.id}`}
+                >
+                  {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+                  Save moment
+                </Button>
+              </div>
             </div>
           )}
         </div>

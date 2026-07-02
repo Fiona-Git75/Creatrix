@@ -23,6 +23,7 @@ import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { SystemLogPanel } from "@/components/SystemLogPanel";
+import { MomentsPanel } from "@/components/MomentsPanel";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
 import { DocumentPanel } from "@/components/DocumentPanel";
@@ -168,6 +169,7 @@ function ChatContent({
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(false);
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [systemLogOpen, setSystemLogOpen] = useState(false);
+  const [momentsOpen, setMomentsOpen] = useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [docPanelWidth, setDocPanelWidth] = useState(480);
   const [focusMode, setFocusMode] = useState(false);
@@ -232,6 +234,7 @@ function ChatContent({
         onProjectChange={onProjectChange}
         onOpenSettings={onOpenSettings}
         onOpenDocs={() => onDocChange(null)}
+        onOpenMoments={() => setMomentsOpen(true)}
         onOpenSystemLog={() => setSystemLogOpen(true)}
       />
 
@@ -367,6 +370,11 @@ function ChatContent({
         <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
         <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />
         <SystemLogPanel open={systemLogOpen} onOpenChange={setSystemLogOpen} />
+        <MomentsPanel
+          open={momentsOpen}
+          onOpenChange={setMomentsOpen}
+          onSelectConversation={onSelectConversation}
+        />
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}
@@ -379,11 +387,15 @@ function ChatContent({
             <>
               <ScrollArea className="flex-1">
                 <div className="py-4">
-                  {displayMessages.map((message) => (
+                  {displayMessages.map((message, idx) => (
                     <ChatMessage
                       key={message.id}
                       message={message}
                       isStreaming={message.id === "streaming"}
+                      messageIndex={idx}
+                      conversationId={activeConversation?.id}
+                      conversationTitle={activeConversation?.title}
+                      projectId={selectedProjectId ?? undefined}
                     />
                   ))}
 

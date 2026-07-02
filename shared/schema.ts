@@ -355,6 +355,33 @@ export type JournalEntry = z.infer<typeof journalEntrySchema>;
 export const insertJournalEntrySchema = journalEntrySchema.omit({ id: true, createdAt: true });
 export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
 
+// ─── Conversation Flags (Moments) ────────────────────────────────────────────
+
+export const conversationFlags = pgTable("conversation_flags", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  conversationId: varchar("conversation_id", { length: 36 }).notNull(),
+  conversationTitle: text("conversation_title").notNull(),
+  projectId: varchar("project_id", { length: 36 }),
+  messageIndex: integer("message_index").notNull().default(0),
+  pivotSentence: text("pivot_sentence").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const flagSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  conversationTitle: z.string(),
+  projectId: z.string().optional(),
+  messageIndex: z.number(),
+  pivotSentence: z.string(),
+  note: z.string().optional(),
+  createdAt: z.string(),
+});
+export type ConversationFlag = z.infer<typeof flagSchema>;
+export const insertFlagSchema = flagSchema.omit({ id: true, createdAt: true });
+export type InsertConversationFlag = z.infer<typeof insertFlagSchema>;
+
 // Filesystem capability — supported readable extensions
 export const readableExtensions = [
   ".md", ".txt", ".docx", ".pdf", ".rtf", ".odt", ".epub",
