@@ -113,7 +113,7 @@ function SortableProjectCard({
                 )}
                 {project.systemPrompt && (
                   <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                    System prompt configured
+                    Project context configured
                   </p>
                 )}
                 {project.folderPath && (
@@ -300,7 +300,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
             ) : projects.length === 0 && !isFormVisible ? (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="mb-2">Projects organize your conversations</p>
-                <p className="text-sm mb-4">Each project can have its own system prompt and context.</p>
+                <p className="text-sm mb-4">Each project can have its own context and orientation.</p>
                 <Button onClick={() => setIsAdding(true)} data-testid="button-add-first-project">
                   <Plus className="h-4 w-4 mr-2" />
                   Create Your First Project
@@ -427,17 +427,17 @@ function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, sub
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="project-system-prompt">System Prompt (optional)</Label>
+        <Label htmlFor="project-system-prompt">Project Context (optional)</Label>
         <Textarea
           id="project-system-prompt"
           value={formData.systemPrompt}
           onChange={(e) => setFormData({ ...formData, systemPrompt: e.target.value })}
-          placeholder="You are a helpful assistant specialized in..."
+          placeholder="This project is focused on..."
           className="min-h-[100px]"
           data-testid="input-project-system-prompt"
         />
         <p className="text-xs text-muted-foreground">
-          This prompt will be added to all conversations in this project.
+          This context will be added to all conversations in this project.
         </p>
       </div>
 

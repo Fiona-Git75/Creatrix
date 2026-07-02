@@ -68,7 +68,10 @@ export function AppSidebar({
 
           <ProjectSelector
             selectedProjectId={selectedProjectId}
-            onProjectChange={onProjectChange}
+            onProjectChange={(projectId) => {
+              onProjectChange(projectId);
+              if (projectId !== null) onNewChat();
+            }}
             onManageProjects={() => setProjectsDialogOpen(true)}
           />
         </SidebarHeader>
