@@ -164,15 +164,31 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
   const providerStatus = await getProvidersStatus(false).catch(() => null);
 
   if (expects.aiConnections.length === 0) {
-    items.push({
-      domain: "Inference",
-      component: "AI Connection",
-      expected: "at least one commissioned",
-      actual: "absent",
-      message: "No AI connection has been set up yet.",
-      action: "Add a connection in Settings → Connections.",
-      firstLook: "Settings → Connections",
-    });
+    // Manifest was sealed without recording an AI connection (e.g. via the
+    // post-bootstrap commission button which only records account details).
+    // Fall back to live connections rather than declaring failure.
+    const liveProviders = providerStatus?.providers.filter(p => p.status === "online") ?? [];
+    if (liveProviders.length === 0) {
+      items.push({
+        domain: "Inference",
+        component: "AI Connection",
+        expected: "at least one connection present",
+        actual: "absent",
+        message: "No AI connection is reachable. Add one in Settings → Connections.",
+        action: "Add a connection in Settings → Connections.",
+        firstLook: "Settings → Connections",
+      });
+    } else {
+      for (const p of liveProviders) {
+        items.push({
+          domain: "Inference",
+          component: providerLabel(p.name ?? p.endpoint),
+          expected: "reachable",
+          actual: "coherent",
+          message: `${p.name ?? p.endpoint} online — ${p.models.length} model(s) available.`,
+        });
+      }
+    }
   } else {
     for (const expected of expects.aiConnections) {
       const label = providerLabel(expected.provider);
