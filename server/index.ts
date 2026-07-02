@@ -126,6 +126,9 @@ app.use((req, res, next) => {
       log("Initializing storage…");
       await storage.initialize?.();
       log("Storage ready");
+      log("Initializing routes…");
+      await registerRoutes(httpServer, app);
+      log("Routes registered");
       // ── Morning Roll Call ─────────────────────────────────────────────────────
       // Probes services and Ollama in parallel, then prints a coordinated
       // ecological status block — before the browser is open.
