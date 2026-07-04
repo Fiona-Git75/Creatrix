@@ -24,7 +24,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { DatabaseStorage } from "@server/storage";
-import { rmSync, existsSync } from "fs";
+import { rmSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createClient } from "@libsql/client";
@@ -519,5 +519,128 @@ describe("DatabaseStorage – fresh-install migration from empty database", () =
     expect(retrieved!.title).toBe("Fresh-install round-trip");
     expect(retrieved!.messages).toHaveLength(1);
     expect(retrieved!.messages[0].content).toBe("Does the fresh schema work?");
+  });
+});
+
+// ── Incremental migration path ─────────────────────────────────────────────────
+//
+// Verifies that _runMigrations skips an already-applied migration and only
+// executes the new one. This guards against regressions in the runner that
+// could silently leave future schema additions unapplied on upgrade.
+//
+// Strategy:
+//   1. Call initialize() so __creatrix_migrations already contains
+//      "0000_sweet_red_shift" and every real application table exists.
+//   2. Build a synthetic migrations folder whose journal lists BOTH the
+//      existing migration and a new "0001_add_test_col" entry.
+//   3. Call _runMigrations() (via `as any`) pointing at the synthetic folder.
+//   4. Assert the new column was created (proving only the new migration ran)
+//      and that both tags are recorded in __creatrix_migrations.
+
+describe("DatabaseStorage – incremental migration (second migration file)", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-incr-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("skips the already-applied migration and only runs the new one", async () => {
+    // Step 1: Full initialize — __creatrix_migrations now contains "0000_sweet_red_shift"
+    // and all real application tables exist (including `settings`).
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    // Journal lists both the real first migration and the new synthetic one.
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 1000000000000, tag: "0000_sweet_red_shift", breakpoints: true },
+        { idx: 1, version: "6", when: 2000000000000, tag: "0001_add_test_col",    breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Migration 0000 SQL adds a sentinel column — if the runner incorrectly
+    // re-executes this file the column will appear in the database and the
+    // assertion below will catch it.  The runner must skip this file entirely
+    // because "0000_sweet_red_shift" is already recorded in __creatrix_migrations.
+    writeFileSync(
+      join(tmpMigrationsDir, "0000_sweet_red_shift.sql"),
+      "ALTER TABLE settings ADD COLUMN migration_zero_ran TEXT"
+    );
+
+    // The new migration adds a different column that does not yet exist.
+    writeFileSync(
+      join(tmpMigrationsDir, "0001_add_test_col.sql"),
+      "ALTER TABLE settings ADD COLUMN test_col TEXT"
+    );
+
+    // Step 3: Snapshot the migration count BEFORE calling the incremental runner,
+    // so we can assert exactly one new row was added (not two) regardless of how
+    // many real migrations accumulate in the project over time.
+    const client = createClient({ url: `file:${dbPath}` });
+    const beforeResult = await client.execute(
+      "SELECT COUNT(*) as cnt FROM __creatrix_migrations"
+    );
+    const countBefore = beforeResult.rows[0]["cnt"] as number;
+
+    // Step 4: Run _runMigrations with the synthetic folder.
+    await (storage as any)._runMigrations(tmpMigrationsDir);
+
+    // --- Prove migration 0001 ran: test_col must exist. ---
+    // SELECT against it throws if the column is absent.
+    await client.execute("SELECT test_col FROM settings LIMIT 0");
+
+    // --- Prove migration 0000 was skipped: migration_zero_ran must NOT exist. ---
+    // PRAGMA table_info returns one row per column; none should be named
+    // "migration_zero_ran" if the runner correctly skipped the already-applied file.
+    const pragmaResult = await client.execute("PRAGMA table_info(settings)");
+    const columnNames = pragmaResult.rows.map((r) => r["name"] as string);
+    expect(
+      columnNames,
+      "migration_zero_ran column must NOT exist — proves 0000 was skipped, not re-executed"
+    ).not.toContain("migration_zero_ran");
+
+    // --- Prove exactly one new tracking row was added (for 0001 only). ---
+    // Using a delta rather than an absolute count keeps the assertion valid as
+    // more real migrations are added to the project in future releases.
+    const afterResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations"
+    );
+    const tags = afterResult.rows.map((r) => r["tag"] as string);
+
+    expect(
+      tags.length - countBefore,
+      "exactly one new migration should have been recorded (0001_add_test_col)"
+    ).toBe(1);
+    expect(tags).toContain("0000_sweet_red_shift");
+    expect(tags).toContain("0001_add_test_col");
+
+    await client.close();
   });
 });
