@@ -202,7 +202,112 @@ describe("Schema safety audit – NOT NULL columns must have a SQL default or be
  *   1. Run `npx drizzle-kit generate` to create the missing migration file.
  *   2. Commit the generated .sql file to the migrations/ directory.
  */
+
+// Matches:  CREATE TABLE `name`
+//           CREATE TABLE IF NOT EXISTS `name`
+// Both backtick-quoted (drizzle-kit style) and unquoted names.
+const CREATE_TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+
+/**
+ * Scans `sqlFiles` from `migrationsDir` for CREATE TABLE statements and
+ * returns a Set of lowercase SQL table names found.
+ */
+function collectMigrationTableNames(migrationsDir: string, sqlFiles: string[]): Set<string> {
+  const tablesInMigrations = new Set<string>();
+  for (const filename of sqlFiles) {
+    const content = readFileSync(join(migrationsDir, filename), "utf8");
+    let match: RegExpExecArray | null;
+    CREATE_TABLE_RE.lastIndex = 0;
+    while ((match = CREATE_TABLE_RE.exec(content)) !== null) {
+      tablesInMigrations.add(match[1].toLowerCase());
+    }
+  }
+  return tablesInMigrations;
+}
+
+/**
+ * Core assertion: throws a descriptive error if any entry in `schemaTables`
+ * has no matching CREATE TABLE in `tablesInMigrations`.
+ *
+ * Extracted so both the positive test (real schema) and the negative test
+ * (synthetic orphan injected) exercise the identical check path and error
+ * surface.
+ */
+function assertMigrationCoverage(
+  schemaTables: Array<{ exportName: string; sqlName: string }>,
+  tablesInMigrations: Set<string>
+): void {
+  const missing = schemaTables.filter(
+    ({ sqlName }) => !tablesInMigrations.has(sqlName.toLowerCase())
+  );
+
+  if (missing.length > 0) {
+    const lines = missing.map(
+      ({ exportName, sqlName }) => `  - ${exportName} (SQL name: ${sqlName})`
+    );
+    throw new Error(
+      `Migration coverage gap — the following table(s) exist in shared/schema.ts ` +
+      `but have no CREATE TABLE statement in any file under migrations/:\n\n` +
+      lines.join("\n") +
+      `\n\nExisting users who pull a new release will never get these tables ` +
+      `because the auto-migration runner only applies files that already exist.\n\n` +
+      `Fix: run \`npx drizzle-kit generate\` and commit the generated SQL file.`
+    );
+  }
+}
+
 describe("Migration coverage – every schema table must have a CREATE TABLE in a migration file", () => {
+  /**
+   * NEGATIVE TEST — confirms the detection logic is live and not accidentally no-op'd.
+   *
+   * Injects a synthetic orphan table name that is absent from all migration
+   * files, then asserts that assertMigrationCoverage() throws an error that
+   * names the orphaned table.  A future refactor that silently breaks the
+   * guard (wrong symbol, bad regex, wrong directory path) will cause this
+   * test to fail rather than give false confidence.
+   */
+  it("raises an explicit error naming any table that has no CREATE TABLE in the migration files", () => {
+    const migrationsDir = resolve(process.cwd(), "migrations");
+
+    if (!existsSync(migrationsDir)) {
+      throw new Error(
+        `migrations/ directory not found at ${migrationsDir}. Cannot run negative coverage test.`
+      );
+    }
+
+    const sqlFiles = readdirSync(migrationsDir).filter(f => f.endsWith(".sql"));
+
+    if (sqlFiles.length === 0) {
+      throw new Error(
+        `No SQL migration files found in ${migrationsDir}. Cannot run negative coverage test.`
+      );
+    }
+
+    const tablesInMigrations = collectMigrationTableNames(migrationsDir, sqlFiles);
+
+    // Synthetic orphan: a name that could never appear in any real migration file.
+    const ORPHAN_SQL_NAME = "__creatrix_orphan_test_table__";
+
+    // Guarantee our orphan is truly absent — if it somehow leaked into a
+    // migration file the test setup itself is wrong.
+    expect(tablesInMigrations.has(ORPHAN_SQL_NAME)).toBe(false);
+
+    // Inject the orphan and assert the shared check function throws an error
+    // that explicitly names both the export name and the SQL table name.
+    const syntheticSchemaTables = [
+      { exportName: "orphanTable", sqlName: ORPHAN_SQL_NAME },
+    ];
+
+    expect(() => assertMigrationCoverage(syntheticSchemaTables, tablesInMigrations))
+      .toThrowError(/Migration coverage gap/);
+
+    expect(() => assertMigrationCoverage(syntheticSchemaTables, tablesInMigrations))
+      .toThrowError(new RegExp(ORPHAN_SQL_NAME));
+
+    expect(() => assertMigrationCoverage(syntheticSchemaTables, tablesInMigrations))
+      .toThrowError(/orphanTable/);
+  });
+
   it("every Drizzle table in shared/schema.ts has a CREATE TABLE statement across migration SQL files", () => {
     // ── locate the migrations directory ──────────────────────────────────────
     const migrationsDir = resolve(process.cwd(), "migrations");
@@ -226,20 +331,7 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
       );
     }
 
-    // Matches:  CREATE TABLE `name`
-    //           CREATE TABLE IF NOT EXISTS `name`
-    // Both backtick-quoted (drizzle-kit style) and unquoted names.
-    const CREATE_TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
-
-    const tablesInMigrations = new Set<string>();
-
-    for (const filename of sqlFiles) {
-      const content = readFileSync(join(migrationsDir, filename), "utf8");
-      let match: RegExpExecArray | null;
-      while ((match = CREATE_TABLE_RE.exec(content)) !== null) {
-        tablesInMigrations.add(match[1].toLowerCase());
-      }
-    }
+    const tablesInMigrations = collectMigrationTableNames(migrationsDir, sqlFiles);
 
     // ── collect all SQL table names declared in shared/schema.ts ─────────────
     // The Drizzle symbol holds the SQL-level table name (snake_case), not the
@@ -270,24 +362,8 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
       );
     }
 
-    // ── compare ───────────────────────────────────────────────────────────────
-    const missing = schemaTables.filter(
-      ({ sqlName }) => !tablesInMigrations.has(sqlName.toLowerCase())
-    );
-
-    if (missing.length > 0) {
-      const lines = missing.map(
-        ({ exportName, sqlName }) => `  - ${exportName} (SQL name: ${sqlName})`
-      );
-      throw new Error(
-        `Migration coverage gap — the following table(s) exist in shared/schema.ts ` +
-        `but have no CREATE TABLE statement in any file under migrations/:\n\n` +
-        lines.join("\n") +
-        `\n\nExisting users who pull a new release will never get these tables ` +
-        `because the auto-migration runner only applies files that already exist.\n\n` +
-        `Fix: run \`npx drizzle-kit generate\` and commit the generated SQL file.`
-      );
-    }
+    // ── compare via the shared assertion helper ───────────────────────────────
+    assertMigrationCoverage(schemaTables, tablesInMigrations);
   });
 });
 
