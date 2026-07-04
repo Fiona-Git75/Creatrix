@@ -561,6 +561,78 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBeDefined();
   });
 
+  // ── 7c. clearMemory('project') without a scopeId is a no-op ─────────────────
+  //
+  // The guard `scope === "project" && scopeId` in clearMemory means that
+  // omitting scopeId must leave every project-scoped row untouched.
+  // This test pins that behaviour so a future change that accidentally drops
+  // the scopeId check would be caught immediately rather than silently wiping
+  // all project memory across every project at once.
+
+  it("clearMemory('project') without a scopeId is a no-op — all project entries survive", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write project-scoped entries for three distinct projects
+    const entryAlpha = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-noop-alpha",
+      content: "Alpha: use ESLint with airbnb rules.",
+      summary: "ESLint airbnb",
+    });
+
+    const entryBeta = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-noop-beta",
+      content: "Beta: deploy to Fly.io staging first.",
+      summary: "Fly.io staging",
+    });
+
+    const entryGamma = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-noop-gamma",
+      content: "Gamma: all API responses must include a requestId.",
+      summary: "requestId convention",
+    });
+
+    // Also write a global entry to confirm it is unaffected
+    const globalEntry = await storage.createMemoryEntry({
+      scope: "global",
+      content: "Global: prefer ES modules over CommonJS.",
+      summary: "ES modules",
+    });
+
+    // Call clearMemory("project") with NO scopeId — must be a no-op
+    const result = await storage.clearMemory("project");
+    expect(result).toBe(true);
+
+    // All three project-scoped entries must still be present
+    const alphaEntries = await storage.getMemoryEntries("project", "proj-noop-alpha");
+    expect(
+      alphaEntries.find(e => e.id === entryAlpha.id),
+      "alpha project entry must survive clearMemory('project') with no scopeId",
+    ).toBeDefined();
+
+    const betaEntries = await storage.getMemoryEntries("project", "proj-noop-beta");
+    expect(
+      betaEntries.find(e => e.id === entryBeta.id),
+      "beta project entry must survive clearMemory('project') with no scopeId",
+    ).toBeDefined();
+
+    const gammaEntries = await storage.getMemoryEntries("project", "proj-noop-gamma");
+    expect(
+      gammaEntries.find(e => e.id === entryGamma.id),
+      "gamma project entry must survive clearMemory('project') with no scopeId",
+    ).toBeDefined();
+
+    // Global entry must also be unaffected
+    const globalEntries = await storage.getMemoryEntries("global");
+    expect(
+      globalEntries.find(e => e.id === globalEntry.id),
+      "global entry must not be affected by clearMemory('project') with no scopeId",
+    ).toBeDefined();
+  });
+
   // ── 8. searchDocuments finds content inside chunks written before a restart ───
 
   it("searchDocuments finds content inside chunks written before a restart", async () => {
