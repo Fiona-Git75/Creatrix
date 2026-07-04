@@ -405,10 +405,11 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
       summary: "Spaces preference",
     });
 
-    // Call with no scopeId — must return empty rather than leaking all projects
-    const allProjectEntries = await storage.getMemoryEntries("project");
-
-    expect(allProjectEntries, "omitting scopeId for project scope must return []").toEqual([]);
+    // Call with no scopeId — must throw rather than leaking all projects
+    await expect(
+      storage.getMemoryEntries("project"),
+      "omitting scopeId for project scope must throw",
+    ).rejects.toThrow("project scope requires a scopeId");
 
     // Sanity: a correctly-scoped query still returns only the right entry
     const alphaOnly = await storage.getMemoryEntries("project", "proj-alpha");
@@ -424,8 +425,10 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
       content: "Conversation one context.",
     });
 
-    const allConvEntries = await storage.getMemoryEntries("conversation");
-    expect(allConvEntries, "omitting scopeId for conversation scope must return []").toEqual([]);
+    await expect(
+      storage.getMemoryEntries("conversation"),
+      "omitting scopeId for conversation scope must throw",
+    ).rejects.toThrow("conversation scope requires a scopeId");
 
     // Correctly-scoped conversation query still works
     const convOne = await storage.getMemoryEntries("conversation", "conv-one");
@@ -1553,11 +1556,13 @@ describe("MemoryPanel – project and conversation switching isolation", () => {
     // The MemoryPanel component gates its project-scope query with
     // `enabled: open && !!projectId`, so when projectId is null the fetch
     // never fires.  At the storage layer this maps to calling
-    // getMemoryEntries("project") with no scopeId.  The guard must return []
-    // so that if something bypasses the `enabled` gate nothing leaks.
-    const result = await storage.getMemoryEntries("project");
-    expect(result, "missing scopeId for project scope must return [] (no cross-project leak)")
-      .toEqual([]);
+    // getMemoryEntries("project") with no scopeId.  The guard must throw an
+    // explicit error so that if something bypasses the `enabled` gate the
+    // mistake is immediately visible rather than silently returning nothing.
+    await expect(
+      storage.getMemoryEntries("project"),
+      "missing scopeId for project scope must throw (no cross-project leak)",
+    ).rejects.toThrow("project scope requires a scopeId");
   });
 
   it("switching from conversation A to conversation B shows only that conversation's entries", async () => {
@@ -1603,9 +1608,10 @@ describe("MemoryPanel – project and conversation switching isolation", () => {
       content: "Context for a specific conversation.",
     });
 
-    const result = await storage.getMemoryEntries("conversation");
-    expect(result, "missing scopeId for conversation scope must return []")
-      .toEqual([]);
+    await expect(
+      storage.getMemoryEntries("conversation"),
+      "missing scopeId for conversation scope must throw",
+    ).rejects.toThrow("conversation scope requires a scopeId");
   });
 
   it("global scope is always returned regardless of projectId and does not bleed into project scope", async () => {

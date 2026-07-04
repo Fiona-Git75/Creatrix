@@ -1217,6 +1217,10 @@ export async function registerRoutes(
     try {
       const scope = (req.query.scope as string) || "global";
       const scopeId = req.query.scopeId as string | undefined;
+      if ((scope === "project" || scope === "conversation") && !scopeId) {
+        res.status(400).json({ error: `${scope} scope requires a scopeId` });
+        return;
+      }
       const entries = await storage.getMemoryEntries(scope, scopeId);
       res.json(entries);
     } catch (error) {
