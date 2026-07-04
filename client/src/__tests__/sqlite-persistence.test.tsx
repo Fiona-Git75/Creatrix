@@ -1141,6 +1141,91 @@ describe("DatabaseStorage – partial multi-statement migration restarts cleanly
 
 // ── Missing SQL file path ──────────────────────────────────────────────────────
 //
+// Verifies that _runMigrations surfaces a clear, readable error — rather than
+// silently swallowing or propagating a raw SyntaxError — when _journal.json is
+// corrupted or truncated (e.g. a partial write during deployment).
+//
+// Strategy:
+//   1. Initialize storage so __creatrix_migrations exists and is stable.
+//   2. Build a synthetic migrations folder whose _journal.json is truncated /
+//      malformed so that JSON.parse will throw a SyntaxError.
+//   3. Call _runMigrations() and assert the promise rejects with an error that
+//      mentions the journal path (making the failure actionable).
+//   4. Query __creatrix_migrations directly and confirm it was NOT modified —
+//      a parse failure must not leave any partial state behind.
+
+describe("DatabaseStorage – corrupted journal file", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-corrupted-journal-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-corrupted-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("rejects with a readable error and does NOT modify __creatrix_migrations when the journal is malformed", async () => {
+    // Step 1: Full initialize so the DB and __creatrix_migrations already exist
+    // in a clean, stable state.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Record the existing row count so we can confirm nothing is added.
+    const clientBefore = createClient({ url: `file:${dbPath}` });
+    const countBefore = await clientBefore.execute(
+      "SELECT COUNT(*) AS n FROM __creatrix_migrations"
+    );
+    const rowsBefore = Number((countBefore.rows[0] as any)["n"]);
+    await clientBefore.close();
+
+    // Step 2: Build a synthetic migrations folder with a truncated (unparseable)
+    // _journal.json.  The file is cut off mid-object so JSON.parse will throw.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+    writeFileSync(
+      join(metaDir, "_journal.json"),
+      '{"version":"7","dialect":"sqlite","entries":[{"idx":0'  // truncated — no closing brackets
+    );
+
+    // Step 3: _runMigrations must reject with an error that mentions the path,
+    // making the failure immediately actionable for an operator.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).rejects.toThrow(/_journal\.json/);
+
+    // Step 4: __creatrix_migrations must be completely unchanged — a parse
+    // failure must never leave partial state in the tracking table.
+    const clientAfter = createClient({ url: `file:${dbPath}` });
+    const countAfter = await clientAfter.execute(
+      "SELECT COUNT(*) AS n FROM __creatrix_migrations"
+    );
+    const rowsAfter = Number((countAfter.rows[0] as any)["n"]);
+    await clientAfter.close();
+
+    expect(
+      rowsAfter,
+      "__creatrix_migrations row count must be unchanged after a journal parse failure",
+    ).toBe(rowsBefore);
+  });
+});
+
 // Verifies that _runMigrations surfaces a clear error — rather than silently
 // swallowing it or emitting a misleading message — when a journal entry's tag
 // has no corresponding .sql file on disk.  This can happen after a partial

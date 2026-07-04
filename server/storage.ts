@@ -675,9 +675,16 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const journalPath = join(migrationsFolder, "meta", "_journal.json");
-    const journal = JSON.parse(readFileSync(journalPath, "utf-8")) as {
-      entries: { tag: string }[];
-    };
+    let journal: { entries: { tag: string }[] };
+    try {
+      journal = JSON.parse(readFileSync(journalPath, "utf-8")) as {
+        entries: { tag: string }[];
+      };
+    } catch (err: any) {
+      throw new Error(
+        `Failed to parse migration journal at ${journalPath}: ${err?.message ?? String(err)}`
+      );
+    }
 
     const appliedResult = await this._client.execute(
       "SELECT tag FROM __creatrix_migrations"
