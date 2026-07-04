@@ -1450,3 +1450,190 @@ describe("DatabaseStorage – missing SQL file for a journal tag", () => {
     await client.close();
   });
 });
+
+// ── Memory panel: project-switching isolation ─────────────────────────────────
+//
+// The MemoryPanel component issues a separate React Query request for each
+// scope.  The project-scope query is gated by `enabled: open && !!projectId`
+// and carries `scopeId: projectId` in its query key, so a fresh fetch fires
+// whenever the active project changes.  On the server side, `getMemoryEntries`
+// requires a scopeId for project/conversation scopes (returns [] when it is
+// absent) to prevent cross-project memory leaks.
+//
+// These tests confirm the full path:
+//   • Each project sees only its own entries when the panel queries with its id.
+//   • Switching from project A → B → A returns the correct entries at each step.
+//   • A null projectId (the `enabled` guard is falsy) maps to the no-scopeId
+//     code path and returns [] rather than leaking every project's memory.
+//   • The same isolation applies to conversation-scoped entries.
+
+describe("MemoryPanel – project and conversation switching isolation", () => {
+  let dbPath: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(async () => {
+    dbPath = makeTempPath();
+    await applySchema(dbPath);
+    process.env.SQLITE_PATH = dbPath;
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+  });
+
+  it("switching from project A to project B shows only that project's entries each time", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const projA = "proj-panel-alpha";
+    const projB = "proj-panel-beta";
+
+    // Seed entries for both projects
+    const entryA1 = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: projA,
+      content: "Project A: always use strict TypeScript.",
+    });
+    const entryA2 = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: projA,
+      content: "Project A: tests go in __tests__ directory.",
+    });
+    const entryB1 = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: projB,
+      content: "Project B: use Python 3.12+.",
+    });
+
+    // ── Simulated panel open for project A ───────────────────────────────────
+    const viewA = await storage.getMemoryEntries("project", projA);
+    expect(viewA.map(e => e.id), "project A query returns both A entries")
+      .toEqual(expect.arrayContaining([entryA1.id, entryA2.id]));
+    expect(viewA.find(e => e.id === entryB1.id),
+      "project A query must not include project B entries").toBeUndefined();
+
+    // ── Simulated panel switch to project B ──────────────────────────────────
+    const viewB = await storage.getMemoryEntries("project", projB);
+    expect(viewB.map(e => e.id), "project B query returns B entry")
+      .toEqual(expect.arrayContaining([entryB1.id]));
+    expect(viewB.find(e => e.id === entryA1.id),
+      "project B query must not include project A entries").toBeUndefined();
+    expect(viewB.find(e => e.id === entryA2.id),
+      "project B query must not include project A entries").toBeUndefined();
+
+    // ── Round-trip back to project A ─────────────────────────────────────────
+    const viewAAgain = await storage.getMemoryEntries("project", projA);
+    expect(viewAAgain.map(e => e.id), "round-trip back to project A returns same entries")
+      .toEqual(expect.arrayContaining([entryA1.id, entryA2.id]));
+    expect(viewAAgain.find(e => e.id === entryB1.id),
+      "round-trip must still exclude project B entries").toBeUndefined();
+  });
+
+  it("null projectId (panel enabled guard is falsy) returns empty array, not a data leak", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Seed entries for several projects
+    await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-leak-one",
+      content: "Secret preference for project one.",
+    });
+    await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-leak-two",
+      content: "Secret preference for project two.",
+    });
+
+    // The MemoryPanel component gates its project-scope query with
+    // `enabled: open && !!projectId`, so when projectId is null the fetch
+    // never fires.  At the storage layer this maps to calling
+    // getMemoryEntries("project") with no scopeId.  The guard must return []
+    // so that if something bypasses the `enabled` gate nothing leaks.
+    const result = await storage.getMemoryEntries("project");
+    expect(result, "missing scopeId for project scope must return [] (no cross-project leak)")
+      .toEqual([]);
+  });
+
+  it("switching from conversation A to conversation B shows only that conversation's entries", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const convA = "conv-panel-alpha";
+    const convB = "conv-panel-beta";
+
+    const entryA = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: convA,
+      content: "Conversation A: user wants bullet-point answers.",
+    });
+    const entryB = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: convB,
+      content: "Conversation B: user is debugging a Rust program.",
+    });
+
+    // Panel open for conversation A
+    const viewA = await storage.getMemoryEntries("conversation", convA);
+    expect(viewA.find(e => e.id === entryA.id),
+      "conversation A query must find entry A").toBeDefined();
+    expect(viewA.find(e => e.id === entryB.id),
+      "conversation A query must not include conversation B entry").toBeUndefined();
+
+    // Panel switched to conversation B
+    const viewB = await storage.getMemoryEntries("conversation", convB);
+    expect(viewB.find(e => e.id === entryB.id),
+      "conversation B query must find entry B").toBeDefined();
+    expect(viewB.find(e => e.id === entryA.id),
+      "conversation B query must not include conversation A entry").toBeUndefined();
+  });
+
+  it("null conversationId returns empty array for conversation scope (mirrors the enabled guard)", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: "conv-guard-test",
+      content: "Context for a specific conversation.",
+    });
+
+    const result = await storage.getMemoryEntries("conversation");
+    expect(result, "missing scopeId for conversation scope must return []")
+      .toEqual([]);
+  });
+
+  it("global scope is always returned regardless of projectId and does not bleed into project scope", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const globalEntry = await storage.createMemoryEntry({
+      scope: "global",
+      content: "I always prefer concise answers.",
+    });
+    const projectEntry = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-global-bleed",
+      content: "Project note: use spaces not tabs.",
+    });
+
+    // Global queries return global entries regardless of which project is active
+    const globals = await storage.getMemoryEntries("global");
+    expect(globals.find(e => e.id === globalEntry.id),
+      "global entry must appear in global scope").toBeDefined();
+    expect(globals.find(e => e.id === projectEntry.id),
+      "project entry must not appear in global scope").toBeUndefined();
+
+    // Project query for the scoped project does not include global entries
+    const projectEntries = await storage.getMemoryEntries("project", "proj-global-bleed");
+    expect(projectEntries.find(e => e.id === projectEntry.id),
+      "project entry appears for correct scopeId").toBeDefined();
+    expect(projectEntries.find(e => e.id === globalEntry.id),
+      "global entry must not appear in project scope query").toBeUndefined();
+  });
+});
