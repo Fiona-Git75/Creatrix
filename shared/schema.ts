@@ -33,6 +33,12 @@ export const projects = sqliteTable("projects", {
   folderPath: text("folder_path"),
   createdAt: text("created_at").notNull(),
   orderIndex: integer("order_index").default(0),
+  // Project dashboard fields
+  goals: text("goals"),
+  architecturalNotes: text("architectural_notes"),
+  workState: text("work_state"),
+  recentChanges: text("recent_changes"),
+  activeIssues: text("active_issues"),
 });
 
 // Conversations table
@@ -171,6 +177,11 @@ export const projectSchema = z.object({
   folderPath: z.string().optional(),
   createdAt: z.string(),
   orderIndex: z.number().int().default(0),
+  goals: z.string().optional(),
+  architecturalNotes: z.string().optional(),
+  workState: z.string().optional(),
+  recentChanges: z.string().optional(),
+  activeIssues: z.string().optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });

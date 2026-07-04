@@ -27,6 +27,7 @@ import { MomentsPanel } from "@/components/MomentsPanel";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
 import { DocumentPanel } from "@/components/DocumentPanel";
+import { ProjectPanel } from "@/components/ProjectPanel";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -117,7 +118,6 @@ function ChatContent({
   streamingContent,
   toolEvents,
   selectedProjectId,
-  morningOrientationEnabled,
   connections,
   selectedConnectionId,
   selectedModel,
@@ -135,6 +135,9 @@ function ChatContent({
   onTogglePin,
   onUpdateToolEvents,
   maxImageSizeMb,
+  openProjectId,
+  onOpenProject,
+  onCloseProject,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -142,7 +145,6 @@ function ChatContent({
   streamingContent: string;
   toolEvents: ToolEvent[];
   selectedProjectId: string | null;
-  morningOrientationEnabled: boolean;
   connections: Connection[];
   selectedConnectionId: string | null;
   selectedModel: string;
@@ -160,6 +162,9 @@ function ChatContent({
   pinnedDocId: string | null;
   onTogglePin: (docId: string | null) => void;
   onUpdateToolEvents: (updater: (prev: ToolEvent[]) => ToolEvent[]) => void;
+  openProjectId: string | null;
+  onOpenProject: (projectId: string) => void;
+  onCloseProject: () => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -173,6 +178,7 @@ function ChatContent({
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [docPanelWidth, setDocPanelWidth] = useState(480);
   const [focusMode, setFocusMode] = useState(false);
+  const [projectPanelWidth, setProjectPanelWidth] = useState(560);
 
   const handleDragStart = (e: React.MouseEvent) => {
     const startX = e.clientX;
@@ -180,6 +186,26 @@ function ChatContent({
     const onMove = (ev: MouseEvent) => {
       const delta = startX - ev.clientX;
       setDocPanelWidth(Math.min(Math.max(startWidth + delta, 320), 1000));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  };
+
+  const handleProjectPanelDragStart = (e: React.MouseEvent) => {
+    const startX = e.clientX;
+    const startWidth = projectPanelWidth;
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX;
+      setProjectPanelWidth(Math.min(Math.max(startWidth + delta, 360), 1100));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
@@ -227,11 +253,11 @@ function ChatContent({
         conversations={conversations}
         activeConversationId={activeConversation?.id || null}
         selectedProjectId={selectedProjectId}
-        morningOrientationEnabled={morningOrientationEnabled}
         onNewChat={onNewChat}
         onSelectConversation={onSelectConversation}
         onDeleteConversation={onDeleteConversation}
         onProjectChange={onProjectChange}
+        onOpenProject={onOpenProject}
         onOpenSettings={onOpenSettings}
         onOpenDocs={() => onDocChange(null)}
         onOpenMoments={() => setMomentsOpen(true)}
@@ -461,6 +487,24 @@ function ChatContent({
           </div>
         </>
       )}
+      {openProjectId && (
+        <>
+          <div
+            className="w-1 shrink-0 h-screen cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            onMouseDown={handleProjectPanelDragStart}
+            data-testid="project-panel-resize-handle"
+          />
+          <div
+            className="shrink-0 h-screen"
+            style={{ width: `${projectPanelWidth}px` }}
+          >
+            <ProjectPanel
+              projectId={openProjectId}
+              onClose={onCloseProject}
+            />
+          </div>
+        </>
+      )}
       </div>
     </>
   );
@@ -470,6 +514,7 @@ export default function Chat() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
@@ -718,7 +763,6 @@ export default function Chat() {
           streamingContent={streamingContent}
           toolEvents={toolEvents}
           selectedProjectId={selectedProjectId}
-          morningOrientationEnabled={settings?.morningOrientationEnabled ?? false}
           connections={connections}
           selectedConnectionId={selectedConnectionId}
           selectedModel={selectedModel}
@@ -736,6 +780,9 @@ export default function Chat() {
           onTogglePin={setPinnedDocId}
           onUpdateToolEvents={setToolEvents}
           maxImageSizeMb={activeMaxImageSizeMb}
+          openProjectId={openProjectId}
+          onOpenProject={setOpenProjectId}
+          onCloseProject={() => setOpenProjectId(null)}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

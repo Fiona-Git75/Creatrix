@@ -17,13 +17,13 @@ export default function AppSidebarExample() {
           conversations={conversations}
           activeConversationId={activeId}
           selectedProjectId={null}
-          morningOrientationEnabled={false}
           onNewChat={() => console.log("New chat")}
           onSelectConversation={setActiveId}
           onDeleteConversation={(id) => {
             setConversations((prev) => prev.filter((c) => c.id !== id));
           }}
           onProjectChange={() => {}}
+          onOpenProject={() => {}}
           onOpenSettings={() => {}}
           onOpenDocs={() => {}}
         />

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Plus, Settings, FileText, ChevronDown, FolderOpen, NotebookPen, Bookmark } from "lucide-react";
+import { Plus, Settings, FileText, ChevronDown, FolderOpen, NotebookPen, Bookmark, PanelRight } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/sidebar";
 import { ConversationItem, type Conversation } from "./ConversationItem";
 import { ProjectsDialog } from "./ProjectsDialog";
-import { MorningOrientation } from "./MorningOrientation";
 import { ToolStatusChip } from "./ToolStatusChip";
 import { RuntimeCoherencePanel } from "./RuntimeCoherencePanel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -26,11 +25,11 @@ interface AppSidebarProps {
   conversations: Conversation[];
   activeConversationId: string | null;
   selectedProjectId: string | null;
-  morningOrientationEnabled: boolean;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onProjectChange: (projectId: string | null) => void;
+  onOpenProject: (projectId: string) => void;
   onOpenSettings: () => void;
   onOpenDocs: () => void;
   onOpenMoments?: () => void;
@@ -41,11 +40,11 @@ export function AppSidebar({
   conversations,
   activeConversationId,
   selectedProjectId,
-  morningOrientationEnabled,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
   onProjectChange,
+  onOpenProject,
   onOpenSettings,
   onOpenDocs,
   onOpenMoments,
@@ -115,8 +114,36 @@ export function AppSidebar({
         </SidebarHeader>
 
         <SidebarContent className="flex flex-col min-h-0">
-          {/* Projects — collapsible section */}
-          <SidebarGroup className="shrink-0">
+
+          {/* Conversations — top, takes all remaining space */}
+          <SidebarGroup className="flex-1 min-h-0">
+            <SidebarGroupLabel className="px-4">{conversationLabel}</SidebarGroupLabel>
+            <SidebarGroupContent className="flex-1 min-h-0">
+              <ScrollArea className="h-[calc(100vh-340px)] px-2">
+                <SidebarMenu>
+                  {filteredConversations.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      {selectedProjectId ? "No conversations in this project yet" : "No conversations yet"}
+                    </div>
+                  ) : (
+                    filteredConversations.map((conversation) => (
+                      <SidebarMenuItem key={conversation.id}>
+                        <ConversationItem
+                          conversation={conversation}
+                          isActive={conversation.id === activeConversationId}
+                          onClick={() => onSelectConversation(conversation.id)}
+                          onDelete={() => onDeleteConversation(conversation.id)}
+                        />
+                      </SidebarMenuItem>
+                    ))
+                  )}
+                </SidebarMenu>
+              </ScrollArea>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          {/* Projects — bottom third, collapsible */}
+          <SidebarGroup className="shrink-0 border-t border-border/40">
             <button
               onClick={() => setProjectsOpen(o => !o)}
               className="flex items-center justify-between w-full px-4 py-1 group"
@@ -149,28 +176,40 @@ export function AppSidebar({
 
                   {projects.map(project => (
                     <SidebarMenuItem key={project.id}>
-                      <button
-                        onClick={() => {
-                          onProjectChange(project.id);
-                          onNewChat();
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors flex items-start gap-2 ${
+                      <div
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors flex items-start gap-2 group/proj ${
                           selectedProjectId === project.id
                             ? "bg-accent text-accent-foreground font-medium"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                         }`}
-                        data-testid={`option-project-${project.id}`}
                       >
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60 mt-0.5" />
-                        <span className="min-w-0">
-                          <span className="truncate block">{project.name}</span>
-                          {project.currentTask && (
-                            <span className="text-xs font-normal opacity-60 truncate block">
-                              ↳ {project.currentTask}
-                            </span>
-                          )}
-                        </span>
-                      </button>
+                        <button
+                          className="flex items-start gap-2 flex-1 min-w-0 text-left"
+                          onClick={() => {
+                            onProjectChange(project.id);
+                            onNewChat();
+                          }}
+                          data-testid={`option-project-${project.id}`}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60 mt-0.5" />
+                          <span className="min-w-0">
+                            <span className="truncate block">{project.name}</span>
+                            {project.currentTask && (
+                              <span className="text-xs font-normal opacity-60 truncate block">
+                                ↳ {project.currentTask}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        <button
+                          className="shrink-0 opacity-0 group-hover/proj:opacity-60 hover:!opacity-100 transition-opacity mt-0.5"
+                          onClick={e => { e.stopPropagation(); onOpenProject(project.id); }}
+                          title="Open project panel"
+                          data-testid={`button-open-project-panel-${project.id}`}
+                        >
+                          <PanelRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </SidebarMenuItem>
                   ))}
 
@@ -195,7 +234,7 @@ export function AppSidebar({
             )}
           </SidebarGroup>
 
-          {/* Day Note */}
+          {/* Day Note — bottom, collapsible */}
           <SidebarGroup className="shrink-0 border-t border-border/40">
             <button
               onClick={() => setNoteOpen(o => !o)}
@@ -229,35 +268,7 @@ export function AppSidebar({
             )}
           </SidebarGroup>
 
-          {/* Conversations */}
-          <SidebarGroup className="flex-1 min-h-0">
-            <SidebarGroupLabel className="px-4">{conversationLabel}</SidebarGroupLabel>
-            <SidebarGroupContent className="flex-1 min-h-0">
-              <ScrollArea className="h-[calc(100vh-230px)] px-2">
-                <SidebarMenu>
-                  {filteredConversations.length === 0 ? (
-                    <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                      {selectedProjectId ? "No conversations in this project yet" : "No conversations yet"}
-                    </div>
-                  ) : (
-                    filteredConversations.map((conversation) => (
-                      <SidebarMenuItem key={conversation.id}>
-                        <ConversationItem
-                          conversation={conversation}
-                          isActive={conversation.id === activeConversationId}
-                          onClick={() => onSelectConversation(conversation.id)}
-                          onDelete={() => onDeleteConversation(conversation.id)}
-                        />
-                      </SidebarMenuItem>
-                    ))
-                  )}
-                </SidebarMenu>
-              </ScrollArea>
-            </SidebarGroupContent>
-          </SidebarGroup>
         </SidebarContent>
-
-        {morningOrientationEnabled && <MorningOrientation />}
 
         <SidebarFooter className="border-t pt-2 pb-3 px-3 space-y-1">
           <RuntimeCoherencePanel onOpenSystemLog={onOpenSystemLog} />
