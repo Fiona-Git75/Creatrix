@@ -367,7 +367,157 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
   });
 });
 
-// ── 3. MIGRATION SIMULATION ────────────────────────────────────────────────────
+// ── 3. MIGRATION ORPHAN CHECK ──────────────────────────────────────────────────
+
+/**
+ * Reverse-coverage check: every CREATE TABLE statement found across all
+ * migration SQL files must correspond to a Drizzle table that is still
+ * exported from shared/schema.ts.
+ *
+ * If a table is removed from shared/schema.ts but its CREATE TABLE migration
+ * is left behind, the migrations directory silently accumulates orphaned SQL
+ * that no longer reflects what is actually live. This check makes that
+ * situation a hard failure instead of quiet accumulation.
+ *
+ * Internal Drizzle metadata tables (names prefixed with "__creatrix_") are
+ * excluded from the check because they are managed by the migration runner
+ * itself and are never declared in the application schema.
+ *
+ * If this check fails:
+ *   1. If the table was intentionally removed from shared/schema.ts, delete
+ *      or archive the corresponding migration SQL file (or add an explicit
+ *      DROP TABLE migration if it needs to be removed from live databases).
+ *   2. If the table was accidentally removed from the schema, add it back.
+ */
+
+/** Table names managed by the migration runner itself — never in app schema. */
+const INTERNAL_MIGRATION_TABLES = new Set(["__creatrix_migrations"]);
+
+/**
+ * Core assertion: throws a descriptive error if any table name found in a
+ * CREATE TABLE statement inside migration files is not present in the live
+ * schema, after excluding known internal tables.
+ *
+ * Extracted so both the positive test (real migration files) and the negative
+ * test (synthetic orphan injected) exercise the identical check path and error
+ * surface.
+ */
+function assertNoOrphanedMigrationTables(
+  tablesInMigrations: Set<string>,
+  schemaTableSqlNames: Set<string>
+): void {
+  const orphans = [...tablesInMigrations].filter(
+    name =>
+      !INTERNAL_MIGRATION_TABLES.has(name) &&
+      !schemaTableSqlNames.has(name)
+  );
+
+  if (orphans.length > 0) {
+    const lines = orphans.map(name => `  - ${name}`);
+    throw new Error(
+      `Orphaned migration table(s) detected — the following table(s) appear in a ` +
+      `CREATE TABLE statement inside migrations/ but are no longer defined in shared/schema.ts:\n\n` +
+      lines.join("\n") +
+      `\n\nThis usually means a table was removed from shared/schema.ts without cleaning up ` +
+      `its migration file, making the migration history misleading.\n\n` +
+      `Fix options:\n` +
+      `  A — If the table was intentionally removed, delete or archive its migration SQL file,\n` +
+      `      or add an explicit DROP TABLE migration so live databases are cleaned up.\n` +
+      `  B — If the table was accidentally removed from the schema, add it back to shared/schema.ts.`
+    );
+  }
+}
+
+describe("Migration orphan check – every CREATE TABLE in migration files must match a live schema table", () => {
+  /**
+   * NEGATIVE TEST — confirms the detection logic is live and not accidentally no-op'd.
+   *
+   * Injects a synthetic orphan table name into the "tables in migrations" set
+   * while the schema set is kept empty, then asserts that
+   * assertNoOrphanedMigrationTables() throws an error that names the orphan.
+   * A future refactor that silently breaks the guard will cause this test to
+   * fail rather than give false confidence.
+   */
+  it("raises an explicit error naming any migration table that no longer exists in the schema", () => {
+    const ORPHAN_SQL_NAME = "__creatrix_orphan_reverse_test_table__";
+
+    const syntheticMigrationTables = new Set([ORPHAN_SQL_NAME]);
+    const emptySchemaSet = new Set<string>();
+
+    expect(() =>
+      assertNoOrphanedMigrationTables(syntheticMigrationTables, emptySchemaSet)
+    ).toThrowError(/Orphaned migration table\(s\) detected/);
+
+    expect(() =>
+      assertNoOrphanedMigrationTables(syntheticMigrationTables, emptySchemaSet)
+    ).toThrowError(new RegExp(ORPHAN_SQL_NAME));
+  });
+
+  it("internal migration-runner tables (e.g. __creatrix_migrations) are not flagged as orphans", () => {
+    // The migration runner's own tracking table must never be flagged as
+    // orphaned — it is managed internally and is not in the app schema.
+    const onlyInternal = new Set(["__creatrix_migrations"]);
+    const emptySchemaSet = new Set<string>();
+
+    // Should not throw — internal tables are excluded from the check.
+    expect(() =>
+      assertNoOrphanedMigrationTables(onlyInternal, emptySchemaSet)
+    ).not.toThrow();
+  });
+
+  it("every CREATE TABLE in migration SQL files corresponds to a live table in shared/schema.ts", () => {
+    // ── locate the migrations directory ──────────────────────────────────────
+    const migrationsDir = resolve(process.cwd(), "migrations");
+
+    if (!existsSync(migrationsDir)) {
+      throw new Error(
+        `migrations/ directory not found at ${migrationsDir}.\n` +
+        `Expected the project root to contain a migrations/ folder with SQL files.`
+      );
+    }
+
+    const sqlFiles = readdirSync(migrationsDir).filter(f => f.endsWith(".sql"));
+
+    if (sqlFiles.length === 0) {
+      throw new Error(
+        `No SQL migration files found in ${migrationsDir}.\n` +
+        `Run \`npx drizzle-kit generate\` to produce the initial migration.`
+      );
+    }
+
+    // ── collect CREATE TABLE names from migration files ───────────────────────
+    const tablesInMigrations = collectMigrationTableNames(migrationsDir, sqlFiles);
+
+    // ── collect live SQL table names from shared/schema.ts ───────────────────
+    const schemaTableSqlNames = new Set<string>();
+
+    for (const [, val] of Object.entries(schemaModule)) {
+      if (isDrizzleTable(val)) {
+        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        if (sqlName) {
+          schemaTableSqlNames.add(sqlName.toLowerCase());
+        }
+      }
+    }
+
+    // Fail-closed sanity guard: symbol-based detection must find baseline tables.
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(n => !schemaTableSqlNames.has(n));
+    if (missingBaseline.length > 0) {
+      throw new Error(
+        `isDrizzleTable() / DRIZZLE_TABLE_SYMBOL detection appears broken — ` +
+        `baseline tables not found: ${missingBaseline.join(", ")}.\n` +
+        `Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.\n` +
+        `Update isDrizzleTable() in this file.`
+      );
+    }
+
+    // ── compare via the shared assertion helper ───────────────────────────────
+    assertNoOrphanedMigrationTables(tablesInMigrations, schemaTableSqlNames);
+  });
+});
+
+// ── 4. MIGRATION SIMULATION ────────────────────────────────────────────────────
 
 /**
  * Simulates the real-world upgrade scenario:
