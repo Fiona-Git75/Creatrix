@@ -1029,6 +1029,116 @@ describe("DatabaseStorage – rolled-back migration tracking re-applies cleanly"
   });
 });
 
+// ── Partial multi-statement migration restart ──────────────────────────────────
+//
+// Simulates a server crash mid-migration: the migration file contains two
+// ADD COLUMN statements separated by --> statement-breakpoint. Statement 1 was
+// executed (the column exists) but the server crashed before statement 2 ran,
+// so the tracking row was never inserted.
+//
+// On the next startup _runMigrations re-runs the whole file:
+//   - Statement 1 hits "duplicate column name" → swallowed (idempotency guard).
+//   - Statement 2 executes successfully → second column created.
+//   - Tracking row is recorded after all statements complete.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a two-statement migration.
+//   3. Manually apply ONLY statement 1 via a raw client (no tracking row).
+//   4. Call _runMigrations() — must not throw.
+//   5. Both columns must exist and the tracking row must be present afterwards.
+
+describe("DatabaseStorage – partial multi-statement migration restarts cleanly", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-partial-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-partial-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("swallows duplicate-column error for stmt 1, applies stmt 2, and records the tracking row", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a two-statement migration.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 4000000000000, tag: "0003_partial_two_stmt", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Two-statement migration separated by drizzle's breakpoint marker.
+    writeFileSync(
+      join(tmpMigrationsDir, "0003_partial_two_stmt.sql"),
+      "ALTER TABLE settings ADD COLUMN partial_col_a TEXT\n--> statement-breakpoint\nALTER TABLE settings ADD COLUMN partial_col_b TEXT"
+    );
+
+    // Step 3: Manually apply ONLY statement 1 via raw client — simulates the
+    // crash-before-statement-2 scenario. No tracking row is inserted.
+    const client = createClient({ url: `file:${dbPath}` });
+    await client.execute("ALTER TABLE settings ADD COLUMN partial_col_a TEXT");
+
+    // Confirm col_a exists and NO tracking row was recorded.
+    await client.execute("SELECT partial_col_a FROM settings LIMIT 0");
+    const beforeTracking = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0003_partial_two_stmt'"
+    );
+    expect(
+      beforeTracking.rows.length,
+      "tracking row must NOT exist before the restart"
+    ).toBe(0);
+
+    // Step 4: Run _runMigrations — must not throw even though col_a already exists.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 5a: col_a must still exist (was not dropped by the runner).
+    await client.execute("SELECT partial_col_a FROM settings LIMIT 0");
+
+    // Step 5b: col_b must now exist (statement 2 was applied on this restart).
+    await client.execute("SELECT partial_col_b FROM settings LIMIT 0");
+
+    // Step 5c: Tracking row must be present.
+    const afterRestart = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0003_partial_two_stmt'"
+    );
+    expect(
+      afterRestart.rows.length,
+      "tracking row must be inserted after the partial-apply restart"
+    ).toBe(1);
+    expect(afterRestart.rows[0]["tag"]).toBe("0003_partial_two_stmt");
+
+    await client.close();
+  });
+});
+
 // ── Missing SQL file path ──────────────────────────────────────────────────────
 //
 // Verifies that _runMigrations surfaces a clear error — rather than silently
