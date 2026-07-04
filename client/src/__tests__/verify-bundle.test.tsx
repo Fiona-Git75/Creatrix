@@ -12,9 +12,12 @@
  *   - External package missing from bundle → EXTERNAL CHECK FAIL
  *   - Both quote styles for require() are detected (double and single quotes)
  *   - Accidentally removing a recently-added allowlist entry is caught
+ *   - build.ts allowlist is derived exactly from bundledPackages (no drift)
  */
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import {
   checkBundleContents,
   bundledPackages,
@@ -163,6 +166,77 @@ describe("checkBundleContents – catches accidental allowlist removal", () => {
     const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
 
     expect(errors).toHaveLength(0);
+  });
+});
+
+// ── build.ts allowlist contract ───────────────────────────────────────────────
+//
+// build.ts must derive its esbuild `external` filter allowlist *exclusively*
+// from bundledPackages.  If someone hardcodes the list, adds extra items, or
+// breaks the import, the bundle check becomes unreliable without any obvious
+// error.  This test reads build.ts as source text and asserts the contract.
+
+describe("build.ts allowlist derivation contract", () => {
+  const buildSrc = readFileSync(
+    resolve(__dirname, "../../../script/build.ts"),
+    "utf-8",
+  );
+
+  it("defines allowlist as exactly [...bundledPackages] with no extra items", () => {
+    // Match the canonical single-line derivation.  Whitespace variants are
+    // tolerated (one or more spaces around = and inside [...]), but the RHS
+    // must be the spread of bundledPackages and nothing else.
+    const derivationPattern =
+      /const\s+allowlist\s*=\s*\[\s*\.\.\.bundledPackages\s*\]\s*;/;
+
+    expect(
+      derivationPattern.test(buildSrc),
+      "build.ts must derive allowlist as `const allowlist = [...bundledPackages]` — " +
+        "any addition, removal, or hardcoding breaks the drift guarantee",
+    ).toBe(true);
+  });
+
+  it("does not reference any extra packages not in bundledPackages", () => {
+    // Extract the RHS of the allowlist assignment.
+    // Matches: const allowlist = [ ...anything... ];
+    const assignMatch = buildSrc.match(
+      /const\s+allowlist\s*=\s*(\[[^\]]*\])\s*;/,
+    );
+
+    expect(
+      assignMatch,
+      "could not locate `const allowlist = [...]` assignment in build.ts — " +
+        "the allowlist construction line may have been renamed or restructured",
+    ).not.toBeNull();
+
+    const rhs = assignMatch![1];
+
+    // The RHS must be exactly `[...bundledPackages]` — any extra string
+    // literals or identifiers beyond the single spread indicate manual drift.
+    const extraStringLiteral = /"[^"]*"|'[^']*'/.test(rhs);
+    expect(
+      extraStringLiteral,
+      `build.ts allowlist RHS contains hardcoded string literals: ${rhs}\n` +
+        "Use only bundledPackages — never add items by hand",
+    ).toBe(false);
+
+    // Count spread expressions: must be exactly one and it must be bundledPackages.
+    const spreads = Array.from(rhs.matchAll(/\.\.\.([\w]+)/g)).map((m) => m[1]);
+    expect(spreads).toHaveLength(1);
+    expect(spreads[0]).toBe("bundledPackages");
+  });
+
+  it("imports bundledPackages from verify-bundle-logic", () => {
+    // The import that provides bundledPackages must come from verify-bundle-logic.
+    // This catches renaming the import source to a different (possibly stale) file.
+    const importPattern =
+      /import\s+\{[^}]*\bbundledPackages\b[^}]*\}\s+from\s+["'][^"']*verify-bundle-logic/;
+
+    expect(
+      importPattern.test(buildSrc),
+      "build.ts must import bundledPackages from verify-bundle-logic — " +
+        "importing from any other file severs the single-source-of-truth contract",
+    ).toBe(true);
   });
 });
 
