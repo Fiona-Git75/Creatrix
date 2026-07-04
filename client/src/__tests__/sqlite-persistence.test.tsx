@@ -707,6 +707,78 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBeDefined();
   });
 
+  // ── 7e. clearMemory('conversation') without a scopeId is a no-op ─────────────
+  //
+  // The guard `scope === "conversation" && scopeId` in clearMemory means that
+  // omitting scopeId must leave every conversation-scoped row untouched.
+  // This test pins that behaviour so a future change that accidentally drops
+  // the scopeId check would be caught immediately rather than silently wiping
+  // all conversation memory across every conversation at once.
+
+  it("clearMemory('conversation') without a scopeId is a no-op — all conversation entries survive", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write conversation-scoped entries for three distinct conversations
+    const entryOne = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: "conv-noop-one",
+      content: "Conv one: user prefers concise answers.",
+      summary: "Concise answers",
+    });
+
+    const entryTwo = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: "conv-noop-two",
+      content: "Conv two: user is debugging a Rust borrow-checker error.",
+      summary: "Rust borrow-checker",
+    });
+
+    const entryThree = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: "conv-noop-three",
+      content: "Conv three: user wants all code examples in TypeScript.",
+      summary: "TypeScript examples",
+    });
+
+    // Also write a global entry to confirm it is unaffected
+    const globalEntry = await storage.createMemoryEntry({
+      scope: "global",
+      content: "Global: always cite sources.",
+      summary: "Cite sources",
+    });
+
+    // Call clearMemory("conversation") with NO scopeId — must be a no-op
+    const result = await storage.clearMemory("conversation");
+    expect(result).toBe(true);
+
+    // All three conversation-scoped entries must still be present
+    const oneEntries = await storage.getMemoryEntries("conversation", "conv-noop-one");
+    expect(
+      oneEntries.find(e => e.id === entryOne.id),
+      "conv-noop-one entry must survive clearMemory('conversation') with no scopeId",
+    ).toBeDefined();
+
+    const twoEntries = await storage.getMemoryEntries("conversation", "conv-noop-two");
+    expect(
+      twoEntries.find(e => e.id === entryTwo.id),
+      "conv-noop-two entry must survive clearMemory('conversation') with no scopeId",
+    ).toBeDefined();
+
+    const threeEntries = await storage.getMemoryEntries("conversation", "conv-noop-three");
+    expect(
+      threeEntries.find(e => e.id === entryThree.id),
+      "conv-noop-three entry must survive clearMemory('conversation') with no scopeId",
+    ).toBeDefined();
+
+    // Global entry must also be unaffected
+    const globalEntries = await storage.getMemoryEntries("global");
+    expect(
+      globalEntries.find(e => e.id === globalEntry.id),
+      "global entry must not be affected by clearMemory('conversation') with no scopeId",
+    ).toBeDefined();
+  });
+
   // ── 8. searchDocuments finds content inside chunks written before a restart ───
 
   it("searchDocuments finds content inside chunks written before a restart", async () => {
