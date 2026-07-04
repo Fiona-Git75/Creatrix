@@ -884,3 +884,88 @@ describe("DatabaseStorage – rolled-back migration tracking re-applies cleanly"
     await client.close();
   });
 });
+
+// ── Missing SQL file path ──────────────────────────────────────────────────────
+//
+// Verifies that _runMigrations surfaces a clear error — rather than silently
+// swallowing it or emitting a misleading message — when a journal entry's tag
+// has no corresponding .sql file on disk.  This can happen after a partial
+// deployment where the journal was updated but the SQL file was not copied.
+//
+// Strategy:
+//   1. Initialize storage so __creatrix_migrations exists and is stable.
+//   2. Build a synthetic migrations folder whose journal references a tag
+//      ("0099_ghost_migration") for which no .sql file is written.
+//   3. Call _runMigrations() and assert the promise rejects with an error
+//      that mentions the missing tag/path.
+//   4. Query __creatrix_migrations directly and confirm the ghost tag was
+//      NOT recorded (the failure must not leave a partial record behind).
+
+describe("DatabaseStorage – missing SQL file for a journal tag", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-missing-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("rejects with a readable error and does NOT record the tag when the SQL file is missing", async () => {
+    // Step 1: Full initialize so the DB, __creatrix_migrations, and all real
+    // application tables already exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder.  The journal lists a single
+    // tag whose .sql file is intentionally not written to disk.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 9000000000000, tag: "0099_ghost_migration", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+    // Intentionally do NOT write "0099_ghost_migration.sql" — that is the point.
+
+    // Step 3: _runMigrations must reject.  The error is the Node.js ENOENT
+    // thrown by readFileSync, which includes the file path and therefore the
+    // tag name — making it readable and actionable.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).rejects.toThrow(/0099_ghost_migration/);
+
+    // Step 4: The ghost tag must NOT appear in __creatrix_migrations.
+    // A failed migration must never be recorded as applied.
+    const client = createClient({ url: `file:${dbPath}` });
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0099_ghost_migration'"
+    );
+    expect(
+      result.rows.length,
+      "__creatrix_migrations must NOT have a row for the ghost tag after a failed migration",
+    ).toBe(0);
+    await client.close();
+  });
+});
