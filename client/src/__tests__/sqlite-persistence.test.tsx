@@ -637,6 +637,76 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBeDefined();
   });
 
+  // ── 7d. clearMemory('conversation') removes only conversation-scoped entries ──
+  //
+  // A bug here could silently wipe global or project entries when the caller
+  // only intended to clear a single conversation's memory. This test makes
+  // that failure visible by writing one entry per scope, calling clearMemory
+  // with a specific conversationId, and asserting that only the targeted entry
+  // is removed.
+
+  it("clearMemory('conversation') removes only the targeted conversation entry, leaving global and project entries untouched", async () => {
+    const projectId = "proj-conv-clear";
+    const conversationId = "conv-conv-clear";
+
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write one entry per scope into the same database
+    const globalEntry = await storage.createMemoryEntry({
+      scope: "global",
+      content: "Global: always prefer async/await over callbacks.",
+      summary: "Async/await preference",
+    });
+
+    const projectEntry = await storage.createMemoryEntry({
+      scope: "project",
+      projectId,
+      content: "Project note: keep bundle size under 200 kB.",
+      summary: "Bundle size limit",
+    });
+
+    const conversationEntry = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId,
+      content: "Conversation: user prefers bullet points.",
+      summary: "Bullet points",
+    });
+
+    // Confirm all three are present before the clear
+    const beforeGlobal = await storage.getMemoryEntries("global");
+    const beforeProject = await storage.getMemoryEntries("project", projectId);
+    const beforeConversation = await storage.getMemoryEntries("conversation", conversationId);
+    expect(beforeGlobal.find(e => e.id === globalEntry.id)).toBeDefined();
+    expect(beforeProject.find(e => e.id === projectEntry.id)).toBeDefined();
+    expect(beforeConversation.find(e => e.id === conversationEntry.id)).toBeDefined();
+
+    // Clear only the conversation scope for this specific conversationId
+    const cleared = await storage.clearMemory("conversation", conversationId);
+    expect(cleared).toBe(true);
+
+    // Conversation-scoped entry must be gone
+    const afterConversation = await storage.getMemoryEntries("conversation", conversationId);
+    expect(
+      afterConversation.find(e => e.id === conversationEntry.id),
+      "conversation entry should be removed after clearMemory('conversation', conversationId)",
+    ).toBeUndefined();
+
+    // Global entry must survive
+    const afterGlobal = await storage.getMemoryEntries("global");
+    expect(
+      afterGlobal.find(e => e.id === globalEntry.id),
+      "global entry must not be affected by clearMemory('conversation', ...)",
+    ).toBeDefined();
+
+    // Project entry must survive
+    const afterProject = await storage.getMemoryEntries("project", projectId);
+    expect(
+      afterProject.find(e => e.id === projectEntry.id),
+      "project entry must not be affected by clearMemory('conversation', ...)",
+    ).toBeDefined();
+  });
+
   // ── 8. searchDocuments finds content inside chunks written before a restart ───
 
   it("searchDocuments finds content inside chunks written before a restart", async () => {
