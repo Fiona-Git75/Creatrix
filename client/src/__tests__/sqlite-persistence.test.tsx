@@ -372,6 +372,61 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
       "conversation entry must not appear when querying a different conversationId").toBeUndefined();
   });
 
+  // ── 6b. getMemoryEntries("project") with no scopeId — data-leak guard ────────
+  //
+  // CURRENT BEHAVIOUR (documented, not desired):
+  //   When scopeId is omitted, the else-branch in getMemoryEntries fires and
+  //   returns every row whose scope column equals "project", regardless of
+  //   projectId.  This is a silent data leak: a caller that forgets to pass
+  //   projectId gets every project's memory entries merged together.
+  //
+  // This test pins that behaviour explicitly so any future change — either
+  // fixing the leak (result becomes empty) or intentionally keeping it — is a
+  // visible, deliberate decision rather than an invisible regression.
+
+  it("getMemoryEntries('project') without scopeId currently returns all project-scope rows (documents data-leak behaviour)", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write two entries belonging to two different projects
+    const entryA = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-alpha",
+      content: "Alpha project: use tabs for indentation.",
+      summary: "Tabs preference",
+    });
+
+    const entryB = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-beta",
+      content: "Beta project: use spaces for indentation.",
+      summary: "Spaces preference",
+    });
+
+    // Call with no scopeId — falls through to the bare scope filter
+    const allProjectEntries = await storage.getMemoryEntries("project");
+
+    // DOCUMENT the current (leaky) behaviour: both entries are returned even
+    // though no projectId was supplied.  If this assertion ever starts failing
+    // because the implementation was tightened to return [] when scopeId is
+    // missing, update this test to assert the empty-result path instead.
+    expect(
+      allProjectEntries.find(e => e.id === entryA.id),
+      "currently, alpha entry is returned even without a scopeId (data-leak behaviour)",
+    ).toBeDefined();
+    expect(
+      allProjectEntries.find(e => e.id === entryB.id),
+      "currently, beta entry is returned even without a scopeId (data-leak behaviour)",
+    ).toBeDefined();
+
+    // Sanity: a correctly-scoped query still returns only the right entry
+    const alphaOnly = await storage.getMemoryEntries("project", "proj-alpha");
+    expect(alphaOnly.find(e => e.id === entryA.id),
+      "scoped query for proj-alpha should find alpha entry").toBeDefined();
+    expect(alphaOnly.find(e => e.id === entryB.id),
+      "scoped query for proj-alpha must not find beta entry").toBeUndefined();
+  });
+
   // ── 7. clearMemory only erases entries in its own scope ─────────────────────
 
   it("clearMemory(project) removes only project-scoped entries, leaving global and conversation entries untouched", async () => {
