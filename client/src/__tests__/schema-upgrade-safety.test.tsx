@@ -34,12 +34,23 @@ import {
   consultants,
   systemLogs,
 } from "@shared/schema";
+import * as schemaModule from "@shared/schema";
 import { DatabaseStorage } from "@server/storage";
 import { createClient } from "@libsql/client";
 import { rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { FOUNDING_COLUMNS } from "@shared/founding-columns";
+
+// Drizzle SQLite tables carry this well-known symbol on their prototype chain.
+// It is the canonical way to distinguish table objects from other schema exports
+// (Zod schemas, plain constants, type-only values, etc.) without importing
+// internal Drizzle helpers.
+const DRIZZLE_TABLE_SYMBOL = Symbol.for("drizzle:Name");
+
+function isDrizzleTable(val: unknown): boolean {
+  return val !== null && typeof val === "object" && DRIZZLE_TABLE_SYMBOL in (val as object);
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +95,45 @@ describe("Schema safety audit – NOT NULL columns must have a SQL default or be
    * as a pass condition here; columns using $defaultFn without a SQL default must appear in
    * FOUNDING_COLUMNS (meaning they were in the original CREATE TABLE, not added later).
    */
+
+  it("ALL_TABLES registry covers every Drizzle SQLite table exported from shared/schema", () => {
+    // Auto-detect every Drizzle table object in the schema module by looking for the
+    // well-known internal symbol that drizzle-orm stamps on every table instance.
+    // This means a developer who adds a new table to shared/schema.ts but forgets to
+    // add it to ALL_TABLES in this file (and in scripts/check-founding-columns.ts)
+    // will get an explicit failure here rather than silent omission.
+    const schemaTableNames = Object.entries(schemaModule)
+      .filter(([, val]) => isDrizzleTable(val))
+      .map(([key]) => key);
+
+    // Fail-closed sanity guard: if the symbol-based detection finds zero tables it
+    // means drizzle-orm changed its internal marker and the check is silently broken,
+    // not that the schema is empty.  Require at least the well-known baseline tables.
+    const BASELINE_TABLES = ["users", "connections", "conversations"];
+    const missing = BASELINE_TABLES.filter(t => !schemaTableNames.includes(t));
+    if (missing.length > 0) {
+      throw new Error(
+        `isDrizzleTable() detection appears broken — baseline tables not found: ${missing.join(", ")}.\n` +
+        `Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.\n` +
+        `Update isDrizzleTable() in this file and in scripts/check-founding-columns.ts.`
+      );
+    }
+
+    const missingFromRegistry = schemaTableNames.filter(name => !(name in ALL_TABLES));
+
+    if (missingFromRegistry.length > 0) {
+      throw new Error(
+        `ALL_TABLES registry is incomplete — the following table(s) are exported from ` +
+        `shared/schema.ts but are not registered in ALL_TABLES:\n\n` +
+        missingFromRegistry.map(n => `  - ${n}`).join("\n") +
+        `\n\nFix: add each missing table to ALL_TABLES in:\n` +
+        `  client/src/__tests__/schema-upgrade-safety.test.tsx\n` +
+        `  scripts/check-founding-columns.ts\n\n` +
+        `Without this registration the static column audit silently skips the new table's columns.`
+      );
+    }
+  });
+
   it("every NOT NULL non-PK column either has a SQL DEFAULT or is in the founding-columns allowlist", () => {
     const violations: string[] = [];
 

@@ -43,6 +43,7 @@ import {
   consultants,
   systemLogs,
 } from "../shared/schema";
+import * as schemaModule from "../shared/schema";
 import { FOUNDING_COLUMNS } from "../shared/founding-columns";
 
 const ALL_TABLES: Record<string, Record<string, unknown>> = {
@@ -61,6 +62,51 @@ const ALL_TABLES: Record<string, Record<string, unknown>> = {
   consultants,
   systemLogs,
 };
+
+// ── Registry completeness check ────────────────────────────────────────────────
+// Auto-detect every Drizzle SQLite table in the schema module by looking for the
+// well-known internal symbol drizzle-orm stamps on every table instance.
+// Fails loudly if a new table was added to shared/schema.ts but not registered here.
+
+const DRIZZLE_TABLE_SYMBOL = Symbol.for("drizzle:Name");
+
+function isDrizzleTable(val: unknown): boolean {
+  return val !== null && typeof val === "object" && DRIZZLE_TABLE_SYMBOL in (val as object);
+}
+
+const schemaTableNames = Object.entries(schemaModule)
+  .filter(([, val]) => isDrizzleTable(val))
+  .map(([key]) => key);
+
+// Fail-closed sanity guard: if detection finds zero baseline tables it means
+// drizzle-orm changed its internal symbol and the check is silently broken.
+const BASELINE_TABLES = ["users", "connections", "conversations"];
+const brokenDetection = BASELINE_TABLES.filter(t => !schemaTableNames.includes(t));
+if (brokenDetection.length > 0) {
+  console.error("=".repeat(70));
+  console.error("DETECTION BROKEN — baseline tables not found by isDrizzleTable():");
+  console.error(`  ${brokenDetection.join(", ")}`);
+  console.error(`Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.`);
+  console.error("Update isDrizzleTable() in this file and in client/src/__tests__/schema-upgrade-safety.test.tsx.");
+  console.error("=".repeat(70));
+  process.exit(1);
+}
+
+const missingFromRegistry = schemaTableNames.filter(name => !(name in ALL_TABLES));
+
+if (missingFromRegistry.length > 0) {
+  console.error("=".repeat(70));
+  console.error("REGISTRY INCOMPLETE — tables in shared/schema.ts not in ALL_TABLES:");
+  console.error("=".repeat(70));
+  missingFromRegistry.forEach(n => console.error(`  - ${n}`));
+  console.error(
+    "\nFix: add each missing table to ALL_TABLES in:\n" +
+    "  scripts/check-founding-columns.ts\n" +
+    "  client/src/__tests__/schema-upgrade-safety.test.tsx\n\n" +
+    "Without this registration the column audit silently skips the new table's columns."
+  );
+  process.exit(1);
+}
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
 
