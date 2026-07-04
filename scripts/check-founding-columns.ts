@@ -9,8 +9,7 @@
  *
  *   A) Get a .default(...) added in shared/schema.ts, OR
  *   B) Be made nullable, OR
- *   C) Appear in the FOUNDING_COLUMNS allowlist in
- *      client/src/__tests__/schema-upgrade-safety.test.tsx
+ *   C) Appear in the FOUNDING_COLUMNS allowlist in shared/founding-columns.ts
  *      (only if the column is part of the original CREATE TABLE and will never
  *      be ALTER TABLE'd onto an existing database that already has rows).
  *
@@ -44,6 +43,7 @@ import {
   consultants,
   systemLogs,
 } from "../shared/schema";
+import { FOUNDING_COLUMNS } from "../shared/founding-columns";
 
 const ALL_TABLES: Record<string, Record<string, unknown>> = {
   users,
@@ -61,58 +61,6 @@ const ALL_TABLES: Record<string, Record<string, unknown>> = {
   consultants,
   systemLogs,
 };
-
-// ── Mirror of the FOUNDING_COLUMNS set in the test file ───────────────────────
-// Keep this in sync with client/src/__tests__/schema-upgrade-safety.test.tsx.
-// When you add a new entry there, add the same entry here so the script stays
-// accurate about what is "already registered" vs "newly unregistered".
-const FOUNDING_COLUMNS = new Set<string>([
-  "users.username",
-  "users.password",
-  "connections.name",
-  "connections.provider",
-  "connections.endpoint",
-  "connections.defaultModel",
-  "projects.name",
-  "projects.createdAt",
-  "conversations.title",
-  "conversations.model",
-  "conversations.createdAt",
-  "conversations.updatedAt",
-  "memoryEntries.scope",
-  "memoryEntries.content",
-  "memoryEntries.createdAt",
-  "knowledgeDocuments.title",
-  "knowledgeDocuments.source",
-  "knowledgeDocuments.content",
-  "knowledgeDocuments.createdAt",
-  "systemLogs.timestamp",
-  "systemLogs.level",
-  "systemLogs.category",
-  "systemLogs.message",
-  "libraryFolders.name",
-  "libraryFolders.createdAt",
-  "libraryItems.title",
-  "libraryItems.source",
-  "libraryItems.createdAt",
-  "journalEntries.type",
-  "journalEntries.title",
-  "journalEntries.createdAt",
-  "conversationFlags.conversationId",
-  "conversationFlags.conversationTitle",
-  "conversationFlags.pivotSentence",
-  "conversationFlags.createdAt",
-  "workspaceDocs.title",
-  "workspaceDocs.updatedAt",
-  "workspaceDocs.createdAt",
-  "consultants.projectId",
-  "consultants.name",
-  "consultants.description",
-  "consultants.connectionId",
-  "consultants.model",
-  "consultants.systemPrompt",
-  "consultants.createdAt",
-]);
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
 
@@ -158,8 +106,7 @@ if (unregistered.length === 0 && registered.length === 0) {
     unregistered.forEach(l => console.log(l));
     console.log(
       `\n  To fix: add .default(...), make nullable, or add to FOUNDING_COLUMNS in\n` +
-      `  client/src/__tests__/schema-upgrade-safety.test.tsx\n` +
-      `  AND to the FOUNDING_COLUMNS set in this script (scripts/check-founding-columns.ts).`
+      `  shared/founding-columns.ts`
     );
   }
 
