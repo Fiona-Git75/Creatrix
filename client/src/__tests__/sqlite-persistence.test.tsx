@@ -20,6 +20,8 @@
  *   7. searchDocuments finds content inside chunks written before a restart.
  *   8. (separate describe) Fresh-install: _runMigrations creates all tables
  *      from scratch on a brand-new empty SQLite file.
+ *   9. (separate describe) Rolled-back tracking: duplicate-column error is
+ *      swallowed when the column already exists but the tracking row was deleted.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -759,6 +761,125 @@ describe("DatabaseStorage – incremental migration (second migration file)", ()
     ).toBe(1);
     expect(tags).toContain("0000_sweet_red_shift");
     expect(tags).toContain("0001_add_test_col");
+
+    await client.close();
+  });
+});
+
+// ── Rolled-back tracking path ──────────────────────────────────────────────────
+//
+// Simulates the scenario where a migration's tracking row was deleted from
+// __creatrix_migrations (e.g. by a manual rollback attempt) but the schema
+// change (ALTER TABLE ADD COLUMN) was NOT reversed.
+//
+// _runMigrations will try to re-apply the migration and hit a
+// "duplicate column name" error. The idempotency guard must swallow that
+// error, record the migration as applied, and leave both the column and the
+// tracking row intact.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a single ADD COLUMN migration.
+//   3. Run _runMigrations() to apply it — column created, tracking row inserted.
+//   4. Delete the tracking row directly via a raw client.
+//   5. Run _runMigrations() again — runner believes the migration is unapplied,
+//      tries ALTER TABLE ADD COLUMN, gets "duplicate column name", must NOT throw.
+//   6. Assert the column still exists and the tracking row was re-inserted.
+
+describe("DatabaseStorage – rolled-back migration tracking re-applies cleanly", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-rollback-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-rb-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("swallows duplicate-column error and re-records the tracking row when the column already exists", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a single ADD COLUMN migration.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 3000000000000, tag: "0002_add_rollback_col", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0002_add_rollback_col.sql"),
+      "ALTER TABLE settings ADD COLUMN rollback_test_col TEXT"
+    );
+
+    // Step 3: Apply the migration — column is created and tracking row is inserted.
+    await (storage as any)._runMigrations(tmpMigrationsDir);
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // Confirm the column was created and the tracking row exists.
+    await client.execute("SELECT rollback_test_col FROM settings LIMIT 0");
+    const afterFirstRun = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0002_add_rollback_col'"
+    );
+    expect(
+      afterFirstRun.rows.length,
+      "tracking row should exist after first run"
+    ).toBe(1);
+
+    // Step 4: Delete the tracking row — simulates the rollback scenario.
+    await client.execute(
+      "DELETE FROM __creatrix_migrations WHERE tag = '0002_add_rollback_col'"
+    );
+    const afterDelete = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0002_add_rollback_col'"
+    );
+    expect(
+      afterDelete.rows.length,
+      "tracking row should be gone after manual delete"
+    ).toBe(0);
+
+    // Step 5: Run _runMigrations again — the runner now believes 0002 is unapplied.
+    // It will try ALTER TABLE ADD COLUMN, hit "duplicate column name", and must NOT throw.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 6: Both the column and the tracking row must exist afterwards.
+    await client.execute("SELECT rollback_test_col FROM settings LIMIT 0");
+
+    const afterSecondRun = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0002_add_rollback_col'"
+    );
+    expect(
+      afterSecondRun.rows.length,
+      "tracking row must be re-inserted after the duplicate-column error was swallowed"
+    ).toBe(1);
+    expect(afterSecondRun.rows[0]["tag"]).toBe("0002_add_rollback_col");
 
     await client.close();
   });
