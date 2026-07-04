@@ -37,9 +37,9 @@ import {
 import * as schemaModule from "@shared/schema";
 import { DatabaseStorage } from "@server/storage";
 import { createClient } from "@libsql/client";
-import { rmSync, existsSync } from "fs";
+import { readdirSync, readFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { FOUNDING_COLUMNS } from "@shared/founding-columns";
 
 // Drizzle SQLite tables carry this well-known symbol on their prototype chain.
@@ -186,7 +186,112 @@ describe("Schema safety audit – NOT NULL columns must have a SQL default or be
   });
 });
 
-// ── 2. MIGRATION SIMULATION ────────────────────────────────────────────────────
+// ── 2. MIGRATION COVERAGE ──────────────────────────────────────────────────────
+
+/**
+ * Verifies that every Drizzle table declared in shared/schema.ts has a
+ * corresponding CREATE TABLE statement in at least one migration SQL file.
+ *
+ * The auto-migration runner only applies files that already exist in
+ * migrations/ — it cannot conjure a CREATE TABLE for a table that was added
+ * to the schema but never committed as a migration file.  New installs are
+ * unaffected (Drizzle creates tables at startup), but existing users who
+ * pull a new release will never get the table unless a migration file exists.
+ *
+ * If this test fails:
+ *   1. Run `npx drizzle-kit generate` to create the missing migration file.
+ *   2. Commit the generated .sql file to the migrations/ directory.
+ */
+describe("Migration coverage – every schema table must have a CREATE TABLE in a migration file", () => {
+  it("every Drizzle table in shared/schema.ts has a CREATE TABLE statement across migration SQL files", () => {
+    // ── locate the migrations directory ──────────────────────────────────────
+    const migrationsDir = resolve(process.cwd(), "migrations");
+
+    // Fail-closed: the directory must exist and be readable.
+    if (!existsSync(migrationsDir)) {
+      throw new Error(
+        `migrations/ directory not found at ${migrationsDir}.\n` +
+        `Expected the project root to contain a migrations/ folder with SQL files.\n` +
+        `Run \`npx drizzle-kit generate\` to create an initial migration.`
+      );
+    }
+
+    // ── collect all CREATE TABLE names across every SQL migration file ────────
+    const sqlFiles = readdirSync(migrationsDir).filter(f => f.endsWith(".sql"));
+
+    if (sqlFiles.length === 0) {
+      throw new Error(
+        `No SQL migration files found in ${migrationsDir}.\n` +
+        `Run \`npx drizzle-kit generate\` to produce the initial migration.`
+      );
+    }
+
+    // Matches:  CREATE TABLE `name`
+    //           CREATE TABLE IF NOT EXISTS `name`
+    // Both backtick-quoted (drizzle-kit style) and unquoted names.
+    const CREATE_TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?/gi;
+
+    const tablesInMigrations = new Set<string>();
+
+    for (const filename of sqlFiles) {
+      const content = readFileSync(join(migrationsDir, filename), "utf8");
+      let match: RegExpExecArray | null;
+      while ((match = CREATE_TABLE_RE.exec(content)) !== null) {
+        tablesInMigrations.add(match[1].toLowerCase());
+      }
+    }
+
+    // ── collect all SQL table names declared in shared/schema.ts ─────────────
+    // The Drizzle symbol holds the SQL-level table name (snake_case), not the
+    // JS export name (camelCase).  That is exactly what the migration file uses.
+    const schemaTables: Array<{ exportName: string; sqlName: string }> = [];
+
+    for (const [exportName, val] of Object.entries(schemaModule)) {
+      if (isDrizzleTable(val)) {
+        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        if (sqlName) {
+          schemaTables.push({ exportName, sqlName });
+        }
+      }
+    }
+
+    // Fail-closed sanity guard: we must find at least the well-known baseline
+    // tables or the symbol-based detection is broken.
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(
+      n => !schemaTables.some(t => t.sqlName === n)
+    );
+    if (missingBaseline.length > 0) {
+      throw new Error(
+        `isDrizzleTable() / DRIZZLE_TABLE_SYMBOL detection appears broken — ` +
+        `baseline tables not found: ${missingBaseline.join(", ")}.\n` +
+        `Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.\n` +
+        `Update isDrizzleTable() in this file.`
+      );
+    }
+
+    // ── compare ───────────────────────────────────────────────────────────────
+    const missing = schemaTables.filter(
+      ({ sqlName }) => !tablesInMigrations.has(sqlName.toLowerCase())
+    );
+
+    if (missing.length > 0) {
+      const lines = missing.map(
+        ({ exportName, sqlName }) => `  - ${exportName} (SQL name: ${sqlName})`
+      );
+      throw new Error(
+        `Migration coverage gap — the following table(s) exist in shared/schema.ts ` +
+        `but have no CREATE TABLE statement in any file under migrations/:\n\n` +
+        lines.join("\n") +
+        `\n\nExisting users who pull a new release will never get these tables ` +
+        `because the auto-migration runner only applies files that already exist.\n\n` +
+        `Fix: run \`npx drizzle-kit generate\` and commit the generated SQL file.`
+      );
+    }
+  });
+});
+
+// ── 3. MIGRATION SIMULATION ────────────────────────────────────────────────────
 
 /**
  * Simulates the real-world upgrade scenario:
