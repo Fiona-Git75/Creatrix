@@ -13,6 +13,8 @@
  *   2. settings.libraryPaths survives a restart (was a text().array() column,
  *      now stored as JSON text — verified to decode correctly on reload).
  *   3. unifiedSearch finds conversation content that was written before restart.
+ *   4. Memory entries (global scope) survive a full storage restart.
+ *   5. Knowledge document chunks survive a restart and deserialise correctly.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -218,5 +220,71 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
 
     const found = results.conversations.find(c => c.id === conv.id);
     expect(found, "the exact conversation should appear in search results").toBeDefined();
+  });
+
+  // ── 4. Memory entry (global scope) round-trip ────────────────────────────────
+
+  it("global memory entry survives a storage restart", async () => {
+    // ── Write via instance A ──────────────────────────────────────────────────
+    const storageA = new DatabaseStorage();
+    await storageA.initialize();
+
+    const entry = await storageA.createMemoryEntry({
+      scope: "global",
+      content: "The user prefers concise responses.",
+      summary: "Concise preference",
+    });
+
+    // ── Simulate restart ──────────────────────────────────────────────────────
+    const storageB = new DatabaseStorage();
+    await storageB.initialize();
+
+    const entries = await storageB.getMemoryEntries("global");
+
+    expect(entries.length, "at least one global memory entry should exist after restart").toBeGreaterThan(0);
+
+    const found = entries.find(e => e.id === entry.id);
+    expect(found, "the exact memory entry should be present after restart").toBeDefined();
+    expect(found!.scope).toBe("global");
+    expect(found!.content).toBe("The user prefers concise responses.");
+    expect(found!.summary).toBe("Concise preference");
+  });
+
+  // ── 5. Knowledge document chunks round-trip ──────────────────────────────────
+
+  it("knowledge document chunks survive a restart and deserialise correctly", async () => {
+    // ── Write via instance A ──────────────────────────────────────────────────
+    const storageA = new DatabaseStorage();
+    await storageA.initialize();
+
+    const doc = await storageA.createKnowledgeDocument({
+      title: "Photosynthesis Overview",
+      source: "manual",
+      content: "Plants convert light into energy via chlorophyll.",
+      projectId: undefined,
+    });
+
+    // Attach two chunks via updateKnowledgeDocument
+    const chunks = [
+      { id: "chunk-1", content: "Chlorophyll absorbs red and blue light.", index: 0 },
+      { id: "chunk-2", content: "Glucose is produced as a byproduct.", index: 1 },
+    ];
+    await storageA.updateKnowledgeDocument(doc.id, { chunks });
+
+    // ── Simulate restart ──────────────────────────────────────────────────────
+    const storageB = new DatabaseStorage();
+    await storageB.initialize();
+
+    const retrieved = await storageB.getKnowledgeDocument(doc.id);
+
+    expect(retrieved, "knowledge document should be found after restart").toBeDefined();
+    expect(retrieved!.title).toBe("Photosynthesis Overview");
+    expect(retrieved!.chunks, "chunks should deserialise as an array").toHaveLength(2);
+
+    const [c1, c2] = retrieved!.chunks;
+    expect(c1.id).toBe("chunk-1");
+    expect(c1.content).toBe("Chlorophyll absorbs red and blue light.");
+    expect(c2.id).toBe("chunk-2");
+    expect(c2.content).toBe("Glucose is produced as a byproduct.");
   });
 });
