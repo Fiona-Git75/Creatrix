@@ -212,8 +212,16 @@ describe("Schema safety audit – NOT NULL columns must have a SQL default or be
       throw new Error(
         `Schema upgrade safety violation(s) detected:\n\n${violations.join("\n\n")}\n\n` +
         `Columns that are NOT NULL without a SQL DEFAULT clause are unsafe when added to ` +
-        `an existing database via ALTER TABLE ADD COLUMN — SQLite rejects this when rows exist.\n` +
-        `See client/src/__tests__/schema-upgrade-safety.test.tsx for how to fix.`
+        `an existing database via ALTER TABLE ADD COLUMN — SQLite rejects this when rows exist.\n\n` +
+        `HOW TO FIX:\n` +
+        `  Option A — Give the column a SQL DEFAULT in shared/schema.ts (e.g. .default(0) or .default("")).\n` +
+        `  Option B — Make the column nullable (.notNull() removed) so ALTER TABLE can add it safely.\n` +
+        `  Option C — Add the column to FOUNDING_COLUMNS in\n` +
+        `              client/src/__tests__/schema-upgrade-safety.test.tsx\n` +
+        `              (only if the column is in the ORIGINAL CREATE TABLE and will never be\n` +
+        `              ALTER TABLE'd onto an existing database that already has rows).\n\n` +
+        `QUICK HELPER: run  npx tsx scripts/check-founding-columns.ts\n` +
+        `to see every NOT NULL non-PK column that lacks a SQL DEFAULT, grouped by table.`
       );
     }
   });
