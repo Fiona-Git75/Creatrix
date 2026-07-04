@@ -1,18 +1,15 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import pg from "pg";
+import { drizzle } from "drizzle-orm/libsql";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import { createClient } from "@libsql/client";
+import { mkdirSync } from "fs";
 
-const { Pool } = pg;
+const dbPath = process.env.SQLITE_PATH ?? "./data/creatrix.db";
+mkdirSync("./data", { recursive: true });
 
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL is not set");
-  process.exit(1);
-}
+const client = createClient({ url: `file:${dbPath}` });
+const db = drizzle(client);
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = drizzle(pool);
-
-console.log("Running pending migrations…");
+console.log(`Running pending migrations on ${dbPath}…`);
 
 migrate(db, { migrationsFolder: "./migrations" })
   .then(() => {

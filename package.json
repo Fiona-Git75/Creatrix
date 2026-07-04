@@ -18,6 +18,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
+    "@libsql/client": "^0.17.4",
     "@notionhq/client": "^2.3.0",
     "@playwright/test": "^1.61.1",
     "@radix-ui/react-accordion": "^1.2.4",

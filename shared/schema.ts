@@ -1,33 +1,33 @@
-import { pgTable, text, varchar, jsonb, timestamp, boolean, integer, serial } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Users
-export const users = pgTable("users", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
 
 // Connections table
-export const connections = pgTable("connections", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const connections = sqliteTable("connections", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  provider: varchar("provider", { length: 20 }).notNull(),
+  provider: text("provider").notNull(),
   endpoint: text("endpoint").notNull(),
   apiKey: text("api_key"),
   defaultModel: text("default_model").notNull(),
-  isDefault: boolean("is_default").default(false),
+  isDefault: integer("is_default", { mode: "boolean" }).default(false),
   maxImageSizeMb: integer("max_image_size_mb"),
   orderIndex: integer("order_index").default(0),
 });
 
 // Projects table
-export const projects = pgTable("projects", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const projects = sqliteTable("projects", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  connectionId: varchar("connection_id", { length: 36 }),
+  connectionId: text("connection_id"),
   systemPrompt: text("system_prompt"),
   currentTask: text("current_task"),
   folderPath: text("folder_path"),
@@ -36,48 +36,48 @@ export const projects = pgTable("projects", {
 });
 
 // Conversations table
-export const conversations = pgTable("conversations", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
   title: text("title").notNull(),
-  projectId: varchar("project_id", { length: 36 }),
-  connectionId: varchar("connection_id", { length: 36 }),
+  projectId: text("project_id"),
+  connectionId: text("connection_id"),
   model: text("model").notNull(),
-  messages: jsonb("messages").notNull().default([]),
+  messages: text("messages").notNull().default("[]"),  // JSON-encoded Message[]
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 
 // Memory entries table
-export const memoryEntries = pgTable("memory_entries", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  scope: varchar("scope", { length: 20 }).notNull(),
-  projectId: varchar("project_id", { length: 36 }),
-  conversationId: varchar("conversation_id", { length: 36 }),
+export const memoryEntries = sqliteTable("memory_entries", {
+  id: text("id").primaryKey(),
+  scope: text("scope").notNull(),
+  projectId: text("project_id"),
+  conversationId: text("conversation_id"),
   content: text("content").notNull(),
   summary: text("summary"),
   createdAt: text("created_at").notNull(),
 });
 
 // Knowledge documents table
-export const knowledgeDocuments = pgTable("knowledge_documents", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  projectId: varchar("project_id", { length: 36 }),
+export const knowledgeDocuments = sqliteTable("knowledge_documents", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id"),
   title: text("title").notNull(),
   source: text("source").notNull(),
   content: text("content").notNull(),
-  chunks: jsonb("chunks").notNull().default([]),
+  chunks: text("chunks").notNull().default("[]"),  // JSON-encoded DocumentChunk[]
   createdAt: text("created_at").notNull(),
 });
 
 // Settings table
-export const settings = pgTable("settings", {
-  id: varchar("id", { length: 36 }).primaryKey().default("default"),
-  defaultConnectionId: varchar("default_connection_id", { length: 36 }),
-  defaultProjectId: varchar("default_project_id", { length: 36 }),
-  theme: varchar("theme", { length: 10 }).default("system"),
+export const settings = sqliteTable("settings", {
+  id: text("id").primaryKey().default("default"),
+  defaultConnectionId: text("default_connection_id"),
+  defaultProjectId: text("default_project_id"),
+  theme: text("theme").default("system"),
   rootFolder: text("root_folder"),
-  libraryPaths: text("library_paths").array(),
-  morningOrientationEnabled: boolean("morning_orientation_enabled").default(false),
+  libraryPaths: text("library_paths"),  // JSON-encoded string[]
+  morningOrientationEnabled: integer("morning_orientation_enabled", { mode: "boolean" }).default(false),
   whisperEndpoint: text("whisper_endpoint"),
   searchEndpoint: text("search_endpoint"),
   embeddingModel: text("embedding_model"),
@@ -87,51 +87,50 @@ export const settings = pgTable("settings", {
 // ─── Phase 2: Library ────────────────────────────────────────────────────────
 
 // Library folders — named collections within the library
-export const libraryFolders = pgTable("library_folders", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const libraryFolders = sqliteTable("library_folders", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  parentId: varchar("parent_id", { length: 36 }),       // null = root collection
+  parentId: text("parent_id"),
   description: text("description"),
   createdAt: text("created_at").notNull(),
 });
 
 // Library items — an inspectable record of every document the resident knows about
-export const libraryItems = pgTable("library_items", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  folderId: varchar("folder_id", { length: 36 }),        // null = root
+export const libraryItems = sqliteTable("library_items", {
+  id: text("id").primaryKey(),
+  folderId: text("folder_id"),
   title: text("title").notNull(),
-  filePath: text("file_path"),                            // absolute path on disk (when local)
-  source: varchar("source", { length: 20 }).notNull(),   // "file" | "upload" | "url" | "note"
+  filePath: text("file_path"),
+  source: text("source").notNull(),
   mimeType: text("mime_type"),
-  content: text("content"),                               // cached text content
-  summary: text("summary"),                               // short resident-generated summary
-  tags: text("tags").array(),
+  content: text("content"),
+  summary: text("summary"),
+  tags: text("tags"),  // JSON-encoded string[]
   createdAt: text("created_at").notNull(),
   accessedAt: text("accessed_at"),
 });
 
 // ─── Phase 2: Resident Journal ───────────────────────────────────────────────
 
-// Journal entry types
 export const journalEntryTypes = [
-  "read",          // resident read a document
-  "created",       // resident created a file or note
-  "question",      // open question the resident noted
-  "search",        // a search the resident performed
-  "action",        // any other capability invocation
-  "summary",       // end-of-session or morning summary
+  "read",
+  "created",
+  "question",
+  "search",
+  "action",
+  "summary",
 ] as const;
 export type JournalEntryType = typeof journalEntryTypes[number];
 
-export const journalEntries = pgTable("journal_entries", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  type: varchar("type", { length: 20 }).notNull(),
+export const journalEntries = sqliteTable("journal_entries", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
   title: text("title").notNull(),
   detail: text("detail"),
-  relatedPath: text("related_path"),                      // file path if relevant
-  relatedLibraryItemId: varchar("related_library_item_id", { length: 36 }),
-  relatedConversationId: varchar("related_conversation_id", { length: 36 }),
-  resolved: boolean("resolved").default(false),           // for questions: has it been answered?
+  relatedPath: text("related_path"),
+  relatedLibraryItemId: text("related_library_item_id"),
+  relatedConversationId: text("related_conversation_id"),
+  resolved: integer("resolved", { mode: "boolean" }).default(false),
   createdAt: text("created_at").notNull(),
 });
 
@@ -144,7 +143,6 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
-// Connection providers for AI models
 export const providerTypes = ["openai", "ollama", "lmstudio", "custom"] as const;
 export type ProviderType = typeof providerTypes[number];
 
@@ -163,7 +161,6 @@ export type Connection = z.infer<typeof connectionSchema>;
 export const insertConnectionSchema = connectionSchema.omit({ id: true });
 export type InsertConnection = z.infer<typeof insertConnectionSchema>;
 
-// Projects to organize conversations
 export const projectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -179,7 +176,6 @@ export type Project = z.infer<typeof projectSchema>;
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 
-// Messages within conversations
 export const sourceSchema = z.object({
   type: z.enum(["file", "url", "web", "notion", "youtube"]),
   label: z.string(),
@@ -203,7 +199,6 @@ export const messageSchema = z.object({
 });
 export type Message = z.infer<typeof messageSchema>;
 
-// Conversations
 export const conversationSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -215,15 +210,14 @@ export const conversationSchema = z.object({
   updatedAt: z.string(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
-export const insertConversationSchema = conversationSchema.omit({ 
-  id: true, 
+export const insertConversationSchema = conversationSchema.omit({
+  id: true,
   createdAt: true,
   updatedAt: true,
   messages: true,
 });
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 
-// Memory entries for persistent context
 export const memoryScopeTypes = ["global", "project", "conversation"] as const;
 export type MemoryScope = typeof memoryScopeTypes[number];
 
@@ -240,7 +234,6 @@ export type MemoryEntry = z.infer<typeof memoryEntrySchema>;
 export const insertMemoryEntrySchema = memoryEntrySchema.omit({ id: true, createdAt: true });
 export type InsertMemoryEntry = z.infer<typeof insertMemoryEntrySchema>;
 
-// Knowledge documents for RAG
 export const documentChunkSchema = z.object({
   id: z.string(),
   content: z.string(),
@@ -258,25 +251,24 @@ export const knowledgeDocumentSchema = z.object({
   createdAt: z.string(),
 });
 export type KnowledgeDocument = z.infer<typeof knowledgeDocumentSchema>;
-export const insertKnowledgeDocumentSchema = knowledgeDocumentSchema.omit({ 
-  id: true, 
+export const insertKnowledgeDocumentSchema = knowledgeDocumentSchema.omit({
+  id: true,
   createdAt: true,
   chunks: true,
 });
 export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
 
 // System logs
-export const systemLogs = pgTable("system_logs", {
-  id: serial("id").primaryKey(),
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
-  level: varchar("level", { length: 10 }).notNull(),
-  category: varchar("category", { length: 20 }).notNull(),
+export const systemLogs = sqliteTable("system_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).$defaultFn(() => new Date()).notNull(),
+  level: text("level").notNull(),
+  category: text("category").notNull(),
   message: text("message").notNull(),
   detail: text("detail"),
 });
 export type SystemLog = typeof systemLogs.$inferSelect;
 
-// Chat request schema
 export const chatRequestSchema = z.object({
   conversationId: z.string().nullish(),
   projectId: z.string().nullish(),
@@ -288,7 +280,6 @@ export const chatRequestSchema = z.object({
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
-// Settings schema
 export const settingsSchema = z.object({
   defaultConnectionId: z.string().optional(),
   defaultProjectId: z.string().optional(),
@@ -305,7 +296,6 @@ export type Settings = z.infer<typeof settingsSchema>;
 
 // ─── Phase 2 schemas ─────────────────────────────────────────────────────────
 
-// Library folder
 export const libraryFolderSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -317,11 +307,9 @@ export type LibraryFolder = z.infer<typeof libraryFolderSchema>;
 export const insertLibraryFolderSchema = libraryFolderSchema.omit({ id: true, createdAt: true });
 export type InsertLibraryFolder = z.infer<typeof insertLibraryFolderSchema>;
 
-// Library item sources
 export const libraryItemSources = ["file", "upload", "url", "note"] as const;
 export type LibraryItemSource = typeof libraryItemSources[number];
 
-// Library item
 export const libraryItemSchema = z.object({
   id: z.string(),
   folderId: z.string().optional(),
@@ -339,7 +327,6 @@ export type LibraryItem = z.infer<typeof libraryItemSchema>;
 export const insertLibraryItemSchema = libraryItemSchema.omit({ id: true, createdAt: true });
 export type InsertLibraryItem = z.infer<typeof insertLibraryItemSchema>;
 
-// Journal entry
 export const journalEntrySchema = z.object({
   id: z.string(),
   type: z.enum(journalEntryTypes),
@@ -357,11 +344,11 @@ export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
 
 // ─── Conversation Flags (Moments) ────────────────────────────────────────────
 
-export const conversationFlags = pgTable("conversation_flags", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  conversationId: varchar("conversation_id", { length: 36 }).notNull(),
+export const conversationFlags = sqliteTable("conversation_flags", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
   conversationTitle: text("conversation_title").notNull(),
-  projectId: varchar("project_id", { length: 36 }),
+  projectId: text("project_id"),
   messageIndex: integer("message_index").notNull().default(0),
   pivotSentence: text("pivot_sentence").notNull(),
   note: text("note"),
@@ -393,11 +380,11 @@ export type ReadableExtension = typeof readableExtensions[number];
 
 // ─── Workspace Documents ──────────────────────────────────────────────────────
 
-export const workspaceDocs = pgTable("workspace_docs", {
-  id: varchar("id", { length: 36 }).primaryKey(),
+export const workspaceDocs = sqliteTable("workspace_docs", {
+  id: text("id").primaryKey(),
   title: text("title").notNull(),
   content: text("content").notNull().default(""),
-  projectId: varchar("project_id", { length: 36 }),  // null = global scratchpad
+  projectId: text("project_id"),
   updatedAt: text("updated_at").notNull(),
   createdAt: text("created_at").notNull(),
 });
@@ -416,12 +403,12 @@ export type InsertWorkspaceDoc = z.infer<typeof insertWorkspaceDocSchema>;
 
 // ─── Consultants ─────────────────────────────────────────────────────────────
 
-export const consultants = pgTable("consultants", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  projectId: varchar("project_id", { length: 36 }).notNull(),
+export const consultants = sqliteTable("consultants", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
   name: text("name").notNull(),
   description: text("description").notNull(),
-  connectionId: varchar("connection_id", { length: 36 }).notNull(),
+  connectionId: text("connection_id").notNull(),
   model: text("model").notNull(),
   systemPrompt: text("system_prompt").notNull(),
   createdAt: text("created_at").notNull(),

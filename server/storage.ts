@@ -19,9 +19,10 @@ import {
 } from "@shared/schema";
 import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { mkdirSync } from "fs";
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
 import { eq, and, like, or, desc, sql } from "drizzle-orm";
-import pg from "pg";
 
 export interface IStorage {
   // Lifecycle
@@ -633,71 +634,56 @@ export class MemStorage implements IStorage {
 // ─── Database Storage Implementation ─────────────────────────────────────────
 
 export class DatabaseStorage implements IStorage {
-  private db: ReturnType<typeof drizzle>;
+  // Public so SqliteService probe can reach it without circular-import gymnastics
+  db: ReturnType<typeof drizzle>;
   private _settings: Settings | null = null;
 
   constructor() {
-    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-    this.db = drizzle(pool);
+    const dbPath = process.env.SQLITE_PATH ?? "./data/creatrix.db";
+    mkdirSync("./data", { recursive: true });
+    const client = createClient({ url: `file:${dbPath}` });
+    this.db = drizzle(client);
+  }
+
+  private _parseJson<T>(val: string | null | undefined, defaultVal: T): T {
+    if (val == null || val === "") return defaultVal;
+    try { return JSON.parse(val) as T; }
+    catch { return defaultVal; }
   }
 
   // Hydrate settings from DB at startup so every subsequent getSettings()
   // call returns the persisted row, never the hardcoded in-memory default.
   async initialize(): Promise<void> {
-    const rawUrl = process.env.DATABASE_URL ?? "";
-    const maskedUrl = rawUrl.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
-    console.log(`[Creatrix] database: ${maskedUrl}`);
-    // Read settings with a raw SQL query that lists columns explicitly.
-    // This makes startup resilient to schema drift — if schema.ts has new columns
-    // that haven't been pushed to the DB yet, we still read everything that exists
-    // rather than crashing or silently discarding all persisted data.
-    let rawRow: Record<string, any> | null = null;
+    const dbPath = process.env.SQLITE_PATH ?? "./data/creatrix.db";
+    console.log(`[Creatrix] database: ${dbPath}`);
+
+    let rawRow: (typeof settings.$inferSelect) | null = null;
     try {
-      // Probe which optional columns are present, then build a safe SELECT.
-      const colCheck = await this.db.execute(sql`
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'settings'
-      `);
-      const present = new Set((colCheck.rows as any[]).map((r: any) => r.column_name as string));
-
-      const optionals = ["whisper_endpoint", "search_endpoint", "embedding_model"]
-        .filter(c => present.has(c))
-        .map(c => `"${c}"`)
-        .join(", ");
-
-      const selectSql = `
-        SELECT id, default_connection_id, default_project_id, theme,
-               root_folder, library_paths, morning_orientation_enabled
-               ${optionals ? ", " + optionals : ""}
-        FROM settings WHERE id = 'default'
-      `;
-      const result = await this.db.execute(sql.raw(selectSql));
-      rawRow = (result.rows[0] as Record<string, any>) ?? null;
+      const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
+      rawRow = result[0] ?? null;
     } catch (err: any) {
       console.warn(`[storage] Settings read failed: ${err.message}`);
     }
 
     if (!rawRow) {
-      // No row yet — insert the canonical defaults
+      // No row yet — insert canonical defaults
       try {
-        await this.db.execute(sql`
-          INSERT INTO settings (id, theme, morning_orientation_enabled)
-          VALUES ('default', 'system', false)
-          ON CONFLICT (id) DO NOTHING
-        `);
+        await this.db.insert(settings).values({ id: "default", theme: "system", morningOrientationEnabled: false }).onConflictDoNothing();
       } catch {}
       this._settings = { theme: "system", morningOrientationEnabled: false };
     } else {
       this._settings = {
-        defaultConnectionId: rawRow.default_connection_id ?? undefined,
-        defaultProjectId: rawRow.default_project_id ?? undefined,
+        defaultConnectionId: rawRow.defaultConnectionId ?? undefined,
+        defaultProjectId: rawRow.defaultProjectId ?? undefined,
         theme: (rawRow.theme as Settings["theme"]) ?? "system",
-        rootFolder: rawRow.root_folder ?? undefined,
-        libraryPaths: (rawRow.library_paths as string[] | null) ?? undefined,
-        morningOrientationEnabled: rawRow.morning_orientation_enabled ?? false,
-        whisperEndpoint: rawRow.whisper_endpoint ?? undefined,
-        searchEndpoint: rawRow.search_endpoint ?? undefined,
-        embeddingModel: rawRow.embedding_model ?? undefined,
+        rootFolder: rawRow.rootFolder ?? undefined,
+        libraryPaths: this._parseJson<string[]>(rawRow.libraryPaths as string | null, []).length
+          ? this._parseJson<string[]>(rawRow.libraryPaths as string | null, [])
+          : undefined,
+        morningOrientationEnabled: Boolean(rawRow.morningOrientationEnabled ?? false),
+        whisperEndpoint: rawRow.whisperEndpoint ?? undefined,
+        searchEndpoint: rawRow.searchEndpoint ?? undefined,
+        embeddingModel: rawRow.embeddingModel ?? undefined,
       };
     }
   }
@@ -763,8 +749,10 @@ export class DatabaseStorage implements IStorage {
     return { ...existing, ...updates };
   }
   async deleteConnection(id: string): Promise<boolean> {
-    const result = await this.db.delete(connections).where(eq(connections.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getConnection(id);
+    if (!existing) return false;
+    await this.db.delete(connections).where(eq(connections.id, id));
+    return true;
   }
   async reorderConnections(orderedIds: string[]): Promise<void> {
     await Promise.all(
@@ -806,9 +794,11 @@ export class DatabaseStorage implements IStorage {
     );
   }
   async deleteProject(id: string): Promise<boolean> {
+    const existing = await this.getProject(id);
+    if (!existing) return false;
     await this.db.delete(conversations).where(eq(conversations.projectId, id));
-    const result = await this.db.delete(projects).where(eq(projects.id, id));
-    return (result.rowCount ?? 0) > 0;
+    await this.db.delete(projects).where(eq(projects.id, id));
+    return true;
   }
 
   async countConversationsByConnection(connectionId: string): Promise<number> {
@@ -820,37 +810,41 @@ export class DatabaseStorage implements IStorage {
     const result = projectId !== undefined
       ? await this.db.select().from(conversations).where(eq(conversations.projectId, projectId)).orderBy(desc(conversations.updatedAt))
       : await this.db.select().from(conversations).orderBy(desc(conversations.updatedAt));
-    return result.map(c => ({ ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: (c.messages as Message[]) || [] }));
+    return result.map(c => ({ ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) }));
   }
   async getConversation(id: string): Promise<Conversation | undefined> {
     const result = await this.db.select().from(conversations).where(eq(conversations.id, id));
     if (!result[0]) return undefined;
     const c = result[0];
-    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: (c.messages as Message[]) || [] };
+    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) };
   }
   async createConversation(insertConversation: InsertConversation): Promise<Conversation> {
     const id = randomUUID();
     const now = new Date().toISOString();
-    await this.db.insert(conversations).values({ ...insertConversation, id, messages: [], createdAt: now, updatedAt: now, projectId: insertConversation.projectId ?? null, connectionId: insertConversation.connectionId ?? null });
+    await this.db.insert(conversations).values({ ...insertConversation, id, messages: JSON.stringify([]), createdAt: now, updatedAt: now, projectId: insertConversation.projectId ?? null, connectionId: insertConversation.connectionId ?? null });
     return { ...insertConversation, id, messages: [], createdAt: now, updatedAt: now };
   }
   async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId'>>): Promise<Conversation | undefined> {
     const existing = await this.getConversation(id);
     if (!existing) return undefined;
     const now = new Date().toISOString();
-    await this.db.update(conversations).set({ ...updates, updatedAt: now }).where(eq(conversations.id, id));
+    const dbUpdates: Record<string, any> = { ...updates, updatedAt: now };
+    if (updates.messages !== undefined) dbUpdates.messages = JSON.stringify(updates.messages);
+    await this.db.update(conversations).set(dbUpdates).where(eq(conversations.id, id));
     return { ...existing, ...updates, updatedAt: now };
   }
   async deleteConversation(id: string): Promise<boolean> {
-    const result = await this.db.delete(conversations).where(eq(conversations.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getConversation(id);
+    if (!existing) return false;
+    await this.db.delete(conversations).where(eq(conversations.id, id));
+    return true;
   }
   async addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined> {
     const existing = await this.getConversation(id);
     if (!existing) return undefined;
     const now = new Date().toISOString();
     const newMessages = [...existing.messages, { ...message, createdAt: now }];
-    await this.db.update(conversations).set({ messages: newMessages, updatedAt: now }).where(eq(conversations.id, id));
+    await this.db.update(conversations).set({ messages: JSON.stringify(newMessages), updatedAt: now }).where(eq(conversations.id, id));
     return { ...existing, messages: newMessages, updatedAt: now };
   }
 
@@ -872,8 +866,8 @@ export class DatabaseStorage implements IStorage {
     return { ...insertEntry, id, createdAt };
   }
   async deleteMemoryEntry(id: string): Promise<boolean> {
-    const result = await this.db.delete(memoryEntries).where(eq(memoryEntries.id, id));
-    return (result.rowCount ?? 0) > 0;
+    await this.db.delete(memoryEntries).where(eq(memoryEntries.id, id));
+    return true;
   }
   async clearMemory(scope: string, scopeId?: string): Promise<boolean> {
     if (scope === "global") await this.db.delete(memoryEntries).where(eq(memoryEntries.scope, "global"));
@@ -886,74 +880,38 @@ export class DatabaseStorage implements IStorage {
     const result = projectId !== undefined
       ? await this.db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.projectId, projectId)).orderBy(desc(knowledgeDocuments.createdAt))
       : await this.db.select().from(knowledgeDocuments).orderBy(desc(knowledgeDocuments.createdAt));
-    return result.map(d => ({ ...d, projectId: d.projectId ?? undefined, chunks: (d.chunks as KnowledgeDocument["chunks"]) || [] }));
+    return result.map(d => ({ ...d, projectId: d.projectId ?? undefined, chunks: this._parseJson<KnowledgeDocument["chunks"]>(d.chunks as string, []) }));
   }
   async getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined> {
     const result = await this.db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
     if (!result[0]) return undefined;
     const d = result[0];
-    return { ...d, projectId: d.projectId ?? undefined, chunks: (d.chunks as KnowledgeDocument["chunks"]) || [] };
+    return { ...d, projectId: d.projectId ?? undefined, chunks: this._parseJson<KnowledgeDocument["chunks"]>(d.chunks as string, []) };
   }
   async createKnowledgeDocument(insertDoc: InsertKnowledgeDocument): Promise<KnowledgeDocument> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    await this.db.insert(knowledgeDocuments).values({ ...insertDoc, id, chunks: [], createdAt, projectId: insertDoc.projectId ?? null });
+    await this.db.insert(knowledgeDocuments).values({ ...insertDoc, id, chunks: JSON.stringify([]), createdAt, projectId: insertDoc.projectId ?? null });
     return { ...insertDoc, id, chunks: [], createdAt };
   }
   async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {
     const existing = await this.getKnowledgeDocument(id);
     if (!existing) return undefined;
-    await this.db.update(knowledgeDocuments).set(updates).where(eq(knowledgeDocuments.id, id));
+    const dbUpdates: Record<string, any> = { ...updates };
+    if (updates.chunks !== undefined) dbUpdates.chunks = JSON.stringify(updates.chunks);
+    await this.db.update(knowledgeDocuments).set(dbUpdates).where(eq(knowledgeDocuments.id, id));
     return { ...existing, ...updates };
   }
   async deleteKnowledgeDocument(id: string): Promise<boolean> {
-    const result = await this.db.delete(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getKnowledgeDocument(id);
+    if (!existing) return false;
+    await this.db.delete(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
+    return true;
   }
   async searchDocuments(query: string, projectId?: string, topK: number = 3): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]> {
     if (!query?.trim()) return [];
 
-    // Try semantic search first if chunk_embeddings table has data
-    try {
-      const { embedText } = await import("./rag/embeddings");
-      const queryEmbedding = await embedText(query, this);
-      if (queryEmbedding) {
-        const vectorStr = `[${queryEmbedding.join(",")}]`;
-        const rows = await this.db.execute(
-          projectId
-            ? sql`SELECT ce.id as chunk_id, ce.document_id, ce.content,
-                         1 - (ce.embedding <=> ${vectorStr}::vector) as score
-                  FROM chunk_embeddings ce
-                  JOIN knowledge_documents kd ON kd.id = ce.document_id
-                  WHERE kd.project_id = ${projectId}
-                  ORDER BY ce.embedding <=> ${vectorStr}::vector
-                  LIMIT ${topK * 3}`
-            : sql`SELECT ce.id as chunk_id, ce.document_id, ce.content,
-                         1 - (ce.embedding <=> ${vectorStr}::vector) as score
-                  FROM chunk_embeddings ce
-                  ORDER BY ce.embedding <=> ${vectorStr}::vector
-                  LIMIT ${topK * 3}`
-        ) as { rows: { chunk_id: string; document_id: string; content: string; score: number }[] };
-
-        if (rows.rows.length > 0) {
-          const docIds = Array.from(new Set(rows.rows.map(r => r.document_id))).slice(0, topK);
-          const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[] = [];
-          for (const docId of docIds) {
-            const doc = await this.getKnowledgeDocument(docId);
-            if (!doc) continue;
-            const docChunks = rows.rows
-              .filter(r => r.document_id === docId)
-              .map(r => ({ id: r.chunk_id, content: r.content, metadata: {} }));
-            results.push({ doc, chunks: docChunks });
-          }
-          return results;
-        }
-      }
-    } catch {
-      // pgvector not available or embedding failed — fall through to keyword search
-    }
-
-    // Keyword fallback
+    // Keyword search
     const docs = await this.getKnowledgeDocuments(projectId);
     const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
     if (queryTerms.length === 0) return [];
@@ -980,21 +938,22 @@ export class DatabaseStorage implements IStorage {
   async getSettings(): Promise<Settings> {
     // Return the in-memory cache populated by initialize().
     // Fall back to a live DB read only if initialize() was never called
-    // (e.g. tests or MemStorage fallback paths).
+    // (e.g. tests).
     if (this._settings) return this._settings;
     const result = await this.db.select().from(settings).where(eq(settings.id, "default"));
     if (!result[0]) return { theme: "system", morningOrientationEnabled: false };
     const s = result[0];
+    const parsed = this._parseJson<string[]>(s.libraryPaths as string | null, []);
     this._settings = {
       defaultConnectionId: s.defaultConnectionId ?? undefined,
       defaultProjectId: s.defaultProjectId ?? undefined,
       theme: (s.theme as Settings["theme"]) ?? "system",
       rootFolder: s.rootFolder ?? undefined,
-      libraryPaths: (s.libraryPaths as string[] | null) ?? undefined,
-      morningOrientationEnabled: s.morningOrientationEnabled ?? false,
+      libraryPaths: parsed.length ? parsed : undefined,
+      morningOrientationEnabled: Boolean(s.morningOrientationEnabled ?? false),
       whisperEndpoint: s.whisperEndpoint ?? undefined,
-      searchEndpoint: (s as any).searchEndpoint ?? undefined,
-      embeddingModel: (s as any).embeddingModel ?? undefined,
+      searchEndpoint: s.searchEndpoint ?? undefined,
+      embeddingModel: s.embeddingModel ?? undefined,
     };
     return this._settings;
   }
@@ -1008,7 +967,7 @@ export class DatabaseStorage implements IStorage {
       defaultProjectId: merged.defaultProjectId ?? null,
       theme: merged.theme ?? "system",
       rootFolder: merged.rootFolder ?? null,
-      libraryPaths: merged.libraryPaths ?? null,
+      libraryPaths: merged.libraryPaths ? JSON.stringify(merged.libraryPaths) : null,
       morningOrientationEnabled: merged.morningOrientationEnabled ?? false,
       whisperEndpoint: merged.whisperEndpoint ?? null,
       searchEndpoint: merged.searchEndpoint ?? null,
@@ -1085,9 +1044,11 @@ export class DatabaseStorage implements IStorage {
     return { ...existing, ...updates };
   }
   async deleteLibraryFolder(id: string): Promise<boolean> {
+    const existing = await this.getLibraryFolder(id);
+    if (!existing) return false;
     await this.db.delete(libraryItems).where(eq(libraryItems.folderId, id));
-    const result = await this.db.delete(libraryFolders).where(eq(libraryFolders.id, id));
-    return (result.rowCount ?? 0) > 0;
+    await this.db.delete(libraryFolders).where(eq(libraryFolders.id, id));
+    return true;
   }
 
   async getLibraryItems(folderId?: string | null): Promise<LibraryItem[]> {
@@ -1108,19 +1069,23 @@ export class DatabaseStorage implements IStorage {
   async createLibraryItem(insertItem: InsertLibraryItem): Promise<LibraryItem> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    const row = { ...insertItem, id, createdAt, folderId: insertItem.folderId ?? null, filePath: insertItem.filePath ?? null, mimeType: insertItem.mimeType ?? null, content: insertItem.content ?? null, summary: insertItem.summary ?? null, tags: insertItem.tags ?? null, accessedAt: insertItem.accessedAt ?? null };
+    const row = { ...insertItem, id, createdAt, folderId: insertItem.folderId ?? null, filePath: insertItem.filePath ?? null, mimeType: insertItem.mimeType ?? null, content: insertItem.content ?? null, summary: insertItem.summary ?? null, tags: insertItem.tags ? JSON.stringify(insertItem.tags) : null, accessedAt: insertItem.accessedAt ?? null };
     await this.db.insert(libraryItems).values(row);
     return { ...insertItem, id, createdAt };
   }
   async updateLibraryItem(id: string, updates: Partial<InsertLibraryItem>): Promise<LibraryItem | undefined> {
     const existing = await this.getLibraryItem(id);
     if (!existing) return undefined;
-    await this.db.update(libraryItems).set(updates).where(eq(libraryItems.id, id));
+    const dbUpdates: Record<string, any> = { ...updates };
+    if (updates.tags !== undefined) dbUpdates.tags = updates.tags ? JSON.stringify(updates.tags) : null;
+    await this.db.update(libraryItems).set(dbUpdates).where(eq(libraryItems.id, id));
     return { ...existing, ...updates };
   }
   async deleteLibraryItem(id: string): Promise<boolean> {
-    const result = await this.db.delete(libraryItems).where(eq(libraryItems.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getLibraryItem(id);
+    if (!existing) return false;
+    await this.db.delete(libraryItems).where(eq(libraryItems.id, id));
+    return true;
   }
   async searchLibraryItems(query: string): Promise<LibraryItem[]> {
     if (!query?.trim()) return [];
@@ -1131,7 +1096,7 @@ export class DatabaseStorage implements IStorage {
     return result.map(i => this._mapLibraryItem(i));
   }
   private _mapLibraryItem(i: typeof libraryItems.$inferSelect): LibraryItem {
-    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, tags: (i.tags as string[]) ?? undefined, accessedAt: i.accessedAt ?? undefined };
+    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, tags: this._parseJson<string[]>(i.tags as string | null, null as any) ?? undefined, accessedAt: i.accessedAt ?? undefined };
   }
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────
@@ -1241,8 +1206,10 @@ export class DatabaseStorage implements IStorage {
     return { ...existing, ...updates, updatedAt };
   }
   async deleteWorkspaceDoc(id: string): Promise<boolean> {
-    const result = await this.db.delete(workspaceDocs).where(eq(workspaceDocs.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getWorkspaceDoc(id);
+    if (!existing) return false;
+    await this.db.delete(workspaceDocs).where(eq(workspaceDocs.id, id));
+    return true;
   }
 
   // ─── Consultants ───────────────────────────────────────────────────────────
@@ -1266,8 +1233,10 @@ export class DatabaseStorage implements IStorage {
     return rows[0] ? { ...rows[0] } : undefined;
   }
   async deleteConsultant(id: string): Promise<boolean> {
-    const result = await this.db.delete(consultants).where(eq(consultants.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const existing = await this.getConsultant(id);
+    if (!existing) return false;
+    await this.db.delete(consultants).where(eq(consultants.id, id));
+    return true;
   }
 
   async addSystemLog(entry: { level: string; category: string; message: string; detail?: string }): Promise<void> {
@@ -1292,78 +1261,44 @@ export class DatabaseStorage implements IStorage {
     await this.db.delete(systemLogs);
   }
   async pruneSystemLogs(olderThanDays: number): Promise<void> {
-    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-    await this.db.delete(systemLogs).where(sql`${systemLogs.timestamp} < ${cutoff}`);
+    const cutoffMs = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+    await this.db.delete(systemLogs).where(sql`${systemLogs.timestamp} < ${cutoffMs}`);
   }
 
   async initVectorStore(): Promise<void> {
     try {
-      await this.db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
-
-      // Migrate column from vector(1536) → vector(768) if needed.
-      // nomic-embed-text (and most local Ollama embedding models) produce 768-dim vectors.
-      // OpenAI text-embedding-3-small produces 1536. Since Creatrix is local-first,
-      // we default to 768. Existing 1536-dim embeddings are cleared (they'd be
-      // incompatible with a local model anyway — re-indexing is automatic on next use).
-      await this.db.execute(sql`
-        DO $$
-        DECLARE
-          current_dim integer;
-        BEGIN
-          SELECT atttypmod INTO current_dim
-          FROM pg_attribute
-          WHERE attrelid = 'chunk_embeddings'::regclass
-            AND attname = 'embedding'
-            AND attnum > 0;
-          IF current_dim IS NOT NULL AND current_dim <> 768 THEN
-            TRUNCATE chunk_embeddings;
-            EXECUTE 'ALTER TABLE chunk_embeddings ALTER COLUMN embedding TYPE vector(768)';
-          END IF;
-        EXCEPTION WHEN OTHERS THEN NULL;
-        END $$
-      `);
-
-      await this.db.execute(sql`
-        CREATE TABLE IF NOT EXISTS chunk_embeddings (
-          id VARCHAR(36) PRIMARY KEY,
-          document_id VARCHAR(36) NOT NULL,
+      // SQLite: store embeddings as JSON text; cosine similarity is computed in JS
+      await this.db.$client.execute({
+        sql: `CREATE TABLE IF NOT EXISTS chunk_embeddings (
+          id TEXT PRIMARY KEY,
+          document_id TEXT NOT NULL,
           content TEXT NOT NULL,
-          embedding vector(768)
-        )
-      `);
-      await this.db.execute(sql`
-        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_doc
-        ON chunk_embeddings (document_id)
-      `);
+          embedding TEXT
+        )`,
+        args: [],
+      });
+      await this.db.$client.execute({
+        sql: `CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_doc ON chunk_embeddings (document_id)`,
+        args: [],
+      });
     } catch {
-      // pgvector not installed — semantic search will fall back to keyword search
+      // If creation fails, semantic search will fall back to keyword search
     }
   }
 
   async storeChunkEmbeddings(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void> {
     for (const chunk of chunks) {
-      const vectorStr = `[${chunk.embedding.join(",")}]`;
-      await this.db.execute(sql`
-        INSERT INTO chunk_embeddings (id, document_id, content, embedding)
-        VALUES (${chunk.id}, ${docId}, ${chunk.content}, ${vectorStr}::vector)
-        ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding
-      `);
+      await this.db.$client.execute({
+        sql: `INSERT OR REPLACE INTO chunk_embeddings (id, document_id, content, embedding) VALUES (?, ?, ?, ?)`,
+        args: [chunk.id, docId, chunk.content, JSON.stringify(chunk.embedding)],
+      });
     }
   }
 
   async deleteChunkEmbeddings(docId: string): Promise<void> {
-    await this.db.execute(sql`DELETE FROM chunk_embeddings WHERE document_id = ${docId}`);
+    await this.db.$client.execute({ sql: `DELETE FROM chunk_embeddings WHERE document_id = ?`, args: [docId] });
   }
 }
 
-if (!process.env.DATABASE_URL) {
-  console.warn(
-    "[Creatrix] DATABASE_URL is not set — running with in-memory storage.\n" +
-    "  Data will not persist across restarts.\n" +
-    "  Set DATABASE_URL in .env (local) or as a Replit secret to enable persistence."
-  );
-}
-
-export const storage: IStorage = process.env.DATABASE_URL
-  ? new DatabaseStorage()
-  : new MemStorage();
+// SQLite is always available — no environment variable required.
+export const storage: IStorage = new DatabaseStorage();

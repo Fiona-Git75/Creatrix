@@ -1,6 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -31,14 +30,7 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-const PgStore = connectPgSimple(session);
 app.use(session({
-  store: process.env.DATABASE_URL
-    ? new PgStore({
-        conString: process.env.DATABASE_URL,
-        createTableIfMissing: true,
-      })
-    : undefined,
   secret: process.env.SESSION_SECRET ?? "creatrix-dev-secret",
   resave: false,
   saveUninitialized: false,
@@ -145,9 +137,9 @@ app.use((req, res, next) => {
           // Both probes run concurrently — neither waits for the other.
           const [, providerScan] = await Promise.all([
             probeAll({
-              postgres: process.env.DATABASE_URL ?? null,
-              searxng:  (s as any).searchEndpoint ?? null,
-              whisper:  (s as any).whisperEndpoint ?? null,
+              sqlite:  null,
+              searxng: (s as any).searchEndpoint ?? null,
+              whisper: (s as any).whisperEndpoint ?? null,
             }),
             getProvidersStatus(true),
           ]);
@@ -159,14 +151,14 @@ app.use((req, res, next) => {
 
           // Functional readiness descriptions — ecological language, not HTTP codes.
           const readyDesc: Record<string, string> = {
-            postgres: "Database accessible. Read/write confirmed.",
-            searxng:  "Search endpoint responding. Web search verified.",
-            whisper:  "Server responding. Audio transcription ready.",
+            sqlite:  "Database file open. Read/write confirmed.",
+            searxng: "Search endpoint responding. Web search verified.",
+            whisper: "Server responding. Audio transcription ready.",
           };
           const absentDesc: Record<string, string> = {
-            postgres: "Database not configured.",
-            searxng:  "Web search endpoint not configured.",
-            whisper:  "Audio transcription not configured.",
+            sqlite:  "Database file not yet created.",
+            searxng: "Web search endpoint not configured.",
+            whisper: "Audio transcription not configured.",
           };
 
           const SEP = "─".repeat(44);
@@ -243,9 +235,9 @@ app.use((req, res, next) => {
           startBackgroundProbes(async () => {
             const settings = await storage.getSettings();
             return {
-              postgres: process.env.DATABASE_URL ?? null,
-              searxng:  (settings as any).searchEndpoint  ?? null,
-              whisper:  (settings as any).whisperEndpoint ?? null,
+              sqlite:  null,
+              searxng: (settings as any).searchEndpoint  ?? null,
+              whisper: (settings as any).whisperEndpoint ?? null,
             };
           });
 

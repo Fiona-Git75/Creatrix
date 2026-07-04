@@ -48,7 +48,7 @@ function firstLookFor(provider: string, type: "unreachable" | "schema" | "db" | 
     if (provider === "openai") return "curl https://api.openai.com/v1/models -H 'Authorization: Bearer $OPENAI_API_KEY'";
     return `curl ${provider}`;
   }
-  if (type === "db") return "pg_isready -h 127.0.0.1 -p 5432\necho $DATABASE_URL";
+  if (type === "db") return "ls -lh ./data/creatrix.db\nsqlite3 ./data/creatrix.db 'SELECT COUNT(*) FROM conversations'";
   if (type === "schema") return "npm run db:push";
   if (type === "whisper") return "curl -s http://localhost:9000/v1/models";
   if (type === "searxng") return "curl -s 'http://localhost:8080/search?q=test&format=json' | head -c 200";
@@ -131,7 +131,7 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
       expected: "reachable",
       actual: "absent",
       message: `Database unreachable: ${err?.message ?? "unknown error"}`,
-      action: "Check DATABASE_URL and ensure Postgres is running.",
+      action: "Check that the data/ directory is writable and the database file exists.",
       firstLook: firstLookFor("", "db"),
     });
   }

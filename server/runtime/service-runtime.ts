@@ -11,7 +11,7 @@
 //              server/index.ts               (startup probe kick-off)
 
 import type { ServiceDefinition, ServiceStatus, ReadinessResult, LogEntry } from "./services/index";
-import { PostgresService } from "./services/postgres";
+import { SqliteService } from "./services/sqlite";
 import { SearXNGService } from "./services/searxng";
 import { WhisperService } from "./services/whisper";
 
@@ -42,7 +42,7 @@ export interface SystemServiceState {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const SERVICES: ServiceDefinition[] = [
-  PostgresService,
+  SqliteService,
   SearXNGService,
   WhisperService,
 ];

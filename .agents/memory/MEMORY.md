@@ -9,3 +9,4 @@
 - [Runtime coherence architecture](runtime-coherence-arch.md) — bootstrap record is the living contract; coherence ≠ health; "right relationship with itself and its user."
 - [Provenance annotation convention](provenance-convention.md) — symbolic anchor comments at integration boundaries; canonical/derives/overrides/consumed-by; never line numbers.
 - [Service runtime architecture](service-runtime-arch.md) — each service owns its probe, failure interpretation, and firstLook hint; coherence.ts only reads state; HTTP 200 ≠ ready.
+- [SQLite migration](sqlite-migration.md) — PostgreSQL replaced by SQLite via @libsql/client + drizzle-orm/libsql; better-sqlite3 won't compile in Replit (no Python/node-gyp).

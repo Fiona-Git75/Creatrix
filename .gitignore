@@ -4,3 +4,6 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# SQLite database file — generated at runtime, never committed
+data/
