@@ -150,7 +150,8 @@ const FOUNDING_COLUMNS = new Set<string>([
   "consultants.createdAt",
 ]);
 
-const ALL_TABLES: Record<string, Record<string, unknown>> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ALL_TABLES: Record<string, any> = {
   users,
   connections,
   projects,
