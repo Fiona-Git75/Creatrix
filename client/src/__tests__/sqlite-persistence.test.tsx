@@ -17,6 +17,7 @@
  *   5. Knowledge document chunks survive a restart and deserialise correctly.
  *   6. Project-scoped and conversation-scoped memory entries are not mixed up
  *      with each other or with global entries after a restart.
+ *   7. searchDocuments finds content inside chunks written before a restart.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -367,5 +368,53 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     const otherConversationEntries = await storageB.getMemoryEntries("conversation", "conv-other");
     expect(otherConversationEntries.find(e => e.id === conversationEntry.id),
       "conversation entry must not appear when querying a different conversationId").toBeUndefined();
+  });
+
+  // ── 7. searchDocuments finds content inside chunks written before a restart ───
+
+  it("searchDocuments finds content inside chunks written before a restart", async () => {
+    const uniquePhrase = "vellichor-cascade-photon";
+
+    // ── Write via instance A ──────────────────────────────────────────────────
+    const storageA = new DatabaseStorage();
+    await storageA.initialize();
+
+    const doc = await storageA.createKnowledgeDocument({
+      title: "Optics Reference",
+      source: "manual",
+      content: "A reference document about optical phenomena.",
+      projectId: undefined,
+    });
+
+    const chunks = [
+      { id: "chunk-a", content: `Introduction to ${uniquePhrase} theory.`, index: 0 },
+      { id: "chunk-b", content: "Refraction causes light to bend at interfaces.", index: 1 },
+      { id: "chunk-c", content: `Advanced ${uniquePhrase} applications in fibre optics.`, index: 2 },
+    ];
+    await storageA.updateKnowledgeDocument(doc.id, { chunks });
+
+    // ── Simulate restart: new instance on the same file ───────────────────────
+    const storageB = new DatabaseStorage();
+    await storageB.initialize();
+
+    const results = await storageB.searchDocuments(uniquePhrase);
+
+    expect(results.length, "searchDocuments should return at least one result").toBeGreaterThan(0);
+
+    const hit = results.find(r => r.doc.id === doc.id);
+    expect(hit, "the document written before restart should appear in results").toBeDefined();
+
+    const matchedIds = hit!.chunks.map(c => c.id);
+    expect(
+      matchedIds.some(id => id === "chunk-a" || id === "chunk-c"),
+      "at least one matching chunk should be returned",
+    ).toBe(true);
+
+    for (const chunk of hit!.chunks) {
+      expect(
+        chunk.content.toLowerCase().includes(uniquePhrase.split("-")[0]),
+        `returned chunk content should contain the search term (got: "${chunk.content}")`,
+      ).toBe(true);
+    }
   });
 });
