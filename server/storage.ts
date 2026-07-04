@@ -19,9 +19,10 @@ import {
 } from "@shared/schema";
 import { getLogs, clearLogs } from "./syslog";
 import { randomUUID } from "crypto";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
+import { createClient, type Client } from "@libsql/client";
 import { eq, and, like, or, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
@@ -636,13 +637,107 @@ export class MemStorage implements IStorage {
 export class DatabaseStorage implements IStorage {
   // Public so SqliteService probe can reach it without circular-import gymnastics
   db: ReturnType<typeof drizzle>;
+  private _client: Client;
   private _settings: Settings | null = null;
 
   constructor() {
     const dbPath = process.env.SQLITE_PATH ?? "./data/creatrix.db";
     mkdirSync("./data", { recursive: true });
-    const client = createClient({ url: `file:${dbPath}` });
-    this.db = drizzle(client);
+    this._client = createClient({ url: `file:${dbPath}` });
+    this.db = drizzle(this._client);
+  }
+
+  /**
+   * Idempotent migration runner.
+   *
+   * Reads migration SQL files listed in migrations/meta/_journal.json and applies
+   * each one that has not already been recorded in __creatrix_migrations.
+   *
+   * CREATE TABLE and CREATE INDEX statements are rewritten to their IF NOT EXISTS
+   * form so the runner is safe against databases that were created before migration
+   * tracking was introduced (e.g. via drizzle-kit push on an earlier version).
+   * ALTER TABLE ADD COLUMN errors for columns that already exist are also swallowed.
+   *
+   * This means the runner can be called on:
+   *   - A brand-new empty file  → applies every migration from scratch.
+   *   - An existing DB with no tracking table → detects tables already exist,
+   *     skips DDL silently, records the migration as applied.
+   *   - An existing DB that already has the tracking table → only applies
+   *     migrations whose tags are not yet recorded.
+   */
+  private async _runMigrations(migrationsFolder: string): Promise<void> {
+    // Tracking table — created with IF NOT EXISTS so this is always safe.
+    await this._client.execute(`
+      CREATE TABLE IF NOT EXISTS __creatrix_migrations (
+        tag        TEXT PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      )
+    `);
+
+    const journalPath = join(migrationsFolder, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf-8")) as {
+      entries: { tag: string }[];
+    };
+
+    const appliedResult = await this._client.execute(
+      "SELECT tag FROM __creatrix_migrations"
+    );
+    const applied = new Set(
+      appliedResult.rows.map((r) => r["tag"] as string)
+    );
+
+    for (const entry of journal.entries) {
+      if (applied.has(entry.tag)) continue;
+
+      const sqlPath = join(migrationsFolder, `${entry.tag}.sql`);
+      const sqlContent = readFileSync(sqlPath, "utf-8");
+
+      // Split on drizzle's statement-breakpoint marker.
+      const statements = sqlContent.split("--> statement-breakpoint");
+
+      for (const rawStmt of statements) {
+        const stmt = rawStmt.trim();
+        if (!stmt) continue;
+
+        // Rewrite CREATE TABLE / CREATE INDEX to idempotent form.
+        const safeStmt = stmt
+          .replace(/^CREATE TABLE\s+/im, "CREATE TABLE IF NOT EXISTS ")
+          .replace(/^CREATE UNIQUE INDEX\s+/im, "CREATE UNIQUE INDEX IF NOT EXISTS ")
+          .replace(/^CREATE INDEX\s+/im, "CREATE INDEX IF NOT EXISTS ");
+
+        try {
+          await this._client.execute(safeStmt);
+        } catch (err: any) {
+          const msg: string = err?.message ?? "";
+          // Tolerate known idempotency cases:
+          //   "duplicate column name" — ALTER TABLE ADD COLUMN for a column already present
+          //   "table … already exists" — CREATE TABLE on a pre-existing table (shouldn't
+          //     happen with IF NOT EXISTS rewrite above, but guard defensively)
+          //   "index … already exists" — same for CREATE INDEX
+          if (
+            msg.includes("duplicate column name") ||
+            /table `?\w+`? already exists/i.test(msg) ||
+            /index `?\w+`? already exists/i.test(msg)
+          ) {
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      // Record migration as applied.
+      await this._client.execute({
+        sql: "INSERT OR IGNORE INTO __creatrix_migrations (tag, applied_at) VALUES (?, ?)",
+        args: [entry.tag, Date.now()],
+      });
+      console.log(`[storage] Migration applied: ${entry.tag}`);
+      applied.add(entry.tag);
+    }
+
+    const pending = journal.entries.filter(e => !applied.has(e.tag)).length;
+    if (pending === 0) {
+      console.log(`[storage] Schema up to date (${applied.size} migration${applied.size !== 1 ? "s" : ""} already applied)`);
+    }
   }
 
   private _parseJson<T>(val: string | null | undefined, defaultVal: T): T {
@@ -656,6 +751,11 @@ export class DatabaseStorage implements IStorage {
   async initialize(): Promise<void> {
     const dbPath = process.env.SQLITE_PATH ?? "./data/creatrix.db";
     console.log(`[Creatrix] database: ${dbPath}`);
+
+    // Apply any pending schema migrations before touching any tables.
+    // _runMigrations is idempotent: safe on fresh DBs, existing DBs (pre-tracking),
+    // and repeated restarts. Throws only on genuine unexpected errors.
+    await this._runMigrations("./migrations");
 
     let rawRow: (typeof settings.$inferSelect) | null = null;
     try {

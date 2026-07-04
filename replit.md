@@ -37,10 +37,13 @@ Key backend patterns:
 - Development uses Vite middleware, production serves static files
 
 ### Data Storage
-- **ORM**: Drizzle ORM with PostgreSQL dialect
-- **Schema**: Defined in `shared/schema.ts` using Drizzle's table definitions
+- **ORM**: Drizzle ORM with SQLite dialect (`drizzle-orm/libsql` + `@libsql/client`)
+- **Database file**: `./data/creatrix.db` (override with `SQLITE_PATH` env var)
+- **Schema**: Defined in `shared/schema.ts` using Drizzle's SQLite table definitions
 - **Validation**: Zod schemas generated from Drizzle schemas via `drizzle-zod`
-- **Migrations**: Managed via `drizzle-kit push`
+- **Migrations**: SQL files in `./migrations/`, generated with `npx drizzle-kit generate`
+
+**Automatic migration on startup:** `DatabaseStorage.initialize()` runs a custom idempotent migration runner (`_runMigrations`) before any table access. It reads `migrations/meta/_journal.json`, tracks which files have been applied in a `__creatrix_migrations` table embedded in the SQLite file, and applies only new ones. `CREATE TABLE` / `CREATE INDEX` statements are rewritten to `IF NOT EXISTS` form so the runner is safe against existing databases created before migration tracking was introduced. No manual `drizzle-kit push` step is required — pulling a new release and restarting the server is sufficient to upgrade the schema.
 
 Core data models:
 - Users (authentication)
@@ -68,8 +71,9 @@ Providers implement streaming for real-time response delivery.
 - Any OpenAI-compatible API endpoint
 
 ### Database
-- PostgreSQL database (connection via `DATABASE_URL` environment variable)
-- Uses `connect-pg-simple` for session storage
+- SQLite via `@libsql/client` + `drizzle-orm/libsql`; database file at `./data/creatrix.db`
+- Override the path with the `SQLITE_PATH` environment variable
+- Schema migrations run automatically on every server startup — no manual step needed
 
 ### Frontend Libraries
 - TanStack React Query for data fetching
@@ -128,8 +132,7 @@ the host with no Docker layer between it and Creatrix:
 
 ```
 Host machine
-├── Creatrix       (npm run dev)
-├── PostgreSQL     (systemctl start postgresql  /  brew services start postgresql)
+├── Creatrix       (npm run dev)          ← SQLite DB auto-created at ./data/creatrix.db
 ├── Ollama         (ollama serve)
 ├── SearXNG        (systemctl start searxng)          ← optional: web search
 └── Whisper        (faster-whisper-server --model base --port 9000)  ← optional: transcription
@@ -144,22 +147,17 @@ and they give precise feedback when something is wrong.
 ### Quick start
 
 ```bash
-# 1. Start PostgreSQL (must be running before Creatrix starts)
-sudo systemctl start postgresql          # Linux
-# brew services start postgresql@16      # macOS
-
-# 2. Set environment
-cp .env.example .env
-# Edit DATABASE_URL to point at your local Postgres instance
-
-# 3. Run Creatrix
+# 1. Run Creatrix (no external database needed — SQLite is file-embedded)
 npm install
 npm run dev
 
-# 4. Optional: start search and transcription
+# 2. Optional: start search and transcription
 sudo systemctl start searxng             # or: python searx/webapp.py
 faster-whisper-server --model base --host 0.0.0.0 --port 9000
 ```
+
+> **Schema migrations run automatically** on every startup. After pulling a new
+> release, just restart the server — the database schema is updated in place.
 
 Then open Settings in Creatrix and set:
 - Search endpoint: `http://localhost:8080`
