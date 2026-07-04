@@ -134,6 +134,19 @@ describe("checkBundleContents – external package presence", () => {
 
     expect(errors.every((e) => !e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
   });
+
+  it("passes when external packages appear with single-quote require() style", () => {
+    // Build a bundle that uses single quotes for all external require() calls.
+    const requireCalls = [...EXTERNAL]
+      .map((pkg) => `require('${pkg}')`)
+      .join("; ");
+    const padding = "x".repeat(Math.max(0, MIN + 1 - requireCalls.length));
+    const bundle = requireCalls + padding;
+
+    const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
+
+    expect(errors.every((e) => !e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
+  });
 });
 
 // ── newly-added allowlist entry accidentally removed scenario ─────────────────
