@@ -190,12 +190,27 @@ describe("checkBundleContents – catches accidental allowlist removal", () => {
 // error.  This test reads build.ts as source text and asserts the contract.
 
 describe("build.ts allowlist derivation contract", () => {
-  const buildSrc = readFileSync(
-    resolve(__dirname, "../../../script/build.ts"),
-    "utf-8",
-  );
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test will surface a clear failure below.
+  }
+
+  function requireBuildSrc(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
 
   it("defines allowlist as exactly [...bundledPackages] with no extra items", () => {
+    const src = requireBuildSrc();
     // Match the canonical single-line derivation.  Whitespace variants are
     // tolerated (one or more spaces around = and inside [...]), but the RHS
     // must be the spread of bundledPackages and nothing else.
@@ -203,16 +218,17 @@ describe("build.ts allowlist derivation contract", () => {
       /const\s+allowlist\s*=\s*\[\s*\.\.\.bundledPackages\s*\]\s*;/;
 
     expect(
-      derivationPattern.test(buildSrc),
+      derivationPattern.test(src),
       "build.ts must derive allowlist as `const allowlist = [...bundledPackages]` — " +
         "any addition, removal, or hardcoding breaks the drift guarantee",
     ).toBe(true);
   });
 
   it("does not reference any extra packages not in bundledPackages", () => {
+    const src = requireBuildSrc();
     // Extract the RHS of the allowlist assignment.
     // Matches: const allowlist = [ ...anything... ];
-    const assignMatch = buildSrc.match(
+    const assignMatch = src.match(
       /const\s+allowlist\s*=\s*(\[[^\]]*\])\s*;/,
     );
 
@@ -240,13 +256,14 @@ describe("build.ts allowlist derivation contract", () => {
   });
 
   it("imports bundledPackages from verify-bundle-logic", () => {
+    const src = requireBuildSrc();
     // The import that provides bundledPackages must come from verify-bundle-logic.
     // This catches renaming the import source to a different (possibly stale) file.
     const importPattern =
       /import\s+\{[^}]*\bbundledPackages\b[^}]*\}\s+from\s+["'][^"']*verify-bundle-logic/;
 
     expect(
-      importPattern.test(buildSrc),
+      importPattern.test(src),
       "build.ts must import bundledPackages from verify-bundle-logic — " +
         "importing from any other file severs the single-source-of-truth contract",
     ).toBe(true);
