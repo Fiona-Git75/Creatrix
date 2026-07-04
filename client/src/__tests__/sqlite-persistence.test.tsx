@@ -18,6 +18,8 @@
  *   6. Project-scoped and conversation-scoped memory entries are not mixed up
  *      with each other or with global entries after a restart.
  *   7. searchDocuments finds content inside chunks written before a restart.
+ *   8. (separate describe) Fresh-install: _runMigrations creates all tables
+ *      from scratch on a brand-new empty SQLite file.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -416,5 +418,106 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
         `returned chunk content should contain the search term (got: "${chunk.content}")`,
       ).toBe(true);
     }
+  });
+});
+
+// ── Fresh-install path ────────────────────────────────────────────────────────
+//
+// Verifies that _runMigrations handles a completely empty SQLite file correctly:
+// no pre-existing tables, no __creatrix_migrations tracking table.
+// After initialize() returns every application table must exist and be queryable,
+// and __creatrix_migrations must contain exactly one row for "0000_sweet_red_shift".
+
+describe("DatabaseStorage – fresh-install migration from empty database", () => {
+  let dbPath: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    // Create a unique temp path but do NOT write any SQL to it — the file
+    // itself does not need to pre-exist; @libsql/client creates it on first
+    // connection, leaving a truly empty database with no tables at all.
+    dbPath = join(tmpdir(), `creatrix-fresh-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    process.env.SQLITE_PATH = dbPath;
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) {
+      rmSync(dbPath);
+    }
+  });
+
+  it("creates all application tables from scratch on a brand-new empty database", async () => {
+    // ── Run migrations against a completely empty file ────────────────────────
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // ── Verify every application table is queryable ───────────────────────────
+    // A successful SELECT (even returning zero rows) proves the table was created.
+    const client = createClient({ url: `file:${dbPath}` });
+
+    const appTables = [
+      "connections",
+      "consultants",
+      "conversation_flags",
+      "conversations",
+      "journal_entries",
+      "knowledge_documents",
+      "library_folders",
+      "library_items",
+      "memory_entries",
+      "projects",
+      "settings",
+      "system_logs",
+      "users",
+      "workspace_docs",
+    ];
+
+    for (const table of appTables) {
+      const result = await client.execute(`SELECT 1 FROM ${table} LIMIT 0`);
+      expect(result, `table "${table}" should exist and be queryable after fresh initialize()`).toBeDefined();
+    }
+
+    // ── Verify migration tracking record ──────────────────────────────────────
+    const migResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0000_sweet_red_shift'"
+    );
+    expect(
+      migResult.rows.length,
+      "__creatrix_migrations should have a row for '0000_sweet_red_shift'",
+    ).toBe(1);
+    expect(migResult.rows[0]["tag"]).toBe("0000_sweet_red_shift");
+
+    await client.close();
+  });
+
+  it("allows data to be written and read immediately after fresh initialize()", async () => {
+    // Confirms the tables are not just present but fully functional after a
+    // fresh-install migration — no half-applied schema that silently drops rows.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const conv = await storage.createConversation({
+      title: "Fresh-install round-trip",
+      model: "gpt-4o",
+      connectionId: "conn-fresh",
+    });
+
+    await storage.addMessageToConversation(conv.id, {
+      id: "msg-fresh-1",
+      role: "user",
+      content: "Does the fresh schema work?",
+      createdAt: new Date().toISOString(),
+    });
+
+    const retrieved = await storage.getConversation(conv.id);
+    expect(retrieved, "conversation should be retrievable immediately after fresh initialize()").toBeDefined();
+    expect(retrieved!.title).toBe("Fresh-install round-trip");
+    expect(retrieved!.messages).toHaveLength(1);
+    expect(retrieved!.messages[0].content).toBe("Does the fresh schema work?");
   });
 });
