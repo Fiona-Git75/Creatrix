@@ -952,8 +952,15 @@ export class DatabaseStorage implements IStorage {
     let result;
     if (scope === "project" && scopeId) {
       result = await this.db.select().from(memoryEntries).where(and(eq(memoryEntries.scope, scope), eq(memoryEntries.projectId, scopeId)));
+    } else if (scope === "project" && !scopeId) {
+      // Require a projectId for project-scoped queries; returning all projects'
+      // entries without one leaks cross-project memory to callers.
+      return [];
     } else if (scope === "conversation" && scopeId) {
       result = await this.db.select().from(memoryEntries).where(and(eq(memoryEntries.scope, scope), eq(memoryEntries.conversationId, scopeId)));
+    } else if (scope === "conversation" && !scopeId) {
+      // Require a conversationId for conversation-scoped queries for the same reason.
+      return [];
     } else {
       result = await this.db.select().from(memoryEntries).where(eq(memoryEntries.scope, scope));
     }
