@@ -15,6 +15,8 @@
  *   3. unifiedSearch finds conversation content that was written before restart.
  *   4. Memory entries (global scope) survive a full storage restart.
  *   5. Knowledge document chunks survive a restart and deserialise correctly.
+ *   6. Project-scoped and conversation-scoped memory entries are not mixed up
+ *      with each other or with global entries after a restart.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -286,5 +288,84 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     expect(c1.content).toBe("Chlorophyll absorbs red and blue light.");
     expect(c2.id).toBe("chunk-2");
     expect(c2.content).toBe("Glucose is produced as a byproduct.");
+  });
+
+  // ── 6. Memory scope isolation across restart ─────────────────────────────────
+
+  it("project-scoped and conversation-scoped memory entries are not mixed up after restart", async () => {
+    const projectId = "proj-abc";
+    const conversationId = "conv-xyz";
+
+    // ── Write one entry per scope via instance A ──────────────────────────────
+    const storageA = new DatabaseStorage();
+    await storageA.initialize();
+
+    const globalEntry = await storageA.createMemoryEntry({
+      scope: "global",
+      content: "Global preference: always use metric units.",
+      summary: "Metric units",
+    });
+
+    const projectEntry = await storageA.createMemoryEntry({
+      scope: "project",
+      projectId,
+      content: "Project-specific note: use TypeScript strict mode.",
+      summary: "TS strict",
+    });
+
+    const conversationEntry = await storageA.createMemoryEntry({
+      scope: "conversation",
+      conversationId,
+      content: "In this conversation the user wants bullet-point answers.",
+      summary: "Bullet points",
+    });
+
+    // ── Simulate restart ──────────────────────────────────────────────────────
+    const storageB = new DatabaseStorage();
+    await storageB.initialize();
+
+    // ── Query each scope independently ────────────────────────────────────────
+    const globalEntries = await storageB.getMemoryEntries("global");
+    const projectEntries = await storageB.getMemoryEntries("project", projectId);
+    const conversationEntries = await storageB.getMemoryEntries("conversation", conversationId);
+
+    // Global scope: must contain the global entry and must NOT contain the others
+    const foundGlobal = globalEntries.find(e => e.id === globalEntry.id);
+    expect(foundGlobal, "global entry should appear in global scope query").toBeDefined();
+    expect(foundGlobal!.scope).toBe("global");
+    expect(globalEntries.find(e => e.id === projectEntry.id),
+      "project entry must not appear in global scope query").toBeUndefined();
+    expect(globalEntries.find(e => e.id === conversationEntry.id),
+      "conversation entry must not appear in global scope query").toBeUndefined();
+
+    // Project scope: must contain the project entry and must NOT contain the others
+    const foundProject = projectEntries.find(e => e.id === projectEntry.id);
+    expect(foundProject, "project entry should appear in project scope query").toBeDefined();
+    expect(foundProject!.scope).toBe("project");
+    expect(foundProject!.projectId).toBe(projectId);
+    expect(projectEntries.find(e => e.id === globalEntry.id),
+      "global entry must not appear in project scope query").toBeUndefined();
+    expect(projectEntries.find(e => e.id === conversationEntry.id),
+      "conversation entry must not appear in project scope query").toBeUndefined();
+
+    // Conversation scope: must contain the conversation entry and must NOT contain the others
+    const foundConversation = conversationEntries.find(e => e.id === conversationEntry.id);
+    expect(foundConversation, "conversation entry should appear in conversation scope query").toBeDefined();
+    expect(foundConversation!.scope).toBe("conversation");
+    expect(foundConversation!.conversationId).toBe(conversationId);
+    expect(conversationEntries.find(e => e.id === globalEntry.id),
+      "global entry must not appear in conversation scope query").toBeUndefined();
+    expect(conversationEntries.find(e => e.id === projectEntry.id),
+      "project entry must not appear in conversation scope query").toBeUndefined();
+
+    // Cross-project: a query for a different projectId must not return our entry
+    const otherProjectEntries = await storageB.getMemoryEntries("project", "proj-other");
+    expect(otherProjectEntries.find(e => e.id === projectEntry.id),
+      "project entry must not appear when querying a different projectId").toBeUndefined();
+
+    // Cross-conversation: a query for a different conversationId must not return our entry
+    const otherConversationEntries = await storageB.getMemoryEntries("conversation", "conv-other");
+    expect(otherConversationEntries.find(e => e.id === conversationEntry.id),
+      "conversation entry must not appear when querying a different conversationId").toBeUndefined();
   });
 });
