@@ -1792,6 +1792,110 @@ describe("MemoryPanel – project and conversation switching isolation", () => {
 //   4. Assert guard_col_a EXISTS (stmt 1 ran).
 //   5. Assert the tracking row is ABSENT (INSERT never reached).
 
+// ── Malformed SQL file ────────────────────────────────────────────────────────
+//
+// Verifies that _runMigrations surfaces a clear, actionable error — including
+// the SQL file path — when a migration file contains a syntactically invalid
+// statement that the database driver cannot parse or execute.  This can happen
+// after a partial write (e.g. a deploy that truncated mid-statement) or a
+// merge conflict that left sentinel markers in the file.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables and __creatrix_migrations
+//      already exist in a stable state.
+//   2. Build a synthetic migrations folder with a journal that references a single
+//      tag ("0006_malformed_sql") and write an SQL file containing a statement
+//      that is syntactically invalid (guaranteed to be rejected by the driver).
+//   3. Call _runMigrations() — must reject.
+//   4. Assert the rejection message includes the SQL file path so operators can
+//      locate and fix the file without digging through logs.
+//   5. Query __creatrix_migrations directly and confirm the failed tag was NOT
+//      recorded — a syntactically invalid migration must never be marked applied.
+
+describe("DatabaseStorage – malformed SQL file", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-malformed-sql-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-malformed-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("rejects with an error that includes the SQL file path and does NOT record the tag", async () => {
+    // Step 1: Full initialize — DB and __creatrix_migrations exist in a clean state.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder.
+    //   - The journal references a single tag: "0006_malformed_sql".
+    //   - The corresponding .sql file contains a statement that is syntactically
+    //     invalid so the driver is guaranteed to reject it (not a semantic error
+    //     like a missing table, but a parse-level failure).
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 6000000000000,
+          tag: "0006_malformed_sql",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Write an intentionally malformed SQL file — a bare keyword with no valid
+    // syntax following it.  The driver will reject this at parse time.
+    writeFileSync(
+      join(tmpMigrationsDir, "0006_malformed_sql.sql"),
+      "THIS IS NOT VALID SQL AT ALL ;;; GARBAGE <<<>>>"
+    );
+
+    // Step 3 & 4: _runMigrations must reject, and the error message must include
+    // the SQL file path so an operator can immediately find the broken file.
+    const expectedPathFragment = "0006_malformed_sql.sql";
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).rejects.toThrow(expectedPathFragment);
+
+    // Step 5: The tag must NOT appear in __creatrix_migrations.
+    // A failed migration must never be recorded as applied, or the next restart
+    // would skip it silently and the schema corruption would become permanent.
+    const client = createClient({ url: `file:${dbPath}` });
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0006_malformed_sql'"
+    );
+    expect(
+      result.rows.length,
+      "__creatrix_migrations must NOT have a row for the tag when the SQL file is malformed",
+    ).toBe(0);
+    await client.close();
+  });
+});
+
 describe("DatabaseStorage – tracking row is NOT recorded when a mid-migration statement fails", () => {
   let dbPath: string;
   let tmpMigrationsDir: string;

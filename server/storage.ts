@@ -728,7 +728,7 @@ export class DatabaseStorage implements IStorage {
           ) {
             continue;
           }
-          throw err;
+          throw new Error(`Migration failed in ${sqlPath}: ${msg || String(err)}`);
         }
       }
 
