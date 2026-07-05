@@ -322,6 +322,136 @@ describe("MemoryPanel — switching projects shows isolated entries", () => {
       "project A entry must not appear after switching to project B",
     ).toBeNull();
   });
+
+  it("post-switch fetch uses scopeId=proj-b, not scopeId=proj-a", async () => {
+    const calledUrls: string[] = [];
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        calledUrls.push(url);
+        const params = new URLSearchParams(url.split("?")[1] ?? "");
+        const scope = params.get("scope");
+        const scopeId = params.get("scopeId");
+        let data: MemoryEntry[] = [];
+        if (scope === "global") data = [GLOBAL_ENTRY];
+        else if (scope === "project" && scopeId === "proj-a") data = [PROJ_A_ENTRY];
+        else if (scope === "project" && scopeId === "proj-b") data = [PROJ_B_ENTRY];
+        return Promise.resolve(
+          new Response(JSON.stringify(data), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    const { rerender } = renderPanel(client, { projectId: "proj-a" });
+
+    // Wait for proj-a fetch to fire
+    await waitFor(() => {
+      expect(calledUrls.some(u => u.includes("scopeId=proj-a"))).toBe(true);
+    });
+
+    // Switch to project B
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryPanel
+          open={true}
+          onOpenChange={vi.fn()}
+          projectId="proj-b"
+          conversationId={null}
+        />
+      </QueryClientProvider>,
+    );
+
+    // A new fetch for proj-b must fire with the correct scopeId
+    await waitFor(() => {
+      const projBFetches = calledUrls.filter(
+        u => u.includes("scope=project") && u.includes("scopeId=proj-b"),
+      );
+      expect(
+        projBFetches.length,
+        "must have fired a project fetch with scopeId=proj-b after switching",
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it("stale project A content is not visible while the project B fetch is in-flight", async () => {
+    // Use a deferred promise so we control when proj-b's response resolves.
+    let resolveProjB!: (entries: MemoryEntry[]) => void;
+    const projBPending = new Promise<MemoryEntry[]>(res => { resolveProjB = res; });
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const params = new URLSearchParams(url.split("?")[1] ?? "");
+        const scope = params.get("scope");
+        const scopeId = params.get("scopeId");
+
+        // proj-b project fetch is artificially delayed
+        if (scope === "project" && scopeId === "proj-b") {
+          return projBPending.then(data =>
+            new Response(JSON.stringify(data), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        // All other fetches resolve immediately
+        let data: MemoryEntry[] = [];
+        if (scope === "global") data = [GLOBAL_ENTRY];
+        else if (scope === "project" && scopeId === "proj-a") data = [PROJ_A_ENTRY];
+        return Promise.resolve(
+          new Response(JSON.stringify(data), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    const { rerender } = renderPanel(client, { projectId: "proj-a" });
+
+    // Navigate to project tab and confirm proj-a content is visible
+    const projectTab = await screen.findByTestId("tab-memory-project");
+    await userEvent.click(projectTab);
+    await waitFor(() => {
+      expect(screen.queryByText(PROJ_A_ENTRY.content)).not.toBeNull();
+    });
+
+    // Switch to project B — proj-b fetch is intentionally still pending
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryPanel
+          open={true}
+          onOpenChange={vi.fn()}
+          projectId="proj-b"
+          conversationId={null}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Immediately after the prop change and before proj-b resolves, proj-a content
+    // must NOT be visible — the panel must show a loading/empty state instead.
+    expect(
+      screen.queryByText(PROJ_A_ENTRY.content),
+      "project A entry must not be visible while project B fetch is in-flight",
+    ).toBeNull();
+
+    // Now resolve proj-b and confirm its content appears
+    resolveProjB([PROJ_B_ENTRY]);
+    await waitFor(() => {
+      expect(screen.queryByText(PROJ_B_ENTRY.content)).not.toBeNull();
+    });
+
+    expect(
+      screen.queryByText(PROJ_A_ENTRY.content),
+      "project A entry must not appear after project B data arrives",
+    ).toBeNull();
+  });
 });
 
 describe("MemoryPanel — switching conversations shows isolated entries", () => {
