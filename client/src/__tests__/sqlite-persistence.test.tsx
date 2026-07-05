@@ -1284,6 +1284,129 @@ describe("DatabaseStorage – partial multi-statement migration restarts cleanly
   });
 });
 
+// ── Three-statement migration: crash between statements 2 and 3 ───────────────
+//
+// The two-statement test confirms the runner recovers when a crash happens
+// between statements 1 and 2. This test exercises the same loop-continue path
+// but with three ADD COLUMN statements: statements 1 and 2 are already in the
+// DB (simulating a crash after statement 2 but before statement 3), while the
+// tracking row was never written.
+//
+// On the next startup _runMigrations re-runs the whole file:
+//   - Statement 1 hits "duplicate column name" → swallowed.
+//   - Statement 2 hits "duplicate column name" → swallowed.
+//   - Statement 3 executes successfully → third column created.
+//   - Tracking row is recorded after all statements complete.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a three-statement migration.
+//   3. Manually apply statements 1 and 2 via a raw client (no tracking row).
+//   4. Call _runMigrations() — must not throw.
+//   5. All three columns must exist and the tracking row must be present.
+
+describe("DatabaseStorage – three-statement migration restarts cleanly after crash between stmts 2 and 3", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-three-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-three-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("swallows duplicate-column errors for stmts 1 and 2, applies stmt 3, and records the tracking row", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a three-statement migration.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 4000000000001, tag: "0004_partial_three_stmt", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Three-statement migration separated by drizzle's breakpoint marker.
+    writeFileSync(
+      join(tmpMigrationsDir, "0004_partial_three_stmt.sql"),
+      [
+        "ALTER TABLE settings ADD COLUMN three_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN three_col_b TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN three_col_c TEXT",
+      ].join("\n")
+    );
+
+    // Step 3: Manually apply statements 1 AND 2 via raw client — simulates the
+    // crash-after-statement-2 scenario. No tracking row is inserted.
+    const client = createClient({ url: `file:${dbPath}` });
+    await client.execute("ALTER TABLE settings ADD COLUMN three_col_a TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN three_col_b TEXT");
+
+    // Confirm col_a and col_b exist and NO tracking row was recorded.
+    await client.execute("SELECT three_col_a FROM settings LIMIT 0");
+    await client.execute("SELECT three_col_b FROM settings LIMIT 0");
+    const beforeTracking = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0004_partial_three_stmt'"
+    );
+    expect(
+      beforeTracking.rows.length,
+      "tracking row must NOT exist before the restart"
+    ).toBe(0);
+
+    // Step 4: Run _runMigrations — must not throw even though col_a and col_b already exist.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 5a: col_a must still exist.
+    await client.execute("SELECT three_col_a FROM settings LIMIT 0");
+
+    // Step 5b: col_b must still exist.
+    await client.execute("SELECT three_col_b FROM settings LIMIT 0");
+
+    // Step 5c: col_c must now exist (statement 3 was applied on this restart).
+    await client.execute("SELECT three_col_c FROM settings LIMIT 0");
+
+    // Step 5d: Tracking row must be present.
+    const afterRestart = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0004_partial_three_stmt'"
+    );
+    expect(
+      afterRestart.rows.length,
+      "tracking row must be inserted after the partial-apply restart"
+    ).toBe(1);
+    expect(afterRestart.rows[0]["tag"]).toBe("0004_partial_three_stmt");
+
+    await client.close();
+  });
+});
+
 // ── Missing SQL file path ──────────────────────────────────────────────────────
 //
 // Verifies that _runMigrations surfaces a clear, readable error — rather than
