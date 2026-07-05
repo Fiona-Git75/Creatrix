@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, FolderOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project } from "@shared/schema";
@@ -17,18 +17,19 @@ interface FieldAreaProps {
   testId: string;
   onChange: (v: string) => void;
   onBlur: () => void;
+  rows?: number;
 }
 
-function FieldArea({ label, value, placeholder, testId, onChange, onBlur }: FieldAreaProps) {
+function FieldArea({ label, value, placeholder, testId, onChange, onBlur, rows = 4 }: FieldAreaProps) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
       <textarea
         value={value}
         onChange={e => onChange(e.target.value)}
         onBlur={onBlur}
         placeholder={placeholder}
-        rows={3}
+        rows={rows}
         className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
         data-testid={testId}
       />
@@ -44,18 +45,19 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newFilePath, setNewFilePath] = useState("");
+  const [addingFile, setAddingFile] = useState(false);
 
   const [fields, setFields] = useState({
+    description: "",
     goals: "",
-    architecturalNotes: "",
-    workState: "",
     recentChanges: "",
     activeIssues: "",
+    currentTask: "",
     systemPrompt: "",
     folderPath: "",
-    currentTask: "",
     name: "",
-    description: "",
+    contextFiles: "[]",
   });
 
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -63,19 +65,22 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
   useEffect(() => {
     if (project) {
       setFields({
+        description: project.description ?? "",
         goals: project.goals ?? "",
-        architecturalNotes: project.architecturalNotes ?? "",
-        workState: project.workState ?? "",
         recentChanges: project.recentChanges ?? "",
         activeIssues: project.activeIssues ?? "",
+        currentTask: project.currentTask ?? "",
         systemPrompt: project.systemPrompt ?? "",
         folderPath: project.folderPath ?? "",
-        currentTask: project.currentTask ?? "",
         name: project.name ?? "",
-        description: project.description ?? "",
+        contextFiles: project.contextFiles ?? "[]",
       });
     }
   }, [project]);
+
+  const parsedFiles: string[] = (() => {
+    try { return JSON.parse(fields.contextFiles); } catch { return []; }
+  })();
 
   const saveMutation = useMutation({
     mutationFn: (updates: Partial<typeof fields>) =>
@@ -95,6 +100,22 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
   const handleBlur = (key: keyof typeof fields) => {
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveMutation.mutate({ [key]: fields[key] });
+  };
+
+  const addFile = () => {
+    const path = newFilePath.trim();
+    if (!path) return;
+    const next = JSON.stringify([...parsedFiles, path]);
+    setNewFilePath("");
+    setAddingFile(false);
+    handleChange("contextFiles", next);
+    saveMutation.mutate({ contextFiles: next });
+  };
+
+  const removeFile = (index: number) => {
+    const next = JSON.stringify(parsedFiles.filter((_, i) => i !== index));
+    handleChange("contextFiles", next);
+    saveMutation.mutate({ contextFiles: next });
   };
 
   if (!project) return null;
@@ -125,72 +146,104 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col md:flex-row gap-0 h-full">
 
-          {/* CONTEXT column */}
+          {/* LEFT — Context */}
           <div className="flex-1 flex flex-col gap-4 p-4 border-b md:border-b-0 md:border-r border-border/60">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground pb-1 border-b border-border/40">
               Context
             </div>
 
             <FieldArea
-              label="Goals"
-              value={fields.goals}
-              placeholder="What is this project trying to achieve?"
-              testId="textarea-project-goals"
-              onChange={v => handleChange("goals", v)}
-              onBlur={() => handleBlur("goals")}
-            />
-
-            <FieldArea
-              label="System Intent"
-              value={fields.systemPrompt}
-              placeholder="How should the AI behave in this project?"
-              testId="textarea-project-system-prompt"
-              onChange={v => handleChange("systemPrompt", v)}
-              onBlur={() => handleBlur("systemPrompt")}
-            />
-
-            <FieldArea
-              label="Architectural Notes"
-              value={fields.architecturalNotes}
-              placeholder="Key structural decisions, patterns, constraints…"
-              testId="textarea-project-architectural-notes"
-              onChange={v => handleChange("architecturalNotes", v)}
-              onBlur={() => handleBlur("architecturalNotes")}
-            />
-
-            <FieldArea
               label="Description"
               value={fields.description}
-              placeholder="Short summary of this project"
+              placeholder="A short summary of what this project is…"
               testId="textarea-project-description"
               onChange={v => handleChange("description", v)}
               onBlur={() => handleBlur("description")}
+              rows={3}
             />
+
+            <FieldArea
+              label="Overarching Project"
+              value={fields.goals}
+              placeholder="The bigger picture — what is this project trying to achieve and why?"
+              testId="textarea-project-goals"
+              onChange={v => handleChange("goals", v)}
+              onBlur={() => handleBlur("goals")}
+              rows={5}
+            />
+
+            {/* Context Documents */}
+            <div className="flex flex-col gap-2 mt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Context Documents
+                </label>
+                <button
+                  onClick={() => setAddingFile(v => !v)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors"
+                  data-testid="button-add-context-file"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              </div>
+
+              {parsedFiles.length === 0 && !addingFile && (
+                <p className="text-[10px] text-muted-foreground/50 italic px-1">
+                  No context files yet — add file paths the model should know about.
+                </p>
+              )}
+
+              {parsedFiles.map((filePath, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/30 border border-border/50 group"
+                  data-testid={`item-context-file-${i}`}
+                >
+                  <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <span className="text-xs truncate flex-1 font-mono">{filePath}</span>
+                  <button
+                    onClick={() => removeFile(i)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                    data-testid={`button-remove-context-file-${i}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+
+              {addingFile && (
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newFilePath}
+                    onChange={e => setNewFilePath(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") addFile();
+                      if (e.key === "Escape") { setAddingFile(false); setNewFilePath(""); }
+                    }}
+                    placeholder="/path/to/file.md"
+                    className="flex-1 text-xs font-mono bg-muted/30 border border-border/50 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+                    data-testid="input-new-context-file"
+                  />
+                  <button
+                    onClick={addFile}
+                    className="text-xs px-2 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    data-testid="button-confirm-add-context-file"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* WORKING SPACE column */}
+          {/* RIGHT — Working Space */}
           <div className="flex-1 flex flex-col gap-4 p-4">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground pb-1 border-b border-border/40">
               Working Space
             </div>
-
-            <FieldArea
-              label="Current Task"
-              value={fields.currentTask}
-              placeholder="What are we working on right now?"
-              testId="textarea-project-current-task"
-              onChange={v => handleChange("currentTask", v)}
-              onBlur={() => handleBlur("currentTask")}
-            />
-
-            <FieldArea
-              label="Work State"
-              value={fields.workState}
-              placeholder="Where things stand — what's in flight, what's blocked…"
-              testId="textarea-project-work-state"
-              onChange={v => handleChange("workState", v)}
-              onBlur={() => handleBlur("workState")}
-            />
 
             <FieldArea
               label="Recent Changes"
@@ -199,6 +252,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               testId="textarea-project-recent-changes"
               onChange={v => handleChange("recentChanges", v)}
               onBlur={() => handleBlur("recentChanges")}
+              rows={4}
             />
 
             <FieldArea
@@ -208,6 +262,17 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               testId="textarea-project-active-issues"
               onChange={v => handleChange("activeIssues", v)}
               onBlur={() => handleBlur("activeIssues")}
+              rows={4}
+            />
+
+            <FieldArea
+              label="Tasks In Progress"
+              value={fields.currentTask}
+              placeholder="What's currently being worked on…"
+              testId="textarea-project-tasks-in-progress"
+              onChange={v => handleChange("currentTask", v)}
+              onBlur={() => handleBlur("currentTask")}
+              rows={4}
             />
           </div>
         </div>
@@ -229,6 +294,18 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
         {settingsOpen && (
           <div className="px-4 pb-4 flex flex-col gap-3">
             <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Project Name</label>
+              <input
+                type="text"
+                value={fields.name}
+                onChange={e => handleChange("name", e.target.value)}
+                onBlur={() => handleBlur("name")}
+                placeholder="Project name"
+                className="w-full text-xs bg-muted/30 border border-border/50 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+                data-testid="input-project-name"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Folder Path</label>
               <input
                 type="text"
@@ -241,15 +318,15 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Project Name</label>
-              <input
-                type="text"
-                value={fields.name}
-                onChange={e => handleChange("name", e.target.value)}
-                onBlur={() => handleBlur("name")}
-                placeholder="Project name"
-                className="w-full text-xs bg-muted/30 border border-border/50 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
-                data-testid="input-project-name"
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">System Intent</label>
+              <textarea
+                value={fields.systemPrompt}
+                onChange={e => handleChange("systemPrompt", e.target.value)}
+                onBlur={() => handleBlur("systemPrompt")}
+                placeholder="How should the AI behave in this project?"
+                rows={3}
+                className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
+                data-testid="textarea-project-system-prompt"
               />
             </div>
             {saveMutation.isPending && (

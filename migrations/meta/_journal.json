@@ -15,6 +15,13 @@
       "when": 1783172768064,
       "tag": "0001_happy_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783233900000,
+      "tag": "0002_project_context_files",
+      "breakpoints": true
     }
   ]
 }

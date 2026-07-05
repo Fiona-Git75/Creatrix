@@ -39,6 +39,7 @@ export const projects = sqliteTable("projects", {
   workState: text("work_state"),
   recentChanges: text("recent_changes"),
   activeIssues: text("active_issues"),
+  contextFiles: text("context_files"),
 });
 
 // Conversations table
@@ -182,6 +183,7 @@ export const projectSchema = z.object({
   workState: z.string().optional(),
   recentChanges: z.string().optional(),
   activeIssues: z.string().optional(),
+  contextFiles: z.string().optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });
