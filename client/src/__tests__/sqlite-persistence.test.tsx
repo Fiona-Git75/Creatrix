@@ -796,6 +796,64 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBeDefined();
   });
 
+  // ── 7f. clearMemory('conversation') with a mismatched scopeId leaves the bystander untouched ──
+  //
+  // The WHERE clause in clearMemory must filter on BOTH scope AND conversationId.
+  // A regression that drops the conversationId condition would wipe every
+  // conversation-scoped entry, not just the targeted one. This test writes
+  // entries for two different conversationIds and confirms that only the
+  // targeted conversation's entry is removed while the bystander's entry
+  // survives intact.
+
+  it("clearMemory('conversation', targetId) removes only the target conversation's entries and leaves the bystander untouched", async () => {
+    const targetId = "conv-target";
+    const bystanderId = "conv-bystander";
+
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write one conversation-scoped entry for each conversationId
+    const targetEntry = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: targetId,
+      content: "Target conversation: user wants step-by-step explanations.",
+      summary: "Step-by-step",
+    });
+
+    const bystanderEntry = await storage.createMemoryEntry({
+      scope: "conversation",
+      conversationId: bystanderId,
+      content: "Bystander conversation: user prefers code-only responses.",
+      summary: "Code-only",
+    });
+
+    // Confirm both entries are present before the clear
+    const beforeTarget = await storage.getMemoryEntries("conversation", targetId);
+    const beforeBystander = await storage.getMemoryEntries("conversation", bystanderId);
+    expect(beforeTarget.find(e => e.id === targetEntry.id),
+      "target entry should exist before clear").toBeDefined();
+    expect(beforeBystander.find(e => e.id === bystanderEntry.id),
+      "bystander entry should exist before clear").toBeDefined();
+
+    // Clear only the target conversation's entries
+    const cleared = await storage.clearMemory("conversation", targetId);
+    expect(cleared).toBe(true);
+
+    // Target entry must be gone
+    const afterTarget = await storage.getMemoryEntries("conversation", targetId);
+    expect(
+      afterTarget.find(e => e.id === targetEntry.id),
+      "target conversation entry should be removed after clearMemory('conversation', targetId)",
+    ).toBeUndefined();
+
+    // Bystander entry must still be present
+    const afterBystander = await storage.getMemoryEntries("conversation", bystanderId);
+    expect(
+      afterBystander.find(e => e.id === bystanderEntry.id),
+      "bystander conversation entry must not be affected by clearMemory targeting a different conversationId",
+    ).toBeDefined();
+  });
+
   // ── 8. searchDocuments finds content inside chunks written before a restart ───
 
   it("searchDocuments finds content inside chunks written before a restart", async () => {
