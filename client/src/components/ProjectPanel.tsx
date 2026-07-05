@@ -252,7 +252,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               testId="textarea-project-recent-changes"
               onChange={v => handleChange("recentChanges", v)}
               onBlur={() => handleBlur("recentChanges")}
-              rows={4}
+              rows={6}
             />
 
             <FieldArea
@@ -262,7 +262,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               testId="textarea-project-active-issues"
               onChange={v => handleChange("activeIssues", v)}
               onBlur={() => handleBlur("activeIssues")}
-              rows={4}
+              rows={6}
             />
 
             <FieldArea
@@ -272,7 +272,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               testId="textarea-project-tasks-in-progress"
               onChange={v => handleChange("currentTask", v)}
               onBlur={() => handleBlur("currentTask")}
-              rows={4}
+              rows={6}
             />
           </div>
         </div>
