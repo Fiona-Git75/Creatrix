@@ -15,15 +15,60 @@
  *   - build.ts allowlist is derived exactly from bundledPackages (no drift)
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import {
-  checkBundleContents,
-  bundledPackages,
-  externalPackages,
-  MIN_BUNDLE_BYTES,
-} from "@server/verify-bundle-logic";
+
+// ── module guard ───────────────────────────────────────────────────────────────
+//
+// The four symbols below are loaded via a dynamic import so that renaming or
+// relocating `server/verify-bundle-logic.ts` produces a clearly-named test
+// failure (the guard test below) rather than a suite-level collection error
+// that hides which file is missing.
+
+type CheckBundleContents = (
+  bundle: string,
+  bundled: readonly string[],
+  external: readonly string[],
+  minBytes: number,
+) => { errors: string[] };
+
+let checkBundleContents: CheckBundleContents;
+let bundledPackages: readonly string[];
+let externalPackages: readonly string[];
+let MIN_BUNDLE_BYTES: number;
+let _moduleLoadError: unknown = null;
+
+const VERIFY_BUNDLE_MODULE = "@server/verify-bundle-logic";
+const VERIFY_BUNDLE_SOURCE = "server/verify-bundle-logic.ts";
+
+beforeAll(async () => {
+  try {
+    const mod = await import(VERIFY_BUNDLE_MODULE);
+    checkBundleContents = mod.checkBundleContents;
+    bundledPackages = mod.bundledPackages;
+    externalPackages = mod.externalPackages;
+    MIN_BUNDLE_BYTES = mod.MIN_BUNDLE_BYTES;
+  } catch (e) {
+    _moduleLoadError = e;
+  }
+});
+
+// ── module presence guard ──────────────────────────────────────────────────────
+
+describe("verify-bundle-logic module guard", () => {
+  it("can be imported from server/verify-bundle-logic.ts — update the path here if the file is renamed", () => {
+    expect(
+      _moduleLoadError,
+      `\nFailed to import ${VERIFY_BUNDLE_MODULE}.\n` +
+        `Expected source file: ${VERIFY_BUNDLE_SOURCE}\n\n` +
+        `If the file was renamed or relocated:\n` +
+        `  1. Update the module path in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `  2. Update the @server alias in tsconfig.json / vite.config.ts if needed\n` +
+        `  3. Update any imports in script/build.ts that reference verify-bundle-logic\n`,
+    ).toBeNull();
+  });
+});
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
