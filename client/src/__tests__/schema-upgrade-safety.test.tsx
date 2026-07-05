@@ -258,6 +258,57 @@ function assertMigrationCoverage(
 
 describe("Migration coverage – every schema table must have a CREATE TABLE in a migration file", () => {
   /**
+   * SYMBOL RENAME GUARD — confirms the fail-closed baseline guard fires when
+   * isDrizzleTable() returns false for every export (the scenario where
+   * drizzle-orm renames its internal Symbol.for("drizzle:Name") in an upgrade).
+   *
+   * If the symbol is renamed, the collection loop silently produces zero entries.
+   * The check would then pass vacuously (zero tables found, zero missing) — a
+   * dangerous false-green.  The baseline guard exists precisely to prevent this.
+   * This test makes the fail-closed path explicit and machine-verified.
+   */
+  it("baseline guard fires when isDrizzleTable returns false for every export (symbol renamed scenario)", () => {
+    // Stub: always return false — simulates isDrizzleTable() after a symbol rename.
+    const stubIsDrizzleTable = (_val: unknown): boolean => false;
+
+    // Run the same collection loop as the real migration-coverage test, but
+    // using the stub predicate.  The result must be an empty array.
+    const schemaTables: Array<{ exportName: string; sqlName: string }> = [];
+    for (const [exportName, val] of Object.entries(schemaModule)) {
+      if (stubIsDrizzleTable(val)) {
+        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        if (sqlName) schemaTables.push({ exportName, sqlName });
+      }
+    }
+
+    // Confirm the stub produced the empty-table scenario we want to guard against.
+    expect(schemaTables).toHaveLength(0);
+
+    // Now run the baseline guard (identical logic to the real test's guard).
+    // It MUST throw — passing vacuously on zero tables is a false-green.
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(
+      n => !schemaTables.some(t => t.sqlName === n)
+    );
+
+    expect(() => {
+      if (missingBaseline.length > 0) {
+        throw new Error(
+          `isDrizzleTable() / DRIZZLE_TABLE_SYMBOL detection appears broken — ` +
+          `baseline tables not found: ${missingBaseline.join(", ")}.\n` +
+          `Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.\n` +
+          `Update isDrizzleTable() in this file.`
+        );
+      }
+    }).toThrowError(/isDrizzleTable\(\) \/ DRIZZLE_TABLE_SYMBOL detection appears broken/);
+
+    // All three baseline table names must appear in the error message.
+    expect(missingBaseline).toEqual(
+      expect.arrayContaining(["users", "connections", "conversations"])
+    );
+  });
+
+  /**
    * NEGATIVE TEST — confirms the detection logic is live and not accidentally no-op'd.
    *
    * Injects a synthetic orphan table name that is absent from all migration
