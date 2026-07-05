@@ -838,11 +838,40 @@ export async function registerRoutes(
       let project: Awaited<ReturnType<typeof storage.getProject>> | undefined;
       if (projectId) {
         project = await storage.getProject(projectId) ?? undefined;
+
+        const projectParts: string[] = [];
+
         if (project?.systemPrompt) {
-          systemParts.push(project.systemPrompt);
+          projectParts.push(project.systemPrompt);
+        }
+        if (project?.name) {
+          const nameLine = `## Project: ${project.name}`;
+          const descLine = project.description ? `\n${project.description}` : "";
+          projectParts.push(`${nameLine}${descLine}`);
+        }
+        if (project?.goals) {
+          projectParts.push(`### Overarching Goal\n${project.goals}`);
         }
         if (project?.currentTask) {
-          systemParts.push(`\n## Current Focus\n${project.currentTask}`);
+          projectParts.push(`### Tasks In Progress\n${project.currentTask}`);
+        }
+        if (project?.recentChanges) {
+          projectParts.push(`### Recent Changes\n${project.recentChanges}`);
+        }
+        if (project?.activeIssues) {
+          projectParts.push(`### Active Issues\n${project.activeIssues}`);
+        }
+        if (project?.contextFiles) {
+          try {
+            const files: string[] = JSON.parse(project.contextFiles);
+            if (files.length > 0) {
+              projectParts.push(`### Context Documents\nThe following files are key references for this project:\n${files.map(f => `- ${f}`).join("\n")}`);
+            }
+          } catch { /* malformed JSON — skip */ }
+        }
+
+        if (projectParts.length > 0) {
+          systemParts.push(`\n## Project Context\n${projectParts.join("\n\n")}`);
         }
       }
 

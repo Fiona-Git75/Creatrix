@@ -472,6 +472,8 @@ export const capabilityNames = [
   "edit_doc",
   "ask_consultant",
   "check_services",
+  "list_conversations",
+  "read_conversation",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 
