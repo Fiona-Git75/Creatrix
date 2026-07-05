@@ -1766,3 +1766,119 @@ describe("MemoryPanel – project and conversation switching isolation", () => {
       "global entry must not appear in project scope query").toBeUndefined();
   });
 });
+
+// ── Tracking row ordering contract ────────────────────────────────────────────
+//
+// The INSERT into __creatrix_migrations MUST happen only after every statement
+// in the migration file has succeeded (or been swallowed by the idempotency
+// guard). If a future refactor accidentally moves the INSERT inside the
+// per-statement loop — or before the loop — a crash mid-migration would leave
+// the tracking row recorded while a later statement was never applied. On the
+// next restart the runner would skip the whole file and the second column would
+// silently never exist.
+//
+// This test catches that regression by verifying that _runMigrations does NOT
+// record the tracking row when the migration file contains an intentionally
+// failing second statement (ALTER TABLE on a non-existent table). The first
+// statement's effect must be present, the second must not, and the tracking row
+// must be absent — proving the INSERT ran after the loop, not before or inside it.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a two-statement migration:
+//        stmt 1: ALTER TABLE settings ADD COLUMN guard_col_a TEXT  (succeeds)
+//        stmt 2: ALTER TABLE no_such_table ADD COLUMN x TEXT       (throws)
+//   3. Call _runMigrations() — must throw.
+//   4. Assert guard_col_a EXISTS (stmt 1 ran).
+//   5. Assert the tracking row is ABSENT (INSERT never reached).
+
+describe("DatabaseStorage – tracking row is NOT recorded when a mid-migration statement fails", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-tracking-order-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-tracking-order-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("does not insert the tracking row when the second statement fails with a non-swallowed error", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a two-statement migration.
+    //   - Statement 1 succeeds: adds a new column to the real `settings` table.
+    //   - Statement 2 fails:    tries to ALTER a table that does not exist;
+    //     the error is NOT in the swallowed set, so it propagates.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 5000000000000,
+          tag: "0005_tracking_order_guard",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0005_tracking_order_guard.sql"),
+      [
+        "ALTER TABLE settings ADD COLUMN guard_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE no_such_table_xyz ADD COLUMN guard_col_b TEXT",
+      ].join("\n")
+    );
+
+    // Step 3: _runMigrations must throw because stmt 2 targets a non-existent table.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).rejects.toThrow();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // Step 4: guard_col_a must exist — stmt 1 ran before the failure.
+    // SELECT against it throws if the column is absent.
+    await client.execute("SELECT guard_col_a FROM settings LIMIT 0");
+
+    // Step 5: The tracking row must NOT exist — the INSERT runs after the loop,
+    // so a mid-loop failure must leave it absent.  This is the core ordering
+    // contract: a tracking row present here would mean the file is permanently
+    // skipped on the next restart, silently losing stmt 2 forever.
+    const trackingResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0005_tracking_order_guard'"
+    );
+    expect(
+      trackingResult.rows.length,
+      "tracking row must NOT be recorded when a mid-migration statement fails — " +
+        "the INSERT must only run after all statements succeed or are swallowed"
+    ).toBe(0);
+
+    await client.close();
+  });
+});
