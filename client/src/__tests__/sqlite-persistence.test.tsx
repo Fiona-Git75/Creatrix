@@ -744,11 +744,18 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
       summary: "TypeScript examples",
     });
 
-    // Also write a global entry to confirm it is unaffected
+    // Also write a global entry and a project entry to confirm they are unaffected
     const globalEntry = await storage.createMemoryEntry({
       scope: "global",
       content: "Global: always cite sources.",
       summary: "Cite sources",
+    });
+
+    const projectEntry = await storage.createMemoryEntry({
+      scope: "project",
+      projectId: "proj-noop-sentinel",
+      content: "Project: use metric units throughout.",
+      summary: "Metric units",
     });
 
     // Call clearMemory("conversation") with NO scopeId — must be a no-op
@@ -779,6 +786,13 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     expect(
       globalEntries.find(e => e.id === globalEntry.id),
       "global entry must not be affected by clearMemory('conversation') with no scopeId",
+    ).toBeDefined();
+
+    // Project entry must also be unaffected
+    const projectEntries = await storage.getMemoryEntries("project", "proj-noop-sentinel");
+    expect(
+      projectEntries.find(e => e.id === projectEntry.id),
+      "project entry must not be affected by clearMemory('conversation') with no scopeId",
     ).toBeDefined();
   });
 
