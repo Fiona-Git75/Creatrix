@@ -147,6 +147,16 @@ describe("checkBundleContents – external package presence", () => {
 
     expect(errors.every((e) => !e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
   });
+
+  it("fails when one external package is missing even though others use single-quote require() style", () => {
+    // Bundle includes @libsql/client with single quotes but omits dotenv/config entirely.
+    const bundle =
+      "x".repeat(MIN + 1) + ` require('@libsql/client')`;
+    const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
+
+    expect(errors.some((e) => e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
+    expect(errors.some((e) => e.includes('"dotenv/config"'))).toBe(true);
+  });
 });
 
 // ── newly-added allowlist entry accidentally removed scenario ─────────────────
