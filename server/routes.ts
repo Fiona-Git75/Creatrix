@@ -1831,6 +1831,105 @@ export async function registerRoutes(
     }
   });
 
+  // === Library Preview (serve image files by path) ===
+  app.get("/api/library/preview", async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      const rootFolder = settings.rootFolder;
+      const requestedPath = req.query.path as string | undefined;
+      if (!requestedPath) return res.status(400).json({ error: "path required" });
+
+      const IMAGE_EXTS: Record<string, string> = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+        ".bmp": "image/bmp", ".tiff": "image/tiff", ".avif": "image/avif",
+      };
+      const ext = path.extname(requestedPath).toLowerCase();
+      if (!IMAGE_EXTS[ext]) return res.status(400).json({ error: "Not a supported image type" });
+
+      const resolved = path.isAbsolute(requestedPath)
+        ? path.normalize(requestedPath)
+        : rootFolder ? path.resolve(rootFolder, requestedPath)
+        : null;
+
+      if (!resolved || resolved.includes("..")) return res.status(403).json({ error: "Invalid path" });
+
+      const data = await fs.readFile(resolved);
+      res.setHeader("Content-Type", IMAGE_EXTS[ext]);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.send(data);
+    } catch (error: any) {
+      if (error.code === "ENOENT") return res.status(404).json({ error: "File not found" });
+      res.status(500).json({ error: error.message || "Failed to serve preview" });
+    }
+  });
+
+  // === Library Scan Folder (bulk-import file references) ===
+  app.post("/api/library/scan-folder", async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      const rootFolder = settings.rootFolder;
+      const { folderPath, folderId, recursive = true } = req.body as { folderPath: string; folderId?: string; recursive?: boolean };
+      if (!folderPath) return res.status(400).json({ error: "folderPath required" });
+
+      const targetPath = path.isAbsolute(folderPath)
+        ? path.normalize(folderPath)
+        : rootFolder ? path.resolve(rootFolder, folderPath)
+        : null;
+      if (!targetPath) return res.status(400).json({ error: "Relative path requires rootFolder to be configured" });
+
+      const SUPPORTED = new Set([
+        ".md", ".txt", ".pdf", ".docx", ".doc", ".rtf",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp",
+        ".json", ".yaml", ".yml", ".csv",
+      ]);
+
+      const found: { name: string; fullPath: string }[] = [];
+
+      const walk = async (dir: string, depth: number): Promise<void> => {
+        if (depth > 4) return;
+        let entries: import("fs").Dirent[];
+        try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".")) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory() && recursive) {
+            await walk(full, depth + 1);
+          } else if (entry.isFile() && SUPPORTED.has(path.extname(entry.name).toLowerCase())) {
+            found.push({ name: entry.name, fullPath: full });
+          }
+        }
+      };
+
+      await walk(targetPath, 0);
+
+      const existing = await storage.getLibraryItems();
+      const existingPaths = new Set(existing.map((i) => i.filePath).filter(Boolean));
+
+      let createdCount = 0;
+      let skipped = 0;
+      const createdItems = [];
+
+      for (const file of found) {
+        if (existingPaths.has(file.fullPath)) { skipped++; continue; }
+        const title = file.name.replace(/\.[^.]+$/, "");
+        const item = await storage.createLibraryItem({
+          title,
+          source: "file",
+          filePath: file.fullPath,
+          folderId: folderId || undefined,
+        });
+        createdItems.push(item);
+        createdCount++;
+      }
+
+      res.json({ created: createdCount, skipped, items: createdItems });
+    } catch (error: any) {
+      console.error("Error scanning folder:", error);
+      res.status(500).json({ error: error.message || "Failed to scan folder" });
+    }
+  });
+
   // === Library Folders ===
   app.get("/api/library/folders", async (req: Request, res: Response) => {
     try {

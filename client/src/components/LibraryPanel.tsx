@@ -4,6 +4,7 @@ import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
   ChevronRight, ChevronDown, Clock, Globe, Loader2,
   HardDrive, FilePlus, ArrowLeft, Download, BookOpen, ExternalLink,
+  ScanLine, Image,
 } from "lucide-react";
 import { SiNotion } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,19 @@ function formatSize(bytes?: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function sourceIcon(source: string) {
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".avif", ".tiff"]);
+
+function isImagePath(p?: string): boolean {
+  if (!p) return false;
+  return IMAGE_EXTS.has("." + p.split(".").pop()?.toLowerCase());
+}
+
+function imagePreviewUrl(p: string): string {
+  return `/api/library/preview?path=${encodeURIComponent(p)}`;
+}
+
+function sourceIcon(source: string, filePath?: string) {
+  if (source === "file" && filePath && isImagePath(filePath)) return <Image className="h-3.5 w-3.5 text-purple-500" />;
   switch (source) {
     case "file": return <FileText className="h-3.5 w-3.5 text-blue-500" />;
     case "url": return <Globe className="h-3.5 w-3.5 text-green-500" />;
@@ -75,17 +88,32 @@ function sourceIcon(source: string) {
 }
 
 function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string) => void }) {
+  const isImage = item.source === "file" && isImagePath(item.filePath);
   return (
     <div
       className="flex items-start gap-2 p-2.5 rounded-md border bg-card hover:bg-accent/40 transition-colors group"
       data-testid={`card-library-item-${item.id}`}
     >
-      <div className="mt-0.5 shrink-0">{sourceIcon(item.source)}</div>
+      {isImage && item.filePath ? (
+        <img
+          src={imagePreviewUrl(item.filePath)}
+          alt={item.title}
+          className="w-14 h-14 object-cover rounded-md shrink-0 border"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+      ) : (
+        <div className="mt-0.5 shrink-0">{sourceIcon(item.source, item.filePath)}</div>
+      )}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{item.title}</p>
-        {item.source === "file" && item.filePath && (
+        {item.source === "file" && item.filePath && !isImage && (
           <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate" title={item.filePath}>
             {item.filePath}
+          </p>
+        )}
+        {item.source === "file" && item.filePath && isImage && (
+          <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate" title={item.filePath}>
+            {item.filePath.split("/").pop()}
           </p>
         )}
         {item.source !== "file" && item.summary && (
@@ -285,7 +313,7 @@ function NotionBrowser({ onImport }: { onImport: (item: NotionResult) => void })
   );
 }
 
-function FilesystemBrowser({ onImport }: { onImport: (entry: FsEntry) => void }) {
+function FilesystemBrowser({ onImport, onScanFolder }: { onImport: (entry: FsEntry) => void; onScanFolder: (relativePath: string, absoluteRoot: string) => void }) {
   const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
   const { toast } = useToast();
 
@@ -333,26 +361,41 @@ function FilesystemBrowser({ onImport }: { onImport: (entry: FsEntry) => void })
 
   return (
     <div className="space-y-2">
-      {/* Breadcrumb */}
+      {/* Breadcrumb + Scan button */}
       <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
-        <button
-          className="hover:text-foreground transition-colors font-medium"
-          onClick={() => setCurrentPath(undefined)}
-          data-testid="breadcrumb-root"
-        >
-          root
-        </button>
-        {pathParts.map((part, i) => (
-          <span key={i} className="flex items-center gap-1">
-            <ChevronRight className="h-3 w-3" />
-            <button
-              className="hover:text-foreground transition-colors"
-              onClick={() => goToSegment(i)}
-            >
-              {part}
-            </button>
-          </span>
-        ))}
+        <div className="flex items-center gap-1 flex-1 flex-wrap">
+          <button
+            className="hover:text-foreground transition-colors font-medium"
+            onClick={() => setCurrentPath(undefined)}
+            data-testid="breadcrumb-root"
+          >
+            root
+          </button>
+          {pathParts.map((part, i) => (
+            <span key={i} className="flex items-center gap-1">
+              <ChevronRight className="h-3 w-3" />
+              <button
+                className="hover:text-foreground transition-colors"
+                onClick={() => goToSegment(i)}
+              >
+                {part}
+              </button>
+            </span>
+          ))}
+        </div>
+        {data?.rootFolder && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs gap-1 shrink-0"
+            onClick={() => onScanFolder(data.path, data.rootFolder)}
+            title="Scan this folder and add all files to library"
+            data-testid="button-scan-folder"
+          >
+            <ScanLine className="h-3 w-3" />
+            Scan folder
+          </Button>
+        )}
       </div>
 
       <ScrollArea className="h-[340px]">
@@ -489,6 +532,19 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
     onError: () => toast({ title: "Error", description: "Failed to remove collection.", variant: "destructive" }),
   });
 
+  const scanFolderMutation = useMutation({
+    mutationFn: (data: { folderPath: string; folderId?: string }) =>
+      apiRequest("POST", "/api/library/scan-folder", data).then((r) => r.json()),
+    onSuccess: (data: { created: number; skipped: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/items"] });
+      toast({
+        title: `Scan complete`,
+        description: `${data.created} file${data.created !== 1 ? "s" : ""} added${data.skipped ? `, ${data.skipped} already in library` : ""}.`,
+      });
+    },
+    onError: () => toast({ title: "Scan failed", description: "Could not scan folder.", variant: "destructive" }),
+  });
+
   const handleImportFromFs = (entry: FsEntry) => {
     createItemMutation.mutate({
       title: entry.name,
@@ -497,6 +553,14 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
       summary: `File imported from ${entry.path}`,
     });
     toast({ title: "Importing…", description: entry.name });
+  };
+
+  const handleScanFolder = (relativePath: string, rootFolder: string) => {
+    const folderPath = relativePath === "."
+      ? rootFolder
+      : `${rootFolder.replace(/\/$/, "")}/${relativePath}`;
+    scanFolderMutation.mutate({ folderPath });
+    toast({ title: "Scanning…", description: "Walking folder, adding file references." });
   };
 
   const handleImportFromNotion = (item: NotionResult) => {
@@ -631,7 +695,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
             </TabsContent>
 
             <TabsContent value="browse" className="flex-1 overflow-hidden mt-2">
-              <FilesystemBrowser onImport={handleImportFromFs} />
+              <FilesystemBrowser onImport={handleImportFromFs} onScanFolder={handleScanFolder} />
             </TabsContent>
           </Tabs>
         )}
