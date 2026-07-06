@@ -826,7 +826,195 @@ describe("DROP COLUMN safety – no migration may drop a column still declared i
   });
 });
 
-// ── 5. MIGRATION SIMULATION ────────────────────────────────────────────────────
+// ── 5. RENAME COLUMN SAFETY CHECK ──────────────────────────────────────────────
+
+/**
+ * Checks that no migration file issues an ALTER TABLE … RENAME COLUMN for a
+ * column whose OLD name is still declared in the corresponding Drizzle table
+ * in shared/schema.ts.
+ *
+ * Some databases (and hand-written migration files) implement a rename as a
+ * DROP + ADD pair; others use ALTER TABLE … RENAME COLUMN directly.  Either
+ * way, if the schema still references the old name after the rename, the app
+ * will fail at runtime — Drizzle will try to read/write a column that no
+ * longer exists.  This check catches the mismatch at commit time.
+ *
+ * If this check fails:
+ *   A — If the column was intentionally renamed in the DB, also update the
+ *       column name in shared/schema.ts so Drizzle uses the new name.
+ *   B — If the RENAME COLUMN statement was added to the migration by mistake,
+ *       remove it from the migration file.
+ */
+
+// Matches:  ALTER TABLE `name` RENAME COLUMN `old` TO `new`
+//           ALTER TABLE name RENAME COLUMN old TO new
+// Handles optional backtick/double-quote quoting, case-insensitive.
+const RENAME_COLUMN_RE =
+  /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+RENAME\s+COLUMN\s+[`"]?(\w+)[`"]?\s+TO\s+[`"]?(\w+)[`"]?/gi;
+
+/**
+ * Scans `sqlFiles` from `migrationsDir` for RENAME COLUMN statements and
+ * returns an array of {tableName, oldName, newName, file} tuples (names are lowercase).
+ */
+function collectRenamedColumns(
+  migrationsDir: string,
+  sqlFiles: string[]
+): Array<{ tableName: string; oldName: string; newName: string; file: string }> {
+  const renamed: Array<{ tableName: string; oldName: string; newName: string; file: string }> = [];
+  for (const filename of sqlFiles) {
+    const content = readFileSync(join(migrationsDir, filename), "utf8");
+    let match: RegExpExecArray | null;
+    RENAME_COLUMN_RE.lastIndex = 0;
+    while ((match = RENAME_COLUMN_RE.exec(content)) !== null) {
+      renamed.push({
+        tableName: match[1].toLowerCase(),
+        oldName: match[2].toLowerCase(),
+        newName: match[3].toLowerCase(),
+        file: filename,
+      });
+    }
+  }
+  return renamed;
+}
+
+/**
+ * Core assertion: throws a descriptive error if any entry in `renamedColumns`
+ * has an old column name that is still declared in the live schema.
+ *
+ * Extracted so both the positive test (real migration files) and the negative
+ * test (synthetic violation injected) exercise the identical check path.
+ */
+function assertNoRenamedLiveColumns(
+  renamedColumns: Array<{ tableName: string; oldName: string; newName: string; file: string }>,
+  schemaColumnMap: Map<string, Set<string>>
+): void {
+  const violations = renamedColumns.filter(({ tableName, oldName }) => {
+    const cols = schemaColumnMap.get(tableName);
+    return cols !== undefined && cols.has(oldName);
+  });
+
+  if (violations.length > 0) {
+    const lines = violations.map(
+      ({ tableName, oldName, newName, file }) =>
+        `  - ${tableName}.${oldName}  →  ${newName}  (renamed in ${file})`
+    );
+    throw new Error(
+      `RENAME COLUMN safety violation(s) detected — the following column(s) are ` +
+      `renamed in a migration file but the OLD name is still declared in shared/schema.ts:\n\n` +
+      lines.join("\n") +
+      `\n\nRenaming a column that Drizzle still references by its old name causes a ` +
+      `runtime failure the first time any code path reads or writes that column.\n\n` +
+      `Fix options:\n` +
+      `  A — If the column was intentionally renamed, also update its name in\n` +
+      `      shared/schema.ts so Drizzle uses the new SQL column name.\n` +
+      `  B — If the RENAME COLUMN statement was added to the migration by mistake,\n` +
+      `      remove it from the migration file.`
+    );
+  }
+}
+
+describe("RENAME COLUMN safety – no migration may rename a column whose old name is still in shared/schema.ts", () => {
+  /**
+   * NEGATIVE TEST — confirms assertNoRenamedLiveColumns() is live and not
+   * accidentally no-op'd.
+   *
+   * Injects a synthetic RENAME COLUMN where the old name IS still present in
+   * the schema (connections.name is a real, required column) and asserts the
+   * check throws with a message that names the table and both column names.
+   */
+  it("raises an explicit error naming the table and both column names when a renamed old name is still in the schema", () => {
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    // Sanity: connections.name must actually be in the map for this test to be meaningful.
+    expect(schemaColumnMap.get("connections")?.has("name")).toBe(true);
+
+    const syntheticRenamed = [
+      {
+        tableName: "connections",
+        oldName: "name",
+        newName: "display_name",
+        file: "0999_synthetic_rename_test.sql",
+      },
+    ];
+
+    expect(() => assertNoRenamedLiveColumns(syntheticRenamed, schemaColumnMap))
+      .toThrowError(/RENAME COLUMN safety violation/);
+
+    expect(() => assertNoRenamedLiveColumns(syntheticRenamed, schemaColumnMap))
+      .toThrowError(/connections\.name/);
+
+    expect(() => assertNoRenamedLiveColumns(syntheticRenamed, schemaColumnMap))
+      .toThrowError(/display_name/);
+  });
+
+  /**
+   * NEGATIVE TEST — confirms that a RENAME COLUMN for a table that is no
+   * longer in the schema does NOT raise a false-positive violation.  The
+   * check only flags renames on tables that are still live.
+   */
+  it("does not flag a RENAME COLUMN when the table itself is no longer in the schema", () => {
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    const renamedFromRemovedTable = [
+      {
+        tableName: "__ghost_table__",
+        oldName: "some_col",
+        newName: "new_col",
+        file: "0001_old.sql",
+      },
+    ];
+
+    // Should not throw — the table is not in the schema, so there is no live
+    // column reference to violate.
+    expect(() =>
+      assertNoRenamedLiveColumns(renamedFromRemovedTable, schemaColumnMap)
+    ).not.toThrow();
+  });
+
+  /**
+   * POSITIVE TEST — verifies that the real migration files do not rename any
+   * column whose old name is still declared in shared/schema.ts.
+   */
+  it("no migration file renames a column whose old name is still declared in shared/schema.ts", () => {
+    const migrationsDir = resolve(process.cwd(), "migrations");
+
+    if (!existsSync(migrationsDir)) {
+      throw new Error(
+        `migrations/ directory not found at ${migrationsDir}.\n` +
+        `Expected the project root to contain a migrations/ folder with SQL files.`
+      );
+    }
+
+    const sqlFiles = readdirSync(migrationsDir).filter(f => f.endsWith(".sql"));
+
+    if (sqlFiles.length === 0) {
+      throw new Error(
+        `No SQL migration files found in ${migrationsDir}.\n` +
+        `Run \`npx drizzle-kit generate\` to produce the initial migration.`
+      );
+    }
+
+    const renamedColumns = collectRenamedColumns(migrationsDir, sqlFiles);
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    // Fail-closed sanity guard: the column map must contain at least the
+    // baseline tables, otherwise isDrizzleTable() / buildSchemaColumnMap()
+    // is silently broken and the check passes vacuously.
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(n => !schemaColumnMap.has(n));
+    if (missingBaseline.length > 0) {
+      throw new Error(
+        `buildSchemaColumnMap() appears broken — baseline tables not found: ` +
+        `${missingBaseline.join(", ")}.\n` +
+        `isDrizzleTable() or Symbol.for("drizzle:Name") may have changed.`
+      );
+    }
+
+    assertNoRenamedLiveColumns(renamedColumns, schemaColumnMap);
+  });
+});
+
+// ── 6. MIGRATION SIMULATION ────────────────────────────────────────────────────
 
 /**
  * Simulates the real-world upgrade scenario:
