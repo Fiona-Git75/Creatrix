@@ -568,7 +568,208 @@ describe("Migration orphan check – every CREATE TABLE in migration files must 
   });
 });
 
-// ── 4. MIGRATION SIMULATION ────────────────────────────────────────────────────
+// ── 4. DROP COLUMN SAFETY CHECK ────────────────────────────────────────────────
+
+/**
+ * Checks that no migration file issues an ALTER TABLE … DROP COLUMN for a
+ * column that is still declared in the corresponding Drizzle table in
+ * shared/schema.ts.
+ *
+ * If a migration drops a column that Drizzle still queries, the application
+ * will fail at runtime when Drizzle tries to read or write that column.
+ * This check catches the mismatch at commit time rather than at deployment.
+ *
+ * If this check fails:
+ *   A — If the column was intentionally dropped from the DB, also remove it
+ *       from shared/schema.ts (and any Drizzle queries that reference it).
+ *   B — If the DROP COLUMN statement was added to the migration by mistake,
+ *       remove it from the migration file.
+ */
+
+// Matches:  ALTER TABLE `name` DROP COLUMN `col`
+//           ALTER TABLE name DROP COLUMN col
+// Handles optional backtick/double-quote quoting, case-insensitive.
+const DROP_COLUMN_RE =
+  /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+DROP\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+
+/**
+ * Scans `sqlFiles` from `migrationsDir` for DROP COLUMN statements and
+ * returns an array of {tableName, columnName, file} tuples (names are lowercase).
+ */
+function collectDroppedColumns(
+  migrationsDir: string,
+  sqlFiles: string[]
+): Array<{ tableName: string; columnName: string; file: string }> {
+  const dropped: Array<{ tableName: string; columnName: string; file: string }> = [];
+  for (const filename of sqlFiles) {
+    const content = readFileSync(join(migrationsDir, filename), "utf8");
+    let match: RegExpExecArray | null;
+    DROP_COLUMN_RE.lastIndex = 0;
+    while ((match = DROP_COLUMN_RE.exec(content)) !== null) {
+      dropped.push({
+        tableName: match[1].toLowerCase(),
+        columnName: match[2].toLowerCase(),
+        file: filename,
+      });
+    }
+  }
+  return dropped;
+}
+
+/**
+ * Builds a map of SQL table name → Set of SQL column names for all Drizzle
+ * tables exported from shared/schema.ts.
+ *
+ * Uses the `name` property on each Drizzle column object (the SQL-level name,
+ * e.g. "order_index") rather than the JS key (e.g. "orderIndex").
+ */
+function buildSchemaColumnMap(): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const [, val] of Object.entries(schemaModule)) {
+    if (!isDrizzleTable(val)) continue;
+    const sqlTableName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+    if (!sqlTableName) continue;
+    const colNames = new Set<string>();
+    for (const [, colDef] of Object.entries(val as object)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const col = colDef as any;
+      if (!col || typeof col !== "object") continue;
+      if (!("notNull" in col)) continue; // not a column definition
+      if (typeof col.name === "string") {
+        colNames.add(col.name.toLowerCase());
+      }
+    }
+    map.set(sqlTableName.toLowerCase(), colNames);
+  }
+  return map;
+}
+
+/**
+ * Core assertion: throws a descriptive error if any entry in `droppedColumns`
+ * refers to a column that is still declared in the live schema.
+ *
+ * Extracted so both the positive test (real migration files) and the negative
+ * test (synthetic violation injected) exercise the identical check path.
+ */
+function assertNoDroppedLiveColumns(
+  droppedColumns: Array<{ tableName: string; columnName: string; file: string }>,
+  schemaColumnMap: Map<string, Set<string>>
+): void {
+  const violations = droppedColumns.filter(({ tableName, columnName }) => {
+    const cols = schemaColumnMap.get(tableName);
+    return cols !== undefined && cols.has(columnName);
+  });
+
+  if (violations.length > 0) {
+    const lines = violations.map(
+      ({ tableName, columnName, file }) =>
+        `  - ${tableName}.${columnName}  (dropped in ${file})`
+    );
+    throw new Error(
+      `DROP COLUMN safety violation(s) detected — the following column(s) are ` +
+      `dropped in a migration file but are still declared in shared/schema.ts:\n\n` +
+      lines.join("\n") +
+      `\n\nDropping a column that Drizzle still queries causes a runtime failure ` +
+      `the first time any code path reads or writes that column.\n\n` +
+      `Fix options:\n` +
+      `  A — If the column was intentionally dropped, also remove it from\n` +
+      `      shared/schema.ts and any Drizzle queries that reference it.\n` +
+      `  B — If the DROP COLUMN statement was added to the migration by mistake,\n` +
+      `      remove it from the migration file.`
+    );
+  }
+}
+
+describe("DROP COLUMN safety – no migration may drop a column still declared in shared/schema.ts", () => {
+  /**
+   * NEGATIVE TEST — confirms assertNoDroppedLiveColumns() is live and not
+   * accidentally no-op'd.
+   *
+   * Injects a synthetic DROP COLUMN targeting a column that IS still in the
+   * schema (connections.name is a real, required column) and asserts the check
+   * throws with a message that names both the table and the column.
+   */
+  it("raises an explicit error naming the table and column when a dropped column is still in the schema", () => {
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    // Sanity: connections.name must actually be in the map for this test to be meaningful.
+    expect(schemaColumnMap.get("connections")?.has("name")).toBe(true);
+
+    const syntheticDropped = [
+      { tableName: "connections", columnName: "name", file: "0999_synthetic_test.sql" },
+    ];
+
+    expect(() => assertNoDroppedLiveColumns(syntheticDropped, schemaColumnMap))
+      .toThrowError(/DROP COLUMN safety violation/);
+
+    expect(() => assertNoDroppedLiveColumns(syntheticDropped, schemaColumnMap))
+      .toThrowError(/connections\.name/);
+  });
+
+  /**
+   * NEGATIVE TEST — confirms that a DROP COLUMN for a table that is not in
+   * the schema at all (e.g. a table already removed from shared/schema.ts)
+   * does NOT raise a false-positive violation.  The check only flags columns
+   * dropped from tables that are still live.
+   */
+  it("does not flag a DROP COLUMN when the table itself is no longer in the schema", () => {
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    const droppedFromRemovedTable = [
+      { tableName: "__ghost_table__", columnName: "some_col", file: "0001_old.sql" },
+    ];
+
+    // Should not throw — the table is not in the schema, so there is no live
+    // column to violate.
+    expect(() =>
+      assertNoDroppedLiveColumns(droppedFromRemovedTable, schemaColumnMap)
+    ).not.toThrow();
+  });
+
+  /**
+   * POSITIVE TEST — verifies that the real migration files do not drop any
+   * column that is still declared in shared/schema.ts.
+   */
+  it("no migration file drops a column that is still declared in shared/schema.ts", () => {
+    const migrationsDir = resolve(process.cwd(), "migrations");
+
+    if (!existsSync(migrationsDir)) {
+      throw new Error(
+        `migrations/ directory not found at ${migrationsDir}.\n` +
+        `Expected the project root to contain a migrations/ folder with SQL files.`
+      );
+    }
+
+    const sqlFiles = readdirSync(migrationsDir).filter(f => f.endsWith(".sql"));
+
+    if (sqlFiles.length === 0) {
+      throw new Error(
+        `No SQL migration files found in ${migrationsDir}.\n` +
+        `Run \`npx drizzle-kit generate\` to produce the initial migration.`
+      );
+    }
+
+    const droppedColumns = collectDroppedColumns(migrationsDir, sqlFiles);
+    const schemaColumnMap = buildSchemaColumnMap();
+
+    // Fail-closed sanity guard: the column map must contain at least the
+    // baseline tables, otherwise isDrizzleTable() / buildSchemaColumnMap()
+    // is silently broken and the check passes vacuously.
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(n => !schemaColumnMap.has(n));
+    if (missingBaseline.length > 0) {
+      throw new Error(
+        `buildSchemaColumnMap() appears broken — baseline tables not found: ` +
+        `${missingBaseline.join(", ")}.\n` +
+        `isDrizzleTable() or Symbol.for("drizzle:Name") may have changed.`
+      );
+    }
+
+    assertNoDroppedLiveColumns(droppedColumns, schemaColumnMap);
+  });
+});
+
+// ── 5. MIGRATION SIMULATION ────────────────────────────────────────────────────
 
 /**
  * Simulates the real-world upgrade scenario:
