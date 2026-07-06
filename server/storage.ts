@@ -1207,7 +1207,7 @@ export class DatabaseStorage implements IStorage {
     return result.map(i => this._mapLibraryItem(i));
   }
   private _mapLibraryItem(i: typeof libraryItems.$inferSelect): LibraryItem {
-    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, tags: this._parseJson<string[]>(i.tags as string | null, null as any) ?? undefined, accessedAt: i.accessedAt ?? undefined };
+    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, notes: i.notes ?? undefined, tags: this._parseJson<string[]>(i.tags as string | null, null as any) ?? undefined, accessedAt: i.accessedAt ?? undefined };
   }
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────

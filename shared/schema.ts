@@ -112,6 +112,7 @@ export const libraryItems = sqliteTable("library_items", {
   mimeType: text("mime_type"),
   content: text("content"),
   summary: text("summary"),
+  notes: text("notes"),
   tags: text("tags"),  // JSON-encoded string[]
   createdAt: text("created_at").notNull(),
   accessedAt: text("accessed_at"),
@@ -332,6 +333,7 @@ export const libraryItemSchema = z.object({
   mimeType: z.string().optional(),
   content: z.string().optional(),
   summary: z.string().optional(),
+  notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
   createdAt: z.string(),
   accessedAt: z.string().optional(),

@@ -83,8 +83,18 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
       <div className="mt-0.5 shrink-0">{sourceIcon(item.source)}</div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{item.title}</p>
-        {item.summary && (
+        {item.source === "file" && item.filePath && (
+          <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate" title={item.filePath}>
+            {item.filePath}
+          </p>
+        )}
+        {item.source !== "file" && item.summary && (
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.summary}</p>
+        )}
+        {item.notes && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 italic line-clamp-2">
+            {item.notes}
+          </p>
         )}
         <div className="flex items-center gap-2 mt-1">
           <span className="text-xs text-muted-foreground">{formatDate(item.createdAt)}</span>
@@ -408,6 +418,8 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
   const [newSource, setNewSource] = useState<"note" | "url" | "file" | "upload">("note");
+  const [newFilePath, setNewFilePath] = useState("");
+  const [newNotes, setNewNotes] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
   const { toast } = useToast();
 
@@ -648,11 +660,14 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
       </DialogContent>
 
       {/* Add Item Dialog */}
-      <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+      <Dialog open={addItemOpen} onOpenChange={(v) => {
+        setAddItemOpen(v);
+        if (!v) { setNewTitle(""); setNewContent(""); setNewFilePath(""); setNewNotes(""); setNewSource("note"); }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add to Library</DialogTitle>
-            <DialogDescription>Save a note, URL, or text to the library.</DialogDescription>
+            <DialogDescription>Save a note, URL, or local file path to the library.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -664,6 +679,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                 <SelectContent>
                   <SelectItem value="note">Note</SelectItem>
                   <SelectItem value="url">URL / Web Page</SelectItem>
+                  <SelectItem value="file">Local File Path</SelectItem>
                   <SelectItem value="upload">Uploaded File</SelectItem>
                 </SelectContent>
               </Select>
@@ -677,27 +693,68 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                 data-testid="input-library-title"
               />
             </div>
+            {newSource === "file" ? (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">File Path</label>
+                <Input
+                  placeholder="/mnt/workhub/Projects/My Document.md"
+                  value={newFilePath}
+                  onChange={(e) => setNewFilePath(e.target.value)}
+                  className="font-mono text-sm"
+                  data-testid="input-library-filepath"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Absolute path on your machine. The file stays where it is — only the path is saved here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">{newSource === "url" ? "URL" : "Content"}</label>
+                <Textarea
+                  placeholder={newSource === "url" ? "https://…" : "Write or paste content…"}
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  rows={4}
+                  data-testid="textarea-library-content"
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">{newSource === "url" ? "URL" : "Content"}</label>
-              <Textarea
-                placeholder={newSource === "url" ? "https://…" : "Write or paste content…"}
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                rows={4}
-                data-testid="textarea-library-content"
+              <label className="text-sm font-medium">Note <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <Input
+                placeholder="e.g. Read this before looking at flora/fauna — it provides the context"
+                value={newNotes}
+                onChange={(e) => setNewNotes(e.target.value)}
+                data-testid="input-library-notes"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddItemOpen(false)}>Cancel</Button>
             <Button
-              onClick={() => createItemMutation.mutate({
-                title: newTitle,
-                source: newSource,
-                content: newContent,
-                summary: newContent.slice(0, 200),
-              })}
-              disabled={!newTitle.trim() || createItemMutation.isPending}
+              onClick={() => {
+                if (newSource === "file") {
+                  createItemMutation.mutate({
+                    title: newTitle,
+                    source: "file",
+                    filePath: newFilePath,
+                    notes: newNotes || undefined,
+                  });
+                } else {
+                  createItemMutation.mutate({
+                    title: newTitle,
+                    source: newSource,
+                    content: newContent,
+                    summary: newContent.slice(0, 200),
+                    notes: newNotes || undefined,
+                  });
+                }
+              }}
+              disabled={
+                !newTitle.trim() ||
+                (newSource === "file" ? !newFilePath.trim() : !newContent.trim() && newSource !== "note") ||
+                createItemMutation.isPending
+              }
               data-testid="button-save-library-item"
             >
               {createItemMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
