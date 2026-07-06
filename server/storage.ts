@@ -706,6 +706,18 @@ export class DatabaseStorage implements IStorage {
         const stmt = rawStmt.trim();
         if (!stmt) continue;
 
+        // Skip segments that contain only SQL line-comments (-- ...) and
+        // whitespace.  Passing a bare comment to @libsql/client raises
+        // SQLITE_UNKNOWN_0 ("not an error") which would otherwise be
+        // re-thrown as a migration failure, permanently blocking any
+        // subsequent migrations in the journal.  A comment-only segment
+        // is a valid no-op placeholder and should be treated as such.
+        const executableLines = stmt
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0 && !line.startsWith("--"));
+        if (executableLines.length === 0) continue;
+
         // Rewrite CREATE TABLE / CREATE INDEX to idempotent form.
         const safeStmt = stmt
           .replace(/^CREATE TABLE\s+/im, "CREATE TABLE IF NOT EXISTS ")

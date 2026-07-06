@@ -2752,33 +2752,29 @@ describe("DatabaseStorage – mid-migration failure with empty error message sti
 // ── Comment-only / whitespace-only migration file ──────────────────────────────
 //
 // A SQL file that contains only SQL comments (-- ...) or pure whitespace is
-// valid UTF-8 text but has no executable statements in the conventional sense.
+// valid UTF-8 text but has no executable statements.
 //
-// The current _runMigrations implementation does NOT special-case this:
+// _runMigrations detects this case: after splitting on the breakpoint marker
+// and trimming each segment, it strips all `-- …` lines and checks whether any
+// executable content remains.  If every segment is blank or comment-only the
+// file is treated as a no-op placeholder — all segments are skipped and the tag
+// IS recorded in __creatrix_migrations so the runner never retries it.
 //
-//   • Splitting on "--> statement-breakpoint" yields one segment.
-//   • After trimming, the segment is "-- only a comment" (non-empty string).
-//   • The `if (!stmt) continue` guard does NOT fire — the segment is non-empty.
-//   • _client.execute("-- only a comment") is called.
-//   • The @libsql/client driver raises SQLITE_UNKNOWN_0: "not an error" —
-//     a bare SQL comment produces no result set and the driver surfaces this
-//     as an error whose message does not match any idempotency guard.
-//   • _runMigrations therefore re-throws as "Migration failed in <path>: …"
-//   • The tag is NEVER recorded in __creatrix_migrations.
-//
-// CURRENT BEHAVIOUR PIN: a comment-only migration file causes _runMigrations
-// to throw.  The tag is not silently marked applied — the runner treats it as
-// a genuine failure.  This test pins that behaviour so any future change
-// (e.g. skipping pure-comment segments or succeeding silently) is visible.
+// Without this guard the runner would call _client.execute("-- only a comment"),
+// which raises SQLITE_UNKNOWN_0 ("not an error"), re-throw as "Migration failed
+// in <path>: …", and leave the tag unrecorded — permanently blocking every
+// subsequent migration in the journal on every restart.
 //
 // Strategy:
 //   1. Initialize storage so all real application tables and the tracking table exist.
 //   2. Build a synthetic migrations folder with one migration whose SQL file
 //      contains only comments and whitespace — no actual DDL/DML.
-//   3. Call _runMigrations() — must THROW with an error that names the SQL file.
-//   4. Assert the tag is NOT recorded in __creatrix_migrations.
+//   3. Call _runMigrations() — must RESOLVE (not throw).
+//   4. Assert the tag IS recorded in __creatrix_migrations so it is never retried.
+//   5. Assert a second call with a real migration after the comment-only one
+//      also applies correctly, proving the journal is not blocked.
 
-describe("DatabaseStorage – comment-only migration file causes _runMigrations to throw", () => {
+describe("DatabaseStorage – comment-only migration file is skipped and tag is recorded", () => {
   let dbPath: string;
   let tmpMigrationsDir: string;
   const originalSqlitePath = process.env.SQLITE_PATH;
@@ -2805,7 +2801,7 @@ describe("DatabaseStorage – comment-only migration file causes _runMigrations 
     if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
   });
 
-  it("throws and leaves the tag unrecorded when the SQL file contains only comments and whitespace", async () => {
+  it("resolves and records the tag when the SQL file contains only comments and whitespace", async () => {
     // Step 1: Full initialize — all real application tables and the tracking
     // table __creatrix_migrations exist and are populated with real migrations.
     const storage = new DatabaseStorage();
@@ -2845,40 +2841,93 @@ describe("DatabaseStorage – comment-only migration file causes _runMigrations 
     const sqlFileName = "0008_comment_only_placeholder.sql";
     writeFileSync(join(tmpMigrationsDir, sqlFileName), commentOnlySql);
 
-    // Step 3: _runMigrations must THROW.
-    // The @libsql/client driver raises SQLITE_UNKNOWN_0 ("not an error") when
-    // asked to execute a statement consisting only of a SQL comment, and the
-    // idempotency guard does not recognise that message, so it re-throws as
-    // "Migration failed in <path>: …".
-    //
-    // CURRENT BEHAVIOUR PIN: a comment-only SQL file is treated as a failure.
-    // If this assertion starts failing (the promise resolves instead of rejecting)
-    // the runner now silently succeeds on comment-only files — that change must
-    // be a conscious decision.
-    const rejection = await (storage as any)
-      ._runMigrations(tmpMigrationsDir)
-      .catch((e: unknown) => e);
+    // Step 3: _runMigrations must RESOLVE — comment-only segments are skipped
+    // without calling the driver, so no SQLITE_UNKNOWN_0 is raised.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "comment-only migration file should resolve without throwing"
+    ).resolves.toBeUndefined();
 
-    expect(
-      rejection,
-      "comment-only migration file should cause _runMigrations to throw"
-    ).toBeInstanceOf(Error);
-
-    expect(
-      (rejection as Error).message,
-      "thrown error must name the SQL file so the author can find the problem"
-    ).toContain(sqlFileName);
-
-    // Step 4: The tag must NOT be recorded — a failed migration must not be
-    // marked applied.
+    // Step 4: The tag MUST be recorded so the runner never retries it on the
+    // next restart.  Leaving it unrecorded would block every later migration
+    // in the journal permanently.
     const client = createClient({ url: `file:${dbPath}` });
     const result = await client.execute(
       "SELECT tag FROM __creatrix_migrations WHERE tag = '0008_comment_only_placeholder'"
     );
     expect(
       result.rows.length,
-      "tag must NOT be recorded when the migration file contains no executable statements"
-    ).toBe(0);
+      "tag must be recorded after a comment-only migration is skipped"
+    ).toBe(1);
+    expect(result.rows[0]["tag"]).toBe("0008_comment_only_placeholder");
+
+    await client.close();
+  });
+
+  it("does not block a subsequent real migration that follows a comment-only entry in the journal", async () => {
+    // This confirms the comment-only entry does not permanently brick the runner:
+    // a second migration with real DDL applies correctly on the same run.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000010,
+          tag: "0010_comment_only_blocker",
+          breakpoints: true,
+        },
+        {
+          idx: 1,
+          version: "6",
+          when: 9999000000011,
+          tag: "0011_real_migration_after_comment",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // First entry: comment-only placeholder.
+    writeFileSync(
+      join(tmpMigrationsDir, "0010_comment_only_blocker.sql"),
+      [
+        "-- Reserved for future use.",
+        "-- No statements here.",
+      ].join("\n")
+    );
+
+    // Second entry: a real ALTER TABLE that adds a column we can verify.
+    writeFileSync(
+      join(tmpMigrationsDir, "0011_real_migration_after_comment.sql"),
+      "ALTER TABLE settings ADD COLUMN comment_block_guard_col TEXT"
+    );
+
+    // Both must apply without throwing.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "runner must not throw when a real migration follows a comment-only one"
+    ).resolves.toBeUndefined();
+
+    // The real column must exist.
+    const client = createClient({ url: `file:${dbPath}` });
+    await expect(
+      client.execute("SELECT comment_block_guard_col FROM settings LIMIT 0"),
+      "column added by the real migration must exist"
+    ).resolves.toBeDefined();
+
+    // Both tags must be recorded.
+    const tags = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag IN ('0010_comment_only_blocker','0011_real_migration_after_comment') ORDER BY tag"
+    );
+    expect(tags.rows.length, "both tags must be recorded").toBe(2);
 
     await client.close();
   });
