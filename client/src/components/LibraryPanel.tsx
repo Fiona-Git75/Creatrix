@@ -4,7 +4,7 @@ import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
   ChevronRight, ChevronDown, Clock, Globe, Loader2,
   HardDrive, FilePlus, ArrowLeft, Download, BookOpen, ExternalLink,
-  ScanLine, Image,
+  ScanLine, Image, BookMarked, Anchor,
 } from "lucide-react";
 import { SiNotion } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { LibraryItem, LibraryFolder } from "@shared/schema";
+import type { LibraryItem, LibraryFolder, Project } from "@shared/schema";
 
 interface LibraryPanelProps {
   open: boolean;
@@ -87,7 +87,101 @@ function sourceIcon(source: string, filePath?: string) {
   }
 }
 
+function AddToProjectDialog({ filePath, title, open, onClose }: { filePath: string; title: string; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [ground, setGround] = useState(false);
+
+  const { data: projects = [] } = useQuery<Project[]>({ queryKey: ["/api/projects"], enabled: open });
+
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      const project = projects.find(p => p.id === selectedProjectId);
+      if (!project) throw new Error("No project selected");
+      let existing: { path: string; ground: boolean }[] = [];
+      try { existing = JSON.parse(project.contextFiles || "[]"); } catch {}
+      const normalized = existing.map((e: any) => typeof e === "string" ? { path: e, ground: false } : e);
+      if (normalized.some(e => e.path === filePath)) throw new Error("Already in this project's context");
+      const updated = [...normalized, { path: filePath, ground }];
+      const res = await apiRequest("PATCH", `/api/projects/${selectedProjectId}`, { contextFiles: JSON.stringify(updated) });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Added to project context", description: ground ? "Set as grounding document." : "Set as reference document." });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Could not add", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add to Project Context</DialogTitle>
+          <DialogDescription className="truncate text-xs">{title}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Project</label>
+            <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+              <SelectTrigger data-testid="select-add-to-project">
+                <SelectValue placeholder="Choose a project…" />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Role</label>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={ground ? "default" : "outline"}
+                className="flex-1 gap-1.5"
+                onClick={() => setGround(true)}
+                data-testid="button-role-grounding"
+              >
+                <Anchor className="h-3.5 w-3.5" />
+                Grounding
+              </Button>
+              <Button
+                size="sm"
+                variant={!ground ? "default" : "outline"}
+                className="flex-1 gap-1.5"
+                onClick={() => setGround(false)}
+                data-testid="button-role-reference"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Reference
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {ground
+                ? "Content injected before the first message — model arrives having read it."
+                : "Path listed so the model knows it exists and can retrieve it on demand."}
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => addMutation.mutate()}
+            disabled={!selectedProjectId || addMutation.isPending}
+            data-testid="button-confirm-add-to-project"
+          >
+            {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string) => void }) {
+  const [addToProjectOpen, setAddToProjectOpen] = useState(false);
   const isImage = item.source === "file" && isImagePath(item.filePath);
   return (
     <div
@@ -131,15 +225,37 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
           ))}
         </div>
       </div>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6"
-        onClick={() => onDelete(item.id)}
-        data-testid={`button-delete-library-item-${item.id}`}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+      <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100">
+        {item.filePath && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
+            title="Add to project context"
+            onClick={() => setAddToProjectOpen(true)}
+            data-testid={`button-add-to-project-${item.id}`}
+          >
+            <BookMarked className="h-3.5 w-3.5 text-blue-500" />
+          </Button>
+        )}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          onClick={() => onDelete(item.id)}
+          data-testid={`button-delete-library-item-${item.id}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {item.filePath && (
+        <AddToProjectDialog
+          filePath={item.filePath}
+          title={item.title}
+          open={addToProjectOpen}
+          onClose={() => setAddToProjectOpen(false)}
+        />
+      )}
     </div>
   );
 }
