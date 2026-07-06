@@ -2342,3 +2342,113 @@ describe("DatabaseStorage – retry on next restart after mid-migration failure"
     await client.close();
   });
 });
+
+// ── Mid-migration failure with empty error message still names the SQL file ───
+//
+// The error wrapping in _runMigrations uses:
+//   throw new Error(`Migration failed in ${sqlPath}: ${msg || String(err)}`);
+//
+// If a driver version surfaces an error whose `.message` is an empty string,
+// `msg` is "" (falsy) so the fallback `String(err)` is used.  Either way,
+// `sqlPath` is always the fixed prefix of the thrown message — the file name
+// is present regardless of what the driver puts in `.message`.
+//
+// This test injects exactly that error (message === "") by monkey-patching
+// `_client.execute` for the migration SQL statement only, then confirms the
+// rejection still carries the SQL file path fragment.
+
+describe("DatabaseStorage – mid-migration failure with empty error message still names the file", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-empty-msg-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-empty-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("rejection message includes the SQL file path even when err.message is empty string", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a single-statement migration.
+    // The SQL itself is valid; the driver error is injected artificially below.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000002,
+          tag: "0007_empty_msg_guard",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    const sqlFileName = "0007_empty_msg_guard.sql";
+    writeFileSync(
+      join(tmpMigrationsDir, sqlFileName),
+      "ALTER TABLE settings ADD COLUMN empty_msg_col TEXT"
+    );
+
+    // Step 3: Monkey-patch _client.execute so that when it is called with the
+    // migration SQL (anything that does NOT reference __creatrix_migrations), it
+    // throws an Error whose .message is an empty string — simulating a future
+    // driver that surfaces opaque error objects.
+    //
+    // Calls that reference __creatrix_migrations (the tracking-table CREATE and
+    // the applied-tag SELECT) are forwarded to the real client so the runner can
+    // reach the statement loop.
+    const realClient = (storage as any)._client;
+    const realExecute = realClient.execute.bind(realClient);
+
+    (storage as any)._client.execute = async (stmt: any) => {
+      const sql: string = typeof stmt === "string" ? stmt : (stmt?.sql ?? "");
+      if (sql.includes("__creatrix_migrations")) {
+        return realExecute(stmt);
+      }
+      // Inject an error with an empty .message to exercise the fallback path.
+      const err = new Error("");
+      throw err;
+    };
+
+    // Step 4: _runMigrations must reject.
+    const rejection = await (storage as any)
+      ._runMigrations(tmpMigrationsDir)
+      .catch((e: unknown) => e);
+
+    expect(rejection).toBeInstanceOf(Error);
+
+    // Step 5: The error message must contain the SQL file name — confirming that
+    // the `sqlPath` prefix is always present regardless of what the driver
+    // returns in err.message.
+    expect(
+      (rejection as Error).message,
+      "error must name the SQL file even when err.message is empty string"
+    ).toContain(sqlFileName);
+  });
+});
