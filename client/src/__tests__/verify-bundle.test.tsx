@@ -68,6 +68,52 @@ describe("verify-bundle-logic module guard", () => {
         `  3. Update any imports in script/build.ts that reference verify-bundle-logic\n`,
     ).toBeNull();
   });
+
+  it("exports checkBundleContents as a function — update callers if this export is renamed", () => {
+    expect(
+      typeof checkBundleContents,
+      `\nThe named export "checkBundleContents" is missing or is not a function.\n` +
+        `Source file: ${VERIFY_BUNDLE_SOURCE}\n\n` +
+        `If the export was renamed:\n` +
+        `  1. Restore the export name to "checkBundleContents", OR\n` +
+        `  2. Update every reference in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `     and any other file that imports it (e.g. script/build.ts)\n`,
+    ).toBe("function");
+  });
+
+  it("exports bundledPackages as an array — update callers if this export is renamed", () => {
+    expect(
+      Array.isArray(bundledPackages),
+      `\nThe named export "bundledPackages" is missing or is not an array.\n` +
+        `Source file: ${VERIFY_BUNDLE_SOURCE}\n\n` +
+        `If the export was renamed:\n` +
+        `  1. Restore the export name to "bundledPackages", OR\n` +
+        `  2. Update every reference in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `     and script/build.ts (which imports bundledPackages to derive the allowlist)\n`,
+    ).toBe(true);
+  });
+
+  it("exports externalPackages as an array — update callers if this export is renamed", () => {
+    expect(
+      Array.isArray(externalPackages),
+      `\nThe named export "externalPackages" is missing or is not an array.\n` +
+        `Source file: ${VERIFY_BUNDLE_SOURCE}\n\n` +
+        `If the export was renamed:\n` +
+        `  1. Restore the export name to "externalPackages", OR\n` +
+        `  2. Update every reference in client/src/__tests__/verify-bundle.test.tsx\n`,
+    ).toBe(true);
+  });
+
+  it("exports MIN_BUNDLE_BYTES as a number — update callers if this export is renamed", () => {
+    expect(
+      typeof MIN_BUNDLE_BYTES,
+      `\nThe named export "MIN_BUNDLE_BYTES" is missing or is not a number.\n` +
+        `Source file: ${VERIFY_BUNDLE_SOURCE}\n\n` +
+        `If the export was renamed:\n` +
+        `  1. Restore the export name to "MIN_BUNDLE_BYTES", OR\n` +
+        `  2. Update every reference in client/src/__tests__/verify-bundle.test.tsx\n`,
+    ).toBe("number");
+  });
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
