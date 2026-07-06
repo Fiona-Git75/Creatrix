@@ -863,9 +863,40 @@ export async function registerRoutes(
         }
         if (project?.contextFiles) {
           try {
-            const files: string[] = JSON.parse(project.contextFiles);
-            if (files.length > 0) {
-              projectParts.push(`### Context Documents\nThe following files are key references for this project:\n${files.map(f => `- ${f}`).join("\n")}`);
+            const GROUND_CHAR_LIMIT = 12000;
+            type ContextEntry = { path: string; ground: boolean };
+            const raw = JSON.parse(project.contextFiles);
+            const entries: ContextEntry[] = Array.isArray(raw)
+              ? raw.map((e: unknown) =>
+                  typeof e === "string"
+                    ? { path: e, ground: false }
+                    : (e as ContextEntry)
+                )
+              : [];
+
+            const groundEntries = entries.filter(e => e.ground);
+            const refEntries = entries.filter(e => !e.ground);
+
+            if (groundEntries.length > 0) {
+              const { readFileContent } = await import("./capabilities/filesystem");
+              const groundParts: string[] = [];
+              for (const entry of groundEntries) {
+                try {
+                  const { content } = await readFileContent(entry.path);
+                  const fileName = entry.path.split("/").pop() ?? entry.path;
+                  const body = content.length > GROUND_CHAR_LIMIT
+                    ? content.slice(0, GROUND_CHAR_LIMIT) + `\n\n[…document truncated at ${GROUND_CHAR_LIMIT} characters]`
+                    : content;
+                  groundParts.push(`#### ${fileName}\n${body}`);
+                } catch {
+                  groundParts.push(`#### ${entry.path}\n[Could not read file — check the path is accessible]`);
+                }
+              }
+              projectParts.push(`### Grounding Documents\nRead and understand these documents before beginning work. They define the cognitive frame for this project:\n\n${groundParts.join("\n\n---\n\n")}`);
+            }
+
+            if (refEntries.length > 0) {
+              projectParts.push(`### Reference Documents\nThe following files are available for lookup when needed:\n${refEntries.map(e => `- ${e.path}`).join("\n")}`);
             }
           } catch { /* malformed JSON — skip */ }
         }

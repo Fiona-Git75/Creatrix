@@ -24,7 +24,7 @@ function sanitizePath(filePath: string, ctx: Pick<CapabilityContext, "rootFolder
   return resolved;
 }
 
-async function readFileContent(filePath: string): Promise<{ content: string; format: string }> {
+export async function readFileContent(filePath: string): Promise<{ content: string; format: string }> {
   const ext = path.extname(filePath).toLowerCase();
 
   if (ext === ".pdf") {

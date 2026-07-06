@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2 } from "lucide-react";
+import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project } from "@shared/schema";
@@ -8,6 +8,11 @@ import type { Project } from "@shared/schema";
 interface ProjectPanelProps {
   projectId: string;
   onClose: () => void;
+}
+
+interface ContextEntry {
+  path: string;
+  ground: boolean;
 }
 
 interface FieldAreaProps {
@@ -35,6 +40,19 @@ function FieldArea({ label, value, placeholder, testId, onChange, onBlur, rows =
       />
     </div>
   );
+}
+
+function parseContextFiles(raw: string | undefined): ContextEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((e: unknown) =>
+      typeof e === "string" ? { path: e, ground: false } : (e as ContextEntry)
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
@@ -78,9 +96,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
     }
   }, [project]);
 
-  const parsedFiles: string[] = (() => {
-    try { return JSON.parse(fields.contextFiles); } catch { return []; }
-  })();
+  const entries = parseContextFiles(fields.contextFiles);
 
   const saveMutation = useMutation({
     mutationFn: (updates: Partial<typeof fields>) =>
@@ -102,23 +118,32 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
     saveMutation.mutate({ [key]: fields[key] });
   };
 
+  const saveEntries = (next: ContextEntry[]) => {
+    const serialized = JSON.stringify(next);
+    handleChange("contextFiles", serialized);
+    saveMutation.mutate({ contextFiles: serialized });
+  };
+
   const addFile = () => {
     const path = newFilePath.trim();
     if (!path) return;
-    const next = JSON.stringify([...parsedFiles, path]);
     setNewFilePath("");
     setAddingFile(false);
-    handleChange("contextFiles", next);
-    saveMutation.mutate({ contextFiles: next });
+    saveEntries([...entries, { path, ground: false }]);
   };
 
   const removeFile = (index: number) => {
-    const next = JSON.stringify(parsedFiles.filter((_, i) => i !== index));
-    handleChange("contextFiles", next);
-    saveMutation.mutate({ contextFiles: next });
+    saveEntries(entries.filter((_, i) => i !== index));
+  };
+
+  const toggleGround = (index: number) => {
+    saveEntries(entries.map((e, i) => i === index ? { ...e, ground: !e.ground } : e));
   };
 
   if (!project) return null;
+
+  const groundEntries = entries.filter(e => e.ground);
+  const refEntries = entries.filter(e => !e.ground);
 
   return (
     <div className="flex flex-col h-full bg-background border-l border-border overflow-hidden">
@@ -188,29 +213,77 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
                 </button>
               </div>
 
-              {parsedFiles.length === 0 && !addingFile && (
-                <p className="text-[10px] text-muted-foreground/50 italic px-1">
-                  No context files yet — add file paths the model should know about.
-                </p>
+              {/* Grounding documents */}
+              {groundEntries.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground/60 px-1 flex items-center gap-1">
+                    <Anchor className="h-2.5 w-2.5" /> Grounding — injected on start
+                  </span>
+                  {entries.map((entry, i) => !entry.ground ? null : (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-primary/8 border border-primary/20 group"
+                      data-testid={`item-context-file-${i}`}
+                    >
+                      <button
+                        onClick={() => toggleGround(i)}
+                        title="Switch to Reference"
+                        className="shrink-0 text-primary hover:text-muted-foreground transition-colors"
+                        data-testid={`button-toggle-ground-${i}`}
+                      >
+                        <Anchor className="h-3 w-3" />
+                      </button>
+                      <span className="text-xs truncate flex-1 font-mono">{entry.path}</span>
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                        data-testid={`button-remove-context-file-${i}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
 
-              {parsedFiles.map((filePath, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/30 border border-border/50 group"
-                  data-testid={`item-context-file-${i}`}
-                >
-                  <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-xs truncate flex-1 font-mono">{filePath}</span>
-                  <button
-                    onClick={() => removeFile(i)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                    data-testid={`button-remove-context-file-${i}`}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+              {/* Reference documents */}
+              {refEntries.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground/60 px-1 flex items-center gap-1">
+                    <BookOpen className="h-2.5 w-2.5" /> Reference — available on demand
+                  </span>
+                  {entries.map((entry, i) => entry.ground ? null : (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/30 border border-border/50 group"
+                      data-testid={`item-context-file-${i}`}
+                    >
+                      <button
+                        onClick={() => toggleGround(i)}
+                        title="Switch to Grounding"
+                        className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+                        data-testid={`button-toggle-ground-${i}`}
+                      >
+                        <BookOpen className="h-3 w-3" />
+                      </button>
+                      <span className="text-xs truncate flex-1 font-mono">{entry.path}</span>
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                        data-testid={`button-remove-context-file-${i}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {entries.length === 0 && !addingFile && (
+                <p className="text-[10px] text-muted-foreground/50 italic px-1">
+                  No context files yet — add file paths, then click the icon to set each as Grounding or Reference.
+                </p>
+              )}
 
               {addingFile && (
                 <div className="flex gap-1.5">
