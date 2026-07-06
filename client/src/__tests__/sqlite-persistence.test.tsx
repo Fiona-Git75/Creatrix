@@ -2190,3 +2190,155 @@ describe("DatabaseStorage – tracking row is NOT recorded when a mid-migration 
     await client.close();
   });
 });
+
+// ── Retry on next restart after a mid-migration failure ───────────────────────
+//
+// The tracking-row ordering test confirms the row is absent after a
+// mid-migration failure.  But it doesn't verify what happens on the *next*
+// startup: the runner must retry the entire file, swallow the now-duplicate
+// first statement (idempotency guard), and successfully apply the previously-
+// failing second statement.
+//
+// Without a test for this round-trip, a regression that records the tracking
+// row on the first failure (and then skips the file forever) could still slip
+// through undetected.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a two-statement migration:
+//        stmt 1: ALTER TABLE settings ADD COLUMN retry_col_a TEXT  (succeeds)
+//        stmt 2: ALTER TABLE no_such_table_xyz ADD COLUMN x TEXT    (fails)
+//   3. Call _runMigrations() — must throw.
+//   4. Assert retry_col_a EXISTS (stmt 1 ran).
+//   5. Assert the tracking row is ABSENT (INSERT never reached).
+//   6. Fix the SQL file: replace stmt 2 with a valid ADD COLUMN on settings.
+//   7. Call _runMigrations() again — must NOT throw.
+//   8. Assert retry_col_a still exists (stmt 1 was swallowed, not dropped).
+//   9. Assert retry_col_b now exists (the previously-failing stmt 2 succeeded).
+//  10. Assert the tracking row IS now recorded.
+
+describe("DatabaseStorage – retry on next restart after mid-migration failure", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-retry-restart-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("retries the whole file on the next restart, swallows the already-applied first statement, and applies the fixed second statement", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a two-statement migration.
+    //   - Statement 1 succeeds: adds retry_col_a to the real `settings` table.
+    //   - Statement 2 fails:    targets a non-existent table; the error is NOT
+    //     in the swallowed set so it propagates and the runner throws.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000001,
+          tag: "0006_retry_after_failure",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    const sqlFilePath = join(tmpMigrationsDir, "0006_retry_after_failure.sql");
+
+    // Initial (broken) migration file — stmt 2 targets a table that does not exist.
+    writeFileSync(
+      sqlFilePath,
+      [
+        "ALTER TABLE settings ADD COLUMN retry_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE no_such_table_xyz ADD COLUMN retry_col_b TEXT",
+      ].join("\n")
+    );
+
+    // Step 3: First run — must throw because stmt 2 fails.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).rejects.toThrow();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // Step 4: retry_col_a must exist — stmt 1 ran before the failure.
+    await client.execute("SELECT retry_col_a FROM settings LIMIT 0");
+
+    // Step 5: The tracking row must NOT exist — the failed run must never record
+    // the migration, or the next restart would skip it silently and retry_col_b
+    // would be lost forever.
+    const beforeRetry = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0006_retry_after_failure'"
+    );
+    expect(
+      beforeRetry.rows.length,
+      "tracking row must be absent after the first (failing) run"
+    ).toBe(0);
+
+    // Step 6: Fix the SQL file — replace the bad stmt 2 with a valid ADD COLUMN.
+    // This simulates a developer shipping a corrected migration in the next release.
+    writeFileSync(
+      sqlFilePath,
+      [
+        "ALTER TABLE settings ADD COLUMN retry_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN retry_col_b TEXT",
+      ].join("\n")
+    );
+
+    // Step 7: Second run (simulated next restart) — must NOT throw.
+    //   - stmt 1 hits "duplicate column name" for retry_col_a → swallowed.
+    //   - stmt 2 (now valid) executes successfully → retry_col_b is created.
+    //   - Tracking row is inserted after the loop completes.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 8: retry_col_a must still exist (was swallowed, not dropped).
+    await client.execute("SELECT retry_col_a FROM settings LIMIT 0");
+
+    // Step 9: retry_col_b must now exist — the previously-failing stmt 2 succeeded.
+    await client.execute("SELECT retry_col_b FROM settings LIMIT 0");
+
+    // Step 10: The tracking row must now be recorded — the retry completed fully.
+    const afterRetry = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0006_retry_after_failure'"
+    );
+    expect(
+      afterRetry.rows.length,
+      "tracking row must be recorded after the successful retry run"
+    ).toBe(1);
+    expect(afterRetry.rows[0]["tag"]).toBe("0006_retry_after_failure");
+
+    await client.close();
+  });
+});
