@@ -1479,6 +1479,138 @@ describe("DatabaseStorage – three-statement migration restarts cleanly after c
   });
 });
 
+// ── Four-statement migration: crash after last statement, before tracking row ──
+//
+// Distinct from the three-statement case: here ALL four ADD COLUMN calls have
+// already been applied to the DB (simulating a crash after statement 4 executed
+// but before the tracking row was written). On the next startup every statement
+// in the loop throws a duplicate-column error.
+//
+// On the next startup _runMigrations re-runs the whole file:
+//   - Statement 1 hits "duplicate column name" → swallowed.
+//   - Statement 2 hits "duplicate column name" → swallowed.
+//   - Statement 3 hits "duplicate column name" → swallowed.
+//   - Statement 4 hits "duplicate column name" → swallowed.
+//   - Tracking row is recorded after all statements complete.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a four-statement migration.
+//   3. Manually apply all four statements via a raw client (no tracking row).
+//   4. Call _runMigrations() — must not throw.
+//   5. All four columns must still exist and the tracking row must be present.
+
+describe("DatabaseStorage – four-statement migration restarts cleanly after crash after last statement", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-four-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-four-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("swallows duplicate-column errors for all four stmts and records the tracking row", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a four-statement migration.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 4000000000002, tag: "0005_four_stmt_all_applied", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Four-statement migration separated by drizzle's breakpoint marker.
+    writeFileSync(
+      join(tmpMigrationsDir, "0005_four_stmt_all_applied.sql"),
+      [
+        "ALTER TABLE settings ADD COLUMN four_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN four_col_b TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN four_col_c TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN four_col_d TEXT",
+      ].join("\n")
+    );
+
+    // Step 3: Manually apply ALL FOUR statements via raw client — simulates the
+    // crash-after-last-statement scenario. No tracking row is inserted.
+    const client = createClient({ url: `file:${dbPath}` });
+    await client.execute("ALTER TABLE settings ADD COLUMN four_col_a TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN four_col_b TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN four_col_c TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN four_col_d TEXT");
+
+    // Confirm all four columns exist and NO tracking row was recorded.
+    await client.execute("SELECT four_col_a FROM settings LIMIT 0");
+    await client.execute("SELECT four_col_b FROM settings LIMIT 0");
+    await client.execute("SELECT four_col_c FROM settings LIMIT 0");
+    await client.execute("SELECT four_col_d FROM settings LIMIT 0");
+    const beforeTracking = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0005_four_stmt_all_applied'"
+    );
+    expect(
+      beforeTracking.rows.length,
+      "tracking row must NOT exist before the restart"
+    ).toBe(0);
+
+    // Step 4: Run _runMigrations — must not throw even though all four columns already exist.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 5a: col_a must still exist.
+    await client.execute("SELECT four_col_a FROM settings LIMIT 0");
+
+    // Step 5b: col_b must still exist.
+    await client.execute("SELECT four_col_b FROM settings LIMIT 0");
+
+    // Step 5c: col_c must still exist.
+    await client.execute("SELECT four_col_c FROM settings LIMIT 0");
+
+    // Step 5d: col_d must still exist.
+    await client.execute("SELECT four_col_d FROM settings LIMIT 0");
+
+    // Step 5e: Tracking row must be present.
+    const afterRestart = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0005_four_stmt_all_applied'"
+    );
+    expect(
+      afterRestart.rows.length,
+      "tracking row must be inserted after all-duplicate restart"
+    ).toBe(1);
+    expect(afterRestart.rows[0]["tag"]).toBe("0005_four_stmt_all_applied");
+
+    await client.close();
+  });
+});
+
 // ── Missing SQL file path ──────────────────────────────────────────────────────
 //
 // Verifies that _runMigrations surfaces a clear, readable error — rather than
