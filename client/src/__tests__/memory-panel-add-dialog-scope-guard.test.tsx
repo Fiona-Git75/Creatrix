@@ -40,22 +40,6 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
-// Radix UI Select uses several browser APIs jsdom doesn't support.
-// Stub them all to prevent "X is not a function" crashes during tests.
-window.HTMLElement.prototype.hasPointerCapture = vi.fn().mockReturnValue(false);
-window.HTMLElement.prototype.setPointerCapture = vi.fn();
-window.HTMLElement.prototype.releasePointerCapture = vi.fn();
-// Radix SelectContent calls scrollIntoView on the focused item when it mounts
-window.HTMLElement.prototype.scrollIntoView = vi.fn();
-// Radix also uses ResizeObserver for positioning
-if (!("ResizeObserver" in window)) {
-  (window as unknown as Record<string, unknown>).ResizeObserver = class ResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-}
-
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
 // vi.mock factories are hoisted to the top of the file before any variable

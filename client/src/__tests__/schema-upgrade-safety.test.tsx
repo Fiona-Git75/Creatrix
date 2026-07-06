@@ -276,7 +276,7 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
     const schemaTables: Array<{ exportName: string; sqlName: string }> = [];
     for (const [exportName, val] of Object.entries(schemaModule)) {
       if (stubIsDrizzleTable(val)) {
-        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        const sqlName = (val as unknown as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
         if (sqlName) schemaTables.push({ exportName, sqlName });
       }
     }
@@ -391,7 +391,7 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
 
     for (const [exportName, val] of Object.entries(schemaModule)) {
       if (isDrizzleTable(val)) {
-        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        const sqlName = (val as unknown as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
         if (sqlName) {
           schemaTables.push({ exportName, sqlName });
         }
@@ -457,7 +457,7 @@ function assertNoOrphanedMigrationTables(
   tablesInMigrations: Set<string>,
   schemaTableSqlNames: Set<string>
 ): void {
-  const orphans = [...tablesInMigrations].filter(
+  const orphans = Array.from(tablesInMigrations).filter(
     name =>
       !INTERNAL_MIGRATION_TABLES.has(name) &&
       !schemaTableSqlNames.has(name)
@@ -544,7 +544,7 @@ describe("Migration orphan check – every CREATE TABLE in migration files must 
 
     for (const [, val] of Object.entries(schemaModule)) {
       if (isDrizzleTable(val)) {
-        const sqlName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        const sqlName = (val as unknown as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
         if (sqlName) {
           schemaTableSqlNames.add(sqlName.toLowerCase());
         }
@@ -627,7 +627,7 @@ function buildSchemaColumnMap(): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const [, val] of Object.entries(schemaModule)) {
     if (!isDrizzleTable(val)) continue;
-    const sqlTableName = (val as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+    const sqlTableName = (val as unknown as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
     if (!sqlTableName) continue;
     const colNames = new Set<string>();
     for (const [, colDef] of Object.entries(val as object)) {

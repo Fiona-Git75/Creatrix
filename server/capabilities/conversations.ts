@@ -23,8 +23,7 @@ export const conversationCapabilities: CapabilityDefinition[] = [
         total: all.length,
         showing: sliced.length,
         conversations: sliced.map(c => {
-          let msgCount = 0;
-          try { msgCount = JSON.parse(c.messages).length; } catch { /* skip */ }
+          const msgCount = Array.isArray(c.messages) ? c.messages.length : 0;
           return {
             id: c.id,
             title: c.title,
@@ -53,8 +52,7 @@ export const conversationCapabilities: CapabilityDefinition[] = [
       const conv = await ctx.storageRef.getConversation(id);
       if (!conv) return { error: `No conversation found with id: ${id}` };
 
-      let messages: unknown[] = [];
-      try { messages = JSON.parse(conv.messages); } catch { /* malformed */ }
+      const messages: unknown[] = Array.isArray(conv.messages) ? conv.messages : [];
 
       return {
         id: conv.id,

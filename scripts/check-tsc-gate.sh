@@ -44,10 +44,13 @@ echo "[gate-check] step 0 — confirming sentinel test files are listed by tsc"
 # || true on the tsc call so a pre-existing type error does not prevent the
 # file list from being emitted; we only care about file presence here.
 SENTINEL_MISSING=0
+# Capture tsc --listFiles output once; || true absorbs non-zero exit from
+# pre-existing type errors so pipefail doesn't misreport missing sentinels.
+TSC_FILE_LIST=$(npx tsc --noEmit --incremental false --listFiles 2>&1 || true)
 for sentinel in "${SENTINEL_FILES[@]}"; do
   # grep -F does a substring match, so "client/src/__tests__/setup.ts"
   # matches the absolute path that tsc emits.
-  if ! npx tsc --noEmit --incremental false --listFiles 2>&1 | grep -qF "$sentinel"; then
+  if ! grep -qF "$sentinel" <<< "$TSC_FILE_LIST"; then
     echo "[gate-check] FAIL: '$sentinel' is NOT in tsc --listFiles — tsconfig may be silently excluding test files" >&2
     SENTINEL_MISSING=1
   else
