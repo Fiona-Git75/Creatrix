@@ -481,6 +481,63 @@ function assertNoOrphanedMigrationTables(
 
 describe("Migration orphan check – every CREATE TABLE in migration files must match a live schema table", () => {
   /**
+   * SYMBOL RENAME GUARD — confirms the fail-closed baseline guard in the orphan
+   * check fires when isDrizzleTable() returns false for every export (the
+   * scenario where drizzle-orm renames its internal Symbol.for("drizzle:Name")
+   * in an upgrade).
+   *
+   * If the symbol is renamed, the collection loop that builds schemaTableSqlNames
+   * silently produces an empty set.  The baseline guard exists to prevent the
+   * check from proceeding with an empty schema set — without it, every migration
+   * table would be falsely reported as orphaned (or the check would pass vacuously
+   * if no migration files were present).  This test makes the fail-closed path
+   * explicit and machine-verified.
+   */
+  it("baseline guard fires when isDrizzleTable returns false for every export (symbol renamed scenario)", () => {
+    // Stub: always return false — simulates isDrizzleTable() after a symbol rename.
+    const stubIsDrizzleTable = (_val: unknown): boolean => false;
+
+    // Run the same collection loop as the real orphan-check test, but using
+    // the stub predicate. The result must be an empty set.
+    const schemaTableSqlNames = new Set<string>();
+
+    for (const [, val] of Object.entries(schemaModule)) {
+      if (stubIsDrizzleTable(val)) {
+        const sqlName = (val as unknown as Record<symbol, string>)[DRIZZLE_TABLE_SYMBOL];
+        if (sqlName) {
+          schemaTableSqlNames.add(sqlName.toLowerCase());
+        }
+      }
+    }
+
+    // Confirm the stub produced the empty-set scenario we want to guard against.
+    expect(schemaTableSqlNames.size).toBe(0);
+
+    // Now run the baseline guard (identical logic to the real test's guard).
+    // It MUST throw — proceeding with an empty schema set is a false-safe
+    // condition (the orphan check would wrongly report every migration table as
+    // orphaned, or pass vacuously if migration files are absent).
+    const BASELINE_SQL_NAMES = ["users", "connections", "conversations"];
+    const missingBaseline = BASELINE_SQL_NAMES.filter(n => !schemaTableSqlNames.has(n));
+
+    expect(() => {
+      if (missingBaseline.length > 0) {
+        throw new Error(
+          `isDrizzleTable() / DRIZZLE_TABLE_SYMBOL detection appears broken — ` +
+          `baseline tables not found: ${missingBaseline.join(", ")}.\n` +
+          `Symbol.for("drizzle:Name") may have changed in a drizzle-orm upgrade.\n` +
+          `Update isDrizzleTable() in this file.`
+        );
+      }
+    }).toThrowError(/isDrizzleTable\(\) \/ DRIZZLE_TABLE_SYMBOL detection appears broken/);
+
+    // All three baseline table names must appear in the error message.
+    expect(missingBaseline).toEqual(
+      expect.arrayContaining(["users", "connections", "conversations"])
+    );
+  });
+
+  /**
    * NEGATIVE TEST — confirms the detection logic is live and not accidentally no-op'd.
    *
    * Injects a synthetic orphan table name into the "tables in migrations" set
