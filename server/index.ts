@@ -31,6 +31,12 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Session store: intentionally in-memory for local-first self-hosted use.
+// Sessions are short-lived UI state (userId for multi-user scenarios); losing
+// them on restart is acceptable since Creatrix is designed to run on a single
+// personal machine where restarts are infrequent. A persistent SQLite-backed
+// store would be needed only if multi-user or zero-downtime deployments become
+// a requirement — not the current design goal.
 app.use(session({
   secret: process.env.SESSION_SECRET ?? "creatrix-dev-secret",
   resave: false,

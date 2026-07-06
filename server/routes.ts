@@ -2158,7 +2158,7 @@ export async function registerRoutes(
         severity: "error",
         message: "Database is not responding",
         whyItMatters: "Nothing can be saved — settings, conversations, and logs will be lost",
-        action: "Check that PostgreSQL is running and DATABASE_URL is set correctly",
+        action: "Check that the database file path is accessible and the disk has free space (default path: ./data/creatrix.db, override with SQLITE_PATH env var)",
       });
     }
 
