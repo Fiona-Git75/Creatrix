@@ -1688,6 +1688,153 @@ describe("DatabaseStorage – four-statement migration restarts cleanly after cr
   });
 });
 
+// ── Five-statement migration: only the last statement is missing ───────────────
+//
+// Scenario: a migration with five statements was partially applied before a crash.
+// Statements 1–4 were applied but the process died before stmt 5 ran.
+// Because no tracking row was written, _runMigrations re-runs the whole file on
+// the next startup:
+//   - Statement 1 hits "duplicate column name" → swallowed.
+//   - Statement 2 hits "duplicate column name" → swallowed.
+//   - Statement 3 hits "duplicate column name" → swallowed.
+//   - Statement 4 hits "duplicate column name" → swallowed.
+//   - Statement 5 has never run → applied cleanly.
+//   - Tracking row is recorded after all statements complete.
+//
+// This is a distinct edge from the four-statement all-duplicate case: the runner
+// must reach and successfully execute the final statement rather than swallowing
+// every statement and moving on.
+//
+// Strategy:
+//   1. Initialize storage so all real application tables exist.
+//   2. Build a synthetic migrations folder with a five-statement migration.
+//   3. Manually apply only statements 1–4 via a raw client (no tracking row).
+//   4. Call _runMigrations() — must not throw.
+//   5. Columns 1–4 still exist, column 5 is newly created, tracking row is present.
+
+describe("DatabaseStorage – five-statement migration applies only the missing last statement", () => {
+  let dbPath: string;
+  let tmpMigrationsDir: string;
+  const originalSqlitePath = process.env.SQLITE_PATH;
+
+  beforeEach(() => {
+    dbPath = join(
+      tmpdir(),
+      `creatrix-five-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.SQLITE_PATH = dbPath;
+    tmpMigrationsDir = join(
+      tmpdir(),
+      `creatrix-migrations-five-stmt-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+  });
+
+  afterEach(() => {
+    if (originalSqlitePath === undefined) {
+      delete process.env.SQLITE_PATH;
+    } else {
+      process.env.SQLITE_PATH = originalSqlitePath;
+    }
+    if (existsSync(dbPath)) rmSync(dbPath);
+    if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
+  });
+
+  it("swallows duplicate-column errors for stmts 1–4, applies stmt 5, and records the tracking row", async () => {
+    // Step 1: Full initialize — all real application tables (including settings) exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a five-statement migration.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        { idx: 0, version: "6", when: 4000000000003, tag: "0006_five_stmt_last_missing", breakpoints: true },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Five-statement migration separated by drizzle's breakpoint marker.
+    writeFileSync(
+      join(tmpMigrationsDir, "0006_five_stmt_last_missing.sql"),
+      [
+        "ALTER TABLE settings ADD COLUMN five_col_a TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN five_col_b TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN five_col_c TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN five_col_d TEXT",
+        "--> statement-breakpoint",
+        "ALTER TABLE settings ADD COLUMN five_col_e TEXT",
+      ].join("\n")
+    );
+
+    // Step 3: Manually apply only stmts 1–4 via raw client — simulates a crash
+    // between stmt 4 and stmt 5. No tracking row is inserted.
+    const client = createClient({ url: `file:${dbPath}` });
+    await client.execute("ALTER TABLE settings ADD COLUMN five_col_a TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN five_col_b TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN five_col_c TEXT");
+    await client.execute("ALTER TABLE settings ADD COLUMN five_col_d TEXT");
+
+    // Confirm stmts 1–4 are present, stmt 5 is absent, no tracking row.
+    await client.execute("SELECT five_col_a FROM settings LIMIT 0");
+    await client.execute("SELECT five_col_b FROM settings LIMIT 0");
+    await client.execute("SELECT five_col_c FROM settings LIMIT 0");
+    await client.execute("SELECT five_col_d FROM settings LIMIT 0");
+    await expect(
+      client.execute("SELECT five_col_e FROM settings LIMIT 0"),
+      "five_col_e must not exist before _runMigrations"
+    ).rejects.toThrow();
+    const beforeTracking = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0006_five_stmt_last_missing'"
+    );
+    expect(
+      beforeTracking.rows.length,
+      "tracking row must NOT exist before the restart"
+    ).toBe(0);
+
+    // Step 4: Run _runMigrations — must not throw even though stmts 1–4 already exist.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir)
+    ).resolves.toBeUndefined();
+
+    // Step 5a: col_a must still exist (was already there).
+    await client.execute("SELECT five_col_a FROM settings LIMIT 0");
+
+    // Step 5b: col_b must still exist.
+    await client.execute("SELECT five_col_b FROM settings LIMIT 0");
+
+    // Step 5c: col_c must still exist.
+    await client.execute("SELECT five_col_c FROM settings LIMIT 0");
+
+    // Step 5d: col_d must still exist.
+    await client.execute("SELECT five_col_d FROM settings LIMIT 0");
+
+    // Step 5e: col_e must now exist (was newly created by _runMigrations).
+    await expect(
+      client.execute("SELECT five_col_e FROM settings LIMIT 0"),
+      "five_col_e must exist after _runMigrations applies stmt 5"
+    ).resolves.toBeDefined();
+
+    // Step 5f: Tracking row must be present.
+    const afterRestart = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0006_five_stmt_last_missing'"
+    );
+    expect(
+      afterRestart.rows.length,
+      "tracking row must be inserted after _runMigrations completes"
+    ).toBe(1);
+    expect(afterRestart.rows[0]["tag"]).toBe("0006_five_stmt_last_missing");
+
+    await client.close();
+  });
+});
+
 // ── Missing SQL file path ──────────────────────────────────────────────────────
 //
 // Verifies that _runMigrations surfaces a clear, readable error — rather than
