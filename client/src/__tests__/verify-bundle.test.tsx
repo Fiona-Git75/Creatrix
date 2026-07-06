@@ -202,6 +202,25 @@ describe("checkBundleContents – external package presence", () => {
     expect(errors.some((e) => e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
     expect(errors.some((e) => e.includes('"dotenv/config"'))).toBe(true);
   });
+
+  it("fails when a third external package is absent and the bundle mixes double- and single-quote require() styles", () => {
+    // Three externals: pkg-a (double-quote), pkg-b (single-quote), pkg-c (absent).
+    // The check must report EXTERNAL CHECK FAIL for pkg-c only.
+    const MIXED_EXTERNAL = ["pkg-a", "pkg-b", "pkg-c"] as const;
+    const bundle =
+      "x".repeat(MIN + 1) +
+      ` require("pkg-a")` +   // double-quote style
+      ` require('pkg-b')`;    // single-quote style
+    // pkg-c is completely absent from the bundle.
+
+    const { errors } = checkBundleContents(bundle, BUNDLED, MIXED_EXTERNAL, MIN);
+
+    // pkg-c must be flagged
+    expect(errors.some((e) => e.includes("EXTERNAL CHECK FAIL") && e.includes('"pkg-c"'))).toBe(true);
+    // pkg-a and pkg-b must NOT be flagged (they are present)
+    expect(errors.some((e) => e.includes('"pkg-a"'))).toBe(false);
+    expect(errors.some((e) => e.includes('"pkg-b"'))).toBe(false);
+  });
 });
 
 // ── newly-added allowlist entry accidentally removed scenario ─────────────────
