@@ -2608,6 +2608,78 @@ describe("DatabaseStorage – mid-migration failure with empty error message sti
     if (existsSync(tmpMigrationsDir)) rmSync(tmpMigrationsDir, { recursive: true });
   });
 
+  // ── Empty-message error is re-thrown, not swallowed ─────────────────────────
+  //
+  // The idempotency checks in _runMigrations all call `msg.includes(...)` where
+  // `msg = err?.message ?? ""`.  When msg is "" every includes() call returns
+  // false, so no guard fires and the catch block falls through to:
+  //
+  //   throw new Error(`Migration failed in ${sqlPath}: ${msg || String(err)}`);
+  //
+  // A future maintainer might add a seemingly harmless guard like `if (!msg)
+  // continue` to silence opaque errors.  That would silently swallow every
+  // error whose .message is "" — hiding real database failures.
+  //
+  // This test locks that door: inject an error whose .message === "" and assert
+  // _runMigrations rejects.  The idempotency conditions are all false for "",
+  // so the runner MUST re-throw rather than continuing silently.
+
+  it("does not silently swallow an error whose .message is empty string — runner rejects", async () => {
+    // Step 1: Full initialize — all real application tables (including
+    // settings) and the __creatrix_migrations tracking table exist.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Step 2: Build a synthetic migrations folder with a single-statement
+    // migration.  The SQL itself is valid; the driver error is injected below.
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000004,
+          tag: "0009_empty_msg_swallow_guard",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+    writeFileSync(
+      join(tmpMigrationsDir, "0009_empty_msg_swallow_guard.sql"),
+      "ALTER TABLE settings ADD COLUMN swallow_guard_col TEXT"
+    );
+
+    // Step 3: Monkey-patch _client.execute so that the migration SQL statement
+    // throws an Error with .message === "".  Calls that touch
+    // __creatrix_migrations are forwarded to the real driver so the runner can
+    // reach the statement loop in the first place.
+    const realClient = (storage as any)._client;
+    const realExecute = realClient.execute.bind(realClient);
+
+    (storage as any)._client.execute = async (stmt: any) => {
+      const sql: string = typeof stmt === "string" ? stmt : (stmt?.sql ?? "");
+      if (sql.includes("__creatrix_migrations")) {
+        return realExecute(stmt);
+      }
+      // Inject an error whose .message is exactly "".
+      // The idempotency guards (duplicate column name / table already exists /
+      // index already exists) are all false for "", so the runner must re-throw.
+      throw Object.assign(new Error(""), { message: "" });
+    };
+
+    // Step 4: _runMigrations must REJECT — the empty-message error is not
+    // swallowed by any idempotency guard.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "_runMigrations must reject when the driver throws an error with message === ''"
+    ).rejects.toBeInstanceOf(Error);
+  });
+
   it("rejection message includes the SQL file path even when err.message is empty string", async () => {
     // Step 1: Full initialize — all real application tables (including settings) exist.
     const storage = new DatabaseStorage();
