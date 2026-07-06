@@ -931,6 +931,62 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBeDefined();
   });
 
+  // ── 7h. clearMemory('global') with no scopeId wipes all entries when table has only global entries ──
+  //
+  // When the table contains exclusively global entries (no project or
+  // conversation rows as bystanders), a scoping bug could produce a different
+  // code path than the bystander scenario tests above exercise. This test pins
+  // the contract for that edge case so such a regression would be caught
+  // immediately.
+
+  it("clearMemory('global') with no scopeId wipes all entries when the table has only global entries", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Write two global entries and nothing else
+    const globalEntryA = await storage.createMemoryEntry({
+      scope: "global",
+      content: "Global only A: prefer descriptive variable names.",
+      summary: "Descriptive vars",
+    });
+
+    const globalEntryB = await storage.createMemoryEntry({
+      scope: "global",
+      content: "Global only B: always handle promise rejections.",
+      summary: "Handle rejections",
+    });
+
+    // Confirm both entries are present before the clear
+    const before = await storage.getMemoryEntries("global");
+    expect(
+      before.find(e => e.id === globalEntryA.id),
+      "global entry A must be present before clear",
+    ).toBeDefined();
+    expect(
+      before.find(e => e.id === globalEntryB.id),
+      "global entry B must be present before clear",
+    ).toBeDefined();
+
+    // Call clearMemory("global") with no scopeId
+    const cleared = await storage.clearMemory("global");
+    expect(cleared).toBe(true);
+
+    // Global scope must be fully empty afterward
+    const after = await storage.getMemoryEntries("global");
+    expect(
+      after.find(e => e.id === globalEntryA.id),
+      "global entry A should be removed after clearMemory('global') with no scopeId",
+    ).toBeUndefined();
+    expect(
+      after.find(e => e.id === globalEntryB.id),
+      "global entry B should be removed after clearMemory('global') with no scopeId",
+    ).toBeUndefined();
+    expect(
+      after.length,
+      "global scope must be fully empty — no entries should remain",
+    ).toBe(0);
+  });
+
   // ── 8. searchDocuments finds content inside chunks written before a restart ───
 
   it("searchDocuments finds content inside chunks written before a restart", async () => {
