@@ -441,6 +441,12 @@ describe("MemoryPanel — switching projects shows isolated entries", () => {
       "project A entry must not be visible while project B fetch is in-flight",
     ).toBeNull();
 
+    // Positive assertion: the loading spinner must be present for the project tab.
+    expect(
+      screen.queryByTestId("spinner-memory-project"),
+      "loading spinner must be shown for the project tab while project B fetch is in-flight",
+    ).not.toBeNull();
+
     // Now resolve proj-b and confirm its content appears
     resolveProjB([PROJ_B_ENTRY]);
     await waitFor(() => {

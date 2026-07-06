@@ -219,7 +219,7 @@ export function MemoryPanel({ open, onOpenChange, projectId, conversationId }: M
             <TabsContent key={tab} value={tab} className="flex-1 overflow-hidden mt-2">
               <ScrollArea className="h-[300px]">
                 {isLoadingTab(tab) ? (
-                  <div className="flex items-center justify-center h-full">
+                  <div className="flex items-center justify-center h-full" data-testid={`spinner-memory-${tab}`}>
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
                 ) : getMemoriesForTab(tab).length === 0 ? (
