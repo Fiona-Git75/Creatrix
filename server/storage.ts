@@ -578,13 +578,17 @@ export class MemStorage implements IStorage {
 // boundary.  This matters for hand-edited migrations that use non-ASCII or
 // punctuation-heavy table/column names.
 //
-// Back-tick quoting (MySQL-style) is not used in SQLite or Drizzle DDL and is
-// deliberately out of scope.
+// Back-tick quoting (MySQL-style, also accepted by some SQLite tools and
+// editors) is handled via `inBacktick`.  Back-ticks do not use an escape
+// convention for embedded back-ticks in standard SQL, so the first closing
+// back-tick always ends the identifier.  A semicolon inside a back-tick
+// identifier is treated as part of the identifier, not a statement boundary.
 function _splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = "";
   let inString = false;
   let inDblQuote = false;
+  let inBacktick = false;
 
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
@@ -611,12 +615,20 @@ function _splitSqlStatements(sql: string): string[] {
           inDblQuote = false;
         }
       }
+    } else if (inBacktick) {
+      current += ch;
+      if (ch === "`") {
+        inBacktick = false;
+      }
     } else {
       if (ch === "'") {
         inString = true;
         current += ch;
       } else if (ch === '"') {
         inDblQuote = true;
+        current += ch;
+      } else if (ch === "`") {
+        inBacktick = true;
         current += ch;
       } else if (ch === ";") {
         statements.push(current);

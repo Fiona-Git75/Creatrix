@@ -3554,4 +3554,78 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
 
     await client.close();
   });
+
+  // ── Semicolon inside a back-tick quoted identifier ───────────────────────────
+  //
+  // Some SQLite tools and MySQL-compatible editors emit back-tick quoted
+  // identifiers such as `my;table`.  A splitter that does not track the
+  // back-tick quoting state would treat the embedded semicolon as a statement
+  // boundary, producing two broken fragments:
+  //
+  //   Fragment 1: CREATE TABLE `semi
+  //   Fragment 2: colon_table` (id TEXT PRIMARY KEY)
+  //
+  // Both fragments are invalid SQL — the migration would silently fail and the
+  // table would never be created.  The splitter now tracks `inBacktick` so the
+  // semicolon is treated as part of the identifier.
+
+  it("does not split on a semicolon embedded inside a back-tick quoted identifier", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000026,
+          tag: "0026_backtick_identifier_semicolon",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // The table name contains a semicolon inside a back-tick quoted identifier.
+    // A splitter unaware of back-tick quoting would cut the statement at the
+    // semicolon, producing "`semi" and "colon_table`…" — both invalid — and
+    // the table would never be created.
+    const sql = "CREATE TABLE `semi;colon_bt_table` (id TEXT PRIMARY KEY)";
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0026_backtick_identifier_semicolon.sql"),
+      sql
+    );
+
+    // The back-tick-aware splitter must not break on the embedded semicolon.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "migration with a semicolon inside a back-tick quoted identifier should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // The table must exist and be queryable using the back-tick quoted name.
+    await expect(
+      client.execute("SELECT id FROM `semi;colon_bt_table` LIMIT 0"),
+      "table `semi;colon_bt_table` must exist after migration — splitter must not have split on the embedded semicolon"
+    ).resolves.toBeDefined();
+
+    // The tag must be recorded so the runner never retries it.
+    const tagResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0026_backtick_identifier_semicolon'"
+    );
+    expect(
+      tagResult.rows.length,
+      "tag must be recorded after back-tick-identifier migration is applied"
+    ).toBe(1);
+    expect(tagResult.rows[0]["tag"]).toBe("0026_backtick_identifier_semicolon");
+
+    await client.close();
+  });
 });
