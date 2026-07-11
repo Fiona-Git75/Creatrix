@@ -342,8 +342,8 @@ function ChatContent({
               size="icon"
               variant="ghost"
               onClick={() => setMemoryPanelOpen(true)}
-              data-testid="button-memory"
-              aria-label="Memory"
+              data-testid="button-continuity"
+              aria-label="Continuity"
             >
               <Brain className="h-4 w-4" />
             </Button>
