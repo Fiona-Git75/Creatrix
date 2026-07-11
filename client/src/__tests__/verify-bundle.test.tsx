@@ -728,6 +728,36 @@ function extractConditionBlock(src: string, conditionPattern: RegExp): string | 
   return null; // unbalanced braces
 }
 
+/**
+ * Find all brace-balanced `try { ... }` blocks in a source string and return
+ * them as an array of strings (each from the opening `{` to the matching `}`).
+ * Used to assert that no try-block in a function body wraps a process.exit()
+ * call, which would let a paired catch clause swallow the exit silently.
+ */
+function extractTryBlocks(src: string): string[] {
+  const blocks: string[] = [];
+  // \btry\s*\{ — the last character of every match is the opening brace.
+  const tryPattern = /\btry\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = tryPattern.exec(src)) !== null) {
+    const openIdx = match.index + match[0].length - 1; // position of the {
+    let depth = 0;
+    let i = openIdx;
+    while (i < src.length) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          blocks.push(src.slice(openIdx, i + 1));
+          break;
+        }
+      }
+      i++;
+    }
+  }
+  return blocks;
+}
+
 describe("build.ts buildAll gate-call guard — runTests and runTypeCheck", () => {
   const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
   let buildSrc: string | null = null;
@@ -1134,6 +1164,55 @@ describe("build.ts process.exit guard — runTests and runTypeCheck abort on fai
         `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
         `     are filtered out by this test.\n`,
     ).toBe(true);
+  });
+
+  it("verifyBundle failure branches are not wrapped in try/catch — a surrounding catch could swallow process.exit and let the build continue silently", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Step 1: isolate the verifyBundle function body.
+    const body = extractFunctionBody(src, "verifyBundle");
+    expect(
+      body,
+      `\nCould not extract the body of "verifyBundle" from script/build.ts.\n\n` +
+        `The extractor looks for "function verifyBundle(" or "async function verifyBundle("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the verifyBundle wrapper guard describe block\n`,
+    ).not.toBeNull();
+
+    // Step 2: strip line comments so commented-out try/catch blocks do not
+    // produce false positives.
+    const executableBody = stripLineComments(body!);
+
+    // Step 3: collect every try { ... } block within the verifyBundle body.
+    // If any try-block contains process.exit(), the paired catch clause could
+    // intercept the exit signal and allow the build to continue silently even
+    // when bundle verification has failed.
+    const tryBlocks = extractTryBlocks(executableBody);
+    for (const tryBlock of tryBlocks) {
+      expect(
+        /\bprocess\.exit\s*\(/.test(tryBlock),
+        `\nA try { ... } block inside "verifyBundle" in script/build.ts contains\n` +
+          `a process.exit() call.\n\n` +
+          `A try/catch wrapped around process.exit() can intercept the exit signal\n` +
+          `and allow the build to continue silently even when bundle verification\n` +
+          `fails — which means a corrupt or invalid bundle may be deployed.\n\n` +
+          `To fix:\n` +
+          `  1. Move process.exit() calls outside of any try/catch block:\n` +
+          `       if (!existsSync(bundlePath)) {\n` +
+          `         console.error("bundle verification failed — ...");\n` +
+          `         process.exit(1);   // must be at top level inside verifyBundle\n` +
+          `       }\n` +
+          `       if (errors.length > 0) {\n` +
+          `         ...\n` +
+          `         process.exit(1);   // must be at top level inside verifyBundle\n` +
+          `       }\n` +
+          `  2. If readFile error handling is needed, catch it in a wrapper that\n` +
+          `     calls process.exit() outside the try block, or re-throw after\n` +
+          `     logging so the unhandled-rejection handler exits the process.\n`,
+      ).toBe(false);
+    }
   });
 
   it("runTypeCheck contains a process.exit call inside the result.status !== 0 branch — removing it lets broken TypeScript ship silently", () => {
