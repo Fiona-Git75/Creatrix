@@ -603,6 +603,209 @@ describe("build.ts buildAll entry-point guard", () => {
 
 });
 
+// ── buildAll gate-call guard ──────────────────────────────────────────────────
+//
+// buildAll() derives its protection from three sequential calls:
+//   1. runTests()      — abort if any test fails
+//   2. runTypeCheck()  — abort if TypeScript compilation fails
+//   3. verifyBundle()  — abort if the produced bundle is invalid
+//
+// If any of the first two are removed the build completes silently without
+// that gate running.  These tests read build.ts as source text, extract the
+// buildAll function body via brace-balanced scanning, and assert that all
+// three gate calls appear within that specific body — not merely anywhere in
+// the file.
+
+/**
+ * Extract the text of a named function body from TypeScript source.
+ *
+ * Locates the first occurrence of `function <name>(` (sync or async),
+ * advances to the opening `{`, then walks character-by-character keeping a
+ * brace depth counter to find the matching `}`.  Returns the substring from
+ * the opening `{` to the closing `}` inclusive, or null when the pattern is
+ * not found.
+ *
+ * This approach is intentionally simple and works for any well-formed TS
+ * function that uses braces for its body.
+ */
+function extractFunctionBody(src: string, name: string): string | null {
+  // Match: (async )? function name (
+  const headerPattern = new RegExp(
+    `(?:async\\s+)?function\\s+${name}\\s*\\(`,
+  );
+  const headerMatch = headerPattern.exec(src);
+  if (!headerMatch) return null;
+
+  // Advance past the header match to find the opening brace of the body.
+  let i = headerMatch.index + headerMatch[0].length;
+  while (i < src.length && src[i] !== "{") i++;
+  if (i >= src.length) return null;
+
+  // Walk forward counting braces until we reach depth 0 again.
+  let depth = 0;
+  const start = i;
+  while (i < src.length) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+    i++;
+  }
+  return null; // unbalanced braces
+}
+
+describe("build.ts buildAll gate-call guard — runTests and runTypeCheck", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test will surface a clear failure below.
+  }
+
+  function requireBuildSrcForGates(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  /** Return the brace-balanced body of buildAll, or fail with a clear message. */
+  function requireBuildAllBody(src: string): string {
+    const body = extractFunctionBody(src, "buildAll");
+    expect(
+      body,
+      `\nCould not extract the body of "buildAll" from script/build.ts.\n\n` +
+        `The extractor looks for "function buildAll(" or "async function buildAll("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. The "extractFunctionBody" call in the gate-call guard describe block\n` +
+        `  2. The definition guard pattern in the buildAll entry-point guard describe block\n`,
+    ).not.toBeNull();
+    return body!;
+  }
+
+  it("defines a runTests function — removing this definition silently skips the test gate", () => {
+    const src = requireBuildSrcForGates();
+    const definitionPattern =
+      /(?:async\s+function\s+runTests\s*\(|function\s+runTests\s*\(|const\s+runTests\s*=)/;
+
+    expect(
+      definitionPattern.test(src),
+      `\nCould not find a "runTests" function in script/build.ts.\n\n` +
+        `If the function was renamed:\n` +
+        `  1. Restore the name to "runTests", OR\n` +
+        `  2. Update the definition pattern in this test AND update the\n` +
+        `     call-site assertion below so the renamed gate is still verified\n` +
+        `     to be invoked from buildAll.\n` +
+        `\nA missing runTests definition means the test gate is completely absent\n` +
+        `and the build will succeed even when tests are failing.\n`,
+    ).toBe(true);
+  });
+
+  it("calls runTests inside the buildAll body — removing this call silently skips the test gate", () => {
+    const src = requireBuildSrcForGates();
+    const body = requireBuildAllBody(src);
+
+    // Within the buildAll body, any line containing `runTests(` that does not
+    // also contain the word "function" is a call site.  Declaration lines
+    // always contain "function"; call-site lines never do.
+    const callSiteLines = body
+      .split("\n")
+      .filter(
+        (line) =>
+          /\brunTests\s*\(/.test(line) && !/\bfunction\b/.test(line),
+      );
+
+    expect(
+      callSiteLines.length,
+      `\nscript/build.ts does not call runTests() inside the buildAll function body.\n\n` +
+        `Expected to find at least one line like "await runTests()" within the\n` +
+        `brace-balanced body of buildAll — not elsewhere in the file.\n\n` +
+        `If the call was removed:\n` +
+        `  1. Restore "await runTests()" inside buildAll(), OR\n` +
+        `  2. If the gate was intentionally renamed, update both the definition\n` +
+        `     pattern and this call pattern in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `\nA gate defined outside buildAll but never called from inside it provides\n` +
+        `no protection — the build can complete without running tests.\n`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("defines a runTypeCheck function — removing this definition silently skips the type-check gate", () => {
+    const src = requireBuildSrcForGates();
+    const definitionPattern =
+      /(?:async\s+function\s+runTypeCheck\s*\(|function\s+runTypeCheck\s*\(|const\s+runTypeCheck\s*=)/;
+
+    expect(
+      definitionPattern.test(src),
+      `\nCould not find a "runTypeCheck" function in script/build.ts.\n\n` +
+        `If the function was renamed:\n` +
+        `  1. Restore the name to "runTypeCheck", OR\n` +
+        `  2. Update the definition pattern in this test AND update the\n` +
+        `     call-site assertion below so the renamed gate is still verified\n` +
+        `     to be invoked from buildAll.\n` +
+        `\nA missing runTypeCheck definition means TypeScript errors will not\n` +
+        `abort the build — broken types ship silently.\n`,
+    ).toBe(true);
+  });
+
+  it("calls runTypeCheck inside the buildAll body — removing this call silently skips the type-check gate", () => {
+    const src = requireBuildSrcForGates();
+    const body = requireBuildAllBody(src);
+
+    const callSiteLines = body
+      .split("\n")
+      .filter(
+        (line) =>
+          /\brunTypeCheck\s*\(/.test(line) && !/\bfunction\b/.test(line),
+      );
+
+    expect(
+      callSiteLines.length,
+      `\nscript/build.ts does not call runTypeCheck() inside the buildAll function body.\n\n` +
+        `Expected to find at least one line like "await runTypeCheck()" within the\n` +
+        `brace-balanced body of buildAll — not elsewhere in the file.\n\n` +
+        `If the call was removed:\n` +
+        `  1. Restore "await runTypeCheck()" inside buildAll(), OR\n` +
+        `  2. If the gate was intentionally renamed, update both the definition\n` +
+        `     pattern and this call pattern in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `\nA gate defined outside buildAll but never called from inside it provides\n` +
+        `no protection — TypeScript errors will not abort the build.\n`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("calls verifyBundle inside the buildAll body — removing this call silently skips the bundle integrity check", () => {
+    const src = requireBuildSrcForGates();
+    const body = requireBuildAllBody(src);
+
+    const callSiteLines = body
+      .split("\n")
+      .filter(
+        (line) =>
+          /\bverifyBundle\s*\(/.test(line) && !/\bfunction\b/.test(line),
+      );
+
+    expect(
+      callSiteLines.length,
+      `\nscript/build.ts does not call verifyBundle() inside the buildAll function body.\n\n` +
+        `Expected to find at least one line like "await verifyBundle()" within the\n` +
+        `brace-balanced body of buildAll — not elsewhere in the file.\n\n` +
+        `If the call was removed:\n` +
+        `  1. Restore "await verifyBundle()" inside buildAll(), OR\n` +
+        `  2. If the wrapper was intentionally renamed, update both the definition\n` +
+        `     pattern (in the verifyBundle wrapper guard) and this call pattern\n` +
+        `     in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `\nA bundle integrity check that is never invoked from buildAll provides\n` +
+        `no protection — a corrupt or oversized bundle will ship silently.\n`,
+    ).toBeGreaterThan(0);
+  });
+});
+
 // ── live constants sanity check ───────────────────────────────────────────────
 
 describe("bundledPackages and externalPackages constants", () => {
