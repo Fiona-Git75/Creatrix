@@ -12,7 +12,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { MemoryEntry, Connection } from "@shared/schema";
@@ -160,8 +159,8 @@ export function ContinuityPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="space-y-5 pr-1">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="space-y-5 pr-3">
             {/* Global continuity */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -212,7 +211,7 @@ export function ContinuityPanel({
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
 
       {/* Add entry dialog */}
