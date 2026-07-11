@@ -5,8 +5,6 @@ import { storage } from "./storage";
 import { chatRequestSchema, type Message, type CapabilityName, type Source, insertConsultantSchema } from "@shared/schema";
 import { createProvider } from "./providers";
 import { randomUUID } from "crypto";
-import { chunkText } from "./rag/chunking";
-import { embedChunks } from "./rag/embeddings";
 import { listCapabilities, invokeCapability, getCapability } from "./capabilities";
 import { probeNotionConnected } from "./capabilities/notion";
 import { CREATRIX_ORIENTATION } from "./orientation";
@@ -918,16 +916,6 @@ export async function registerRoutes(
         systemParts.push(`\n## Important Context (User Memories)\nRemember these facts about the user:\n${memoryText}`);
       }
 
-      // Search knowledge documents for relevant context
-      const docResults = await storage.searchDocuments(message, projectId, 3);
-      if (docResults.length > 0) {
-        const docContext = docResults.map(({ doc, chunks }) => {
-          const chunkTexts = chunks.map(c => c.content).join("\n\n");
-          return `### ${doc.title}\n${chunkTexts}`;
-        }).join("\n\n---\n\n");
-        systemParts.push(`\n## Relevant Knowledge Base Context\nUse the following information to help answer questions:\n\n${docContext}`);
-      }
-
       // === Tool capability injection — gated by model profile ===
       const settings = await storage.getSettings();
 
@@ -1321,183 +1309,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error clearing memory:", error);
       res.status(500).json({ error: "Failed to clear memory" });
-    }
-  });
-
-  // === Knowledge Documents ===
-  app.get("/api/documents", async (req: Request, res: Response) => {
-    try {
-      const projectId = req.query.projectId as string | undefined;
-      const docs = await storage.getKnowledgeDocuments(projectId);
-      res.json(docs);
-    } catch (error) {
-      console.error("Error fetching documents:", error);
-      res.status(500).json({ error: "Failed to fetch documents" });
-    }
-  });
-
-  app.get("/api/documents/:id", async (req: Request, res: Response) => {
-    try {
-      const doc = await storage.getKnowledgeDocument(req.params.id);
-      if (!doc) {
-        return res.status(404).json({ error: "Document not found" });
-      }
-      res.json(doc);
-    } catch (error) {
-      console.error("Error fetching document:", error);
-      res.status(500).json({ error: "Failed to fetch document" });
-    }
-  });
-
-  app.post("/api/documents", async (req: Request, res: Response) => {
-    try {
-      const { title, source, content, projectId } = req.body;
-      
-      if (!title || typeof title !== "string" || !title.trim()) {
-        return res.status(400).json({ error: "Title is required" });
-      }
-      if (!content || typeof content !== "string" || !content.trim()) {
-        return res.status(400).json({ error: "Content is required" });
-      }
-
-      const chunks = chunkText(content.trim(), { chunkSize: 500, chunkOverlap: 50 });
-      
-      const doc = await storage.createKnowledgeDocument({
-        title: title.trim(),
-        source: source || "manual",
-        content: content.trim(),
-        projectId,
-      });
-
-      const updatedDoc = await storage.updateKnowledgeDocument(doc.id, { chunks });
-
-      // Fire-and-forget: embed chunks in the background so the response isn't delayed
-      if (storage.storeChunkEmbeddings) {
-        embedChunks(chunks, storage).then(embedded => {
-          if (embedded.length > 0) {
-            return storage.storeChunkEmbeddings!(doc.id, embedded);
-          }
-        }).catch(() => {});
-      }
-
-      res.status(201).json({
-        id: updatedDoc?.id || doc.id,
-        title: updatedDoc?.title || doc.title,
-        source: updatedDoc?.source || doc.source,
-        projectId: updatedDoc?.projectId,
-        chunkCount: chunks.length,
-        createdAt: updatedDoc?.createdAt || doc.createdAt,
-      });
-    } catch (error) {
-      console.error("Error creating document:", error);
-      res.status(500).json({ error: "Failed to create document" });
-    }
-  });
-
-  // Bulk-import a folder of .md / .txt files as knowledge documents
-  app.post("/api/documents/import-folder", async (req: Request, res: Response) => {
-    try {
-      const { folderPath, projectId, extensions } = req.body;
-      if (!folderPath || typeof folderPath !== "string") {
-        return res.status(400).json({ error: "folderPath is required" });
-      }
-
-      const allowed = new Set<string>((extensions as string[] | undefined) ?? [".md", ".txt"]);
-      const root = path.resolve(folderPath);
-
-      try {
-        const stat = await fs.stat(root);
-        if (!stat.isDirectory()) return res.status(400).json({ error: "Path is not a directory" });
-      } catch {
-        return res.status(400).json({ error: "Folder not found or not accessible" });
-      }
-
-      const walk = async (dir: string, depth = 0): Promise<string[]> => {
-        if (depth > 6) return [];
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        const files: string[] = [];
-        for (const e of entries) {
-          if (e.name.startsWith(".")) continue;
-          const full = path.join(dir, e.name);
-          if (e.isDirectory()) files.push(...await walk(full, depth + 1));
-          else if (allowed.has(path.extname(e.name).toLowerCase())) files.push(full);
-        }
-        return files;
-      };
-
-      const allFiles = await walk(root);
-      const existing = await storage.getKnowledgeDocuments(projectId);
-      const existingTitles = new Set(existing.map(d => d.title));
-
-      let imported = 0;
-      let skipped = 0;
-      const importedFiles: string[] = [];
-
-      for (const file of allFiles.slice(0, 500)) {
-        const title = path.basename(file, path.extname(file));
-        if (existingTitles.has(title)) { skipped++; continue; }
-
-        const content = await fs.readFile(file, "utf-8").catch(() => null);
-        if (!content || content.trim().length < 20) { skipped++; continue; }
-
-        const relPath = path.relative(root, file);
-        const chunks = chunkText(content.trim(), { chunkSize: 500, chunkOverlap: 50 });
-        const doc = await storage.createKnowledgeDocument({
-          title,
-          source: relPath,
-          content: content.trim(),
-          projectId,
-        });
-        await storage.updateKnowledgeDocument(doc.id, { chunks });
-
-        if (storage.storeChunkEmbeddings) {
-          embedChunks(chunks, storage).then(embedded => {
-            if (embedded.length > 0) return storage.storeChunkEmbeddings!(doc.id, embedded);
-          }).catch(() => {});
-        }
-
-        imported++;
-        importedFiles.push(relPath);
-        existingTitles.add(title);
-      }
-
-      res.json({ imported, skipped, total: allFiles.length, files: importedFiles });
-    } catch (error) {
-      console.error("Error importing folder:", error);
-      res.status(500).json({ error: "Failed to import folder" });
-    }
-  });
-
-  app.delete("/api/documents/:id", async (req: Request, res: Response) => {
-    try {
-      const deleted = await storage.deleteKnowledgeDocument(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Document not found" });
-      }
-      // Clean up chunk embeddings (fire-and-forget, ON DELETE CASCADE not set)
-      storage.deleteChunkEmbeddings?.(req.params.id).catch(() => {});
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting document:", error);
-      res.status(500).json({ error: "Failed to delete document" });
-    }
-  });
-
-  app.get("/api/documents/search", async (req: Request, res: Response) => {
-    try {
-      const query = req.query.q as string;
-      const projectId = req.query.projectId as string | undefined;
-      const topK = parseInt(req.query.topK as string) || 3;
-
-      if (!query) {
-        return res.status(400).json({ error: "Query is required" });
-      }
-
-      const results = await storage.searchDocuments(query, projectId, topK);
-      res.json(results);
-    } catch (error) {
-      console.error("Error searching documents:", error);
-      res.status(500).json({ error: "Failed to search documents" });
     }
   });
 

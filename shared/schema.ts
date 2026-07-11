@@ -65,17 +65,6 @@ export const memoryEntries = sqliteTable("memory_entries", {
   createdAt: text("created_at").notNull(),
 });
 
-// Knowledge documents table
-export const knowledgeDocuments = sqliteTable("knowledge_documents", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id"),
-  title: text("title").notNull(),
-  source: text("source").notNull(),
-  content: text("content").notNull(),
-  chunks: text("chunks").notNull().default("[]"),  // JSON-encoded DocumentChunk[]
-  createdAt: text("created_at").notNull(),
-});
-
 // Settings table
 export const settings = sqliteTable("settings", {
   id: text("id").primaryKey().default("default"),
@@ -247,30 +236,6 @@ export const memoryEntrySchema = z.object({
 export type MemoryEntry = z.infer<typeof memoryEntrySchema>;
 export const insertMemoryEntrySchema = memoryEntrySchema.omit({ id: true, createdAt: true });
 export type InsertMemoryEntry = z.infer<typeof insertMemoryEntrySchema>;
-
-export const documentChunkSchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  metadata: z.record(z.string()).optional(),
-});
-export type DocumentChunk = z.infer<typeof documentChunkSchema>;
-
-export const knowledgeDocumentSchema = z.object({
-  id: z.string(),
-  projectId: z.string().optional(),
-  title: z.string(),
-  source: z.string(),
-  content: z.string(),
-  chunks: z.array(documentChunkSchema),
-  createdAt: z.string(),
-});
-export type KnowledgeDocument = z.infer<typeof knowledgeDocumentSchema>;
-export const insertKnowledgeDocumentSchema = knowledgeDocumentSchema.omit({
-  id: true,
-  createdAt: true,
-  chunks: true,
-});
-export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
 
 // System logs
 export const systemLogs = sqliteTable("system_logs", {

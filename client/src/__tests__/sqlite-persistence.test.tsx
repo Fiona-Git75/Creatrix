@@ -14,13 +14,11 @@
  *      now stored as JSON text — verified to decode correctly on reload).
  *   3. unifiedSearch finds conversation content that was written before restart.
  *   4. Memory entries (global scope) survive a full storage restart.
- *   5. Knowledge document chunks survive a restart and deserialise correctly.
- *   6. Project-scoped and conversation-scoped memory entries are not mixed up
+ *   5. Project-scoped and conversation-scoped memory entries are not mixed up
  *      with each other or with global entries after a restart.
- *   7. searchDocuments finds content inside chunks written before a restart.
- *   8. (separate describe) Fresh-install: _runMigrations creates all tables
+ *   6. (separate describe) Fresh-install: _runMigrations creates all tables
  *      from scratch on a brand-new empty SQLite file.
- *   9. (separate describe) Rolled-back tracking: duplicate-column error is
+ *   7. (separate describe) Rolled-back tracking: duplicate-column error is
  *      swallowed when the column already exists but the tracking row was deleted.
  */
 
@@ -71,15 +69,6 @@ CREATE TABLE IF NOT EXISTS memory_entries (
   created_at      TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS knowledge_documents (
-  id         TEXT PRIMARY KEY,
-  project_id TEXT,
-  title      TEXT NOT NULL,
-  source     TEXT NOT NULL,
-  content    TEXT NOT NULL,
-  chunks     TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL
-);
 `;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -257,45 +246,7 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     expect(found!.summary).toBe("Concise preference");
   });
 
-  // ── 5. Knowledge document chunks round-trip ──────────────────────────────────
-
-  it("knowledge document chunks survive a restart and deserialise correctly", async () => {
-    // ── Write via instance A ──────────────────────────────────────────────────
-    const storageA = new DatabaseStorage();
-    await storageA.initialize();
-
-    const doc = await storageA.createKnowledgeDocument({
-      title: "Photosynthesis Overview",
-      source: "manual",
-      content: "Plants convert light into energy via chlorophyll.",
-      projectId: undefined,
-    });
-
-    // Attach two chunks via updateKnowledgeDocument
-    const chunks = [
-      { id: "chunk-1", content: "Chlorophyll absorbs red and blue light.", index: 0 },
-      { id: "chunk-2", content: "Glucose is produced as a byproduct.", index: 1 },
-    ];
-    await storageA.updateKnowledgeDocument(doc.id, { chunks });
-
-    // ── Simulate restart ──────────────────────────────────────────────────────
-    const storageB = new DatabaseStorage();
-    await storageB.initialize();
-
-    const retrieved = await storageB.getKnowledgeDocument(doc.id);
-
-    expect(retrieved, "knowledge document should be found after restart").toBeDefined();
-    expect(retrieved!.title).toBe("Photosynthesis Overview");
-    expect(retrieved!.chunks, "chunks should deserialise as an array").toHaveLength(2);
-
-    const [c1, c2] = retrieved!.chunks;
-    expect(c1.id).toBe("chunk-1");
-    expect(c1.content).toBe("Chlorophyll absorbs red and blue light.");
-    expect(c2.id).toBe("chunk-2");
-    expect(c2.content).toBe("Glucose is produced as a byproduct.");
-  });
-
-  // ── 6. Memory scope isolation across restart ─────────────────────────────────
+  // ── 5. Memory scope isolation across restart ─────────────────────────────────
 
   it("project-scoped and conversation-scoped memory entries are not mixed up after restart", async () => {
     const projectId = "proj-abc";
@@ -987,53 +938,6 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBe(0);
   });
 
-  // ── 8. searchDocuments finds content inside chunks written before a restart ───
-
-  it("searchDocuments finds content inside chunks written before a restart", async () => {
-    const uniquePhrase = "vellichor-cascade-photon";
-
-    // ── Write via instance A ──────────────────────────────────────────────────
-    const storageA = new DatabaseStorage();
-    await storageA.initialize();
-
-    const doc = await storageA.createKnowledgeDocument({
-      title: "Optics Reference",
-      source: "manual",
-      content: "A reference document about optical phenomena.",
-      projectId: undefined,
-    });
-
-    const chunks = [
-      { id: "chunk-a", content: `Introduction to ${uniquePhrase} theory.`, index: 0 },
-      { id: "chunk-b", content: "Refraction causes light to bend at interfaces.", index: 1 },
-      { id: "chunk-c", content: `Advanced ${uniquePhrase} applications in fibre optics.`, index: 2 },
-    ];
-    await storageA.updateKnowledgeDocument(doc.id, { chunks });
-
-    // ── Simulate restart: new instance on the same file ───────────────────────
-    const storageB = new DatabaseStorage();
-    await storageB.initialize();
-
-    const results = await storageB.searchDocuments(uniquePhrase);
-
-    expect(results.length, "searchDocuments should return at least one result").toBeGreaterThan(0);
-
-    const hit = results.find(r => r.doc.id === doc.id);
-    expect(hit, "the document written before restart should appear in results").toBeDefined();
-
-    const matchedIds = hit!.chunks.map(c => c.id);
-    expect(
-      matchedIds.some(id => id === "chunk-a" || id === "chunk-c"),
-      "at least one matching chunk should be returned",
-    ).toBe(true);
-
-    for (const chunk of hit!.chunks) {
-      expect(
-        chunk.content.toLowerCase().includes(uniquePhrase.split("-")[0]),
-        `returned chunk content should contain the search term (got: "${chunk.content}")`,
-      ).toBe(true);
-    }
-  });
 });
 
 // ── Fresh-install path ────────────────────────────────────────────────────────
@@ -1081,7 +985,6 @@ describe("DatabaseStorage – fresh-install migration from empty database", () =
       "conversation_flags",
       "conversations",
       "journal_entries",
-      "knowledge_documents",
       "library_folders",
       "library_items",
       "memory_entries",

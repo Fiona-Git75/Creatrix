@@ -48,12 +48,6 @@ export const FOUNDING_COLUMNS = new Set<string>([
   "memoryEntries.content",
   "memoryEntries.createdAt",
 
-  // knowledgeDocuments
-  "knowledgeDocuments.title",
-  "knowledgeDocuments.source",
-  "knowledgeDocuments.content",
-  "knowledgeDocuments.createdAt",
-
   // systemLogs — timestamp uses $defaultFn (JS-side, not a SQL DEFAULT). It is safe here
   // because it has been part of the CREATE TABLE statement from the start, not added via
   // ALTER TABLE. $defaultFn does NOT produce a SQL DEFAULT clause, so SQLite would reject

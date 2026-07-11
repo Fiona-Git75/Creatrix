@@ -52,12 +52,6 @@ const { mockStorage } = vi.hoisted(() => {
     createMemoryEntry: vi.fn(),
     deleteMemoryEntry: vi.fn(),
     clearMemory: vi.fn(),
-    getKnowledgeDocuments: vi.fn().mockResolvedValue([]),
-    getKnowledgeDocument: vi.fn().mockResolvedValue(undefined),
-    createKnowledgeDocument: vi.fn(),
-    updateKnowledgeDocument: vi.fn(),
-    deleteKnowledgeDocument: vi.fn(),
-    searchDocuments: vi.fn().mockResolvedValue([]),
     getSettings: vi.fn().mockResolvedValue({
       rootFolder: null,
       libraryPaths: [],
@@ -66,7 +60,6 @@ const { mockStorage } = vi.hoisted(() => {
     updateSettings: vi.fn(),
     unifiedSearch: vi.fn().mockResolvedValue({
       conversations: [],
-      documents: [],
       memories: [],
     }),
     getLibraryFolders: vi.fn().mockResolvedValue([]),

@@ -24,7 +24,6 @@ import {
   projects,
   conversations,
   memoryEntries,
-  knowledgeDocuments,
   settings,
   libraryFolders,
   libraryItems,
@@ -76,7 +75,6 @@ const ALL_TABLES: Record<string, any> = {
   projects,
   conversations,
   memoryEntries,
-  knowledgeDocuments,
   settings,
   libraryFolders,
   libraryItems,
@@ -445,9 +443,19 @@ describe("Migration coverage – every schema table must have a CREATE TABLE in 
 const INTERNAL_MIGRATION_TABLES = new Set(["__creatrix_migrations"]);
 
 /**
+ * Tables that were intentionally removed from shared/schema.ts. They still
+ * appear in historical migration SQL (and may still exist in live databases as
+ * unused tables), but they are no longer part of the application schema.
+ * Add a table here when you deliberately drop it from the schema.
+ */
+const DROPPED_SCHEMA_TABLES = new Set([
+  "knowledge_documents", // removed — superseded by library / filesystem capabilities
+]);
+
+/**
  * Core assertion: throws a descriptive error if any table name found in a
  * CREATE TABLE statement inside migration files is not present in the live
- * schema, after excluding known internal tables.
+ * schema, after excluding known internal tables and intentionally dropped tables.
  *
  * Extracted so both the positive test (real migration files) and the negative
  * test (synthetic orphan injected) exercise the identical check path and error
@@ -460,6 +468,7 @@ function assertNoOrphanedMigrationTables(
   const orphans = Array.from(tablesInMigrations).filter(
     name =>
       !INTERNAL_MIGRATION_TABLES.has(name) &&
+      !DROPPED_SCHEMA_TABLES.has(name) &&
       !schemaTableSqlNames.has(name)
   );
 
@@ -1086,15 +1095,6 @@ const V1_SCHEMA_SQL = [
     created_at      TEXT NOT NULL
   )`,
 
-  `CREATE TABLE IF NOT EXISTS knowledge_documents (
-    id         TEXT PRIMARY KEY,
-    project_id TEXT,
-    title      TEXT NOT NULL,
-    source     TEXT NOT NULL,
-    content    TEXT NOT NULL,
-    chunks     TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL
-  )`,
 ];
 
 /**

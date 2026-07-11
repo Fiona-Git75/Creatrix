@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Search, MessageSquare, FileText, Brain, Loader2 } from "lucide-react";
+import { Search, MessageSquare, Brain, Loader2 } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -11,7 +11,6 @@ import {
 
 interface SearchResult {
   conversations: { id: string; title: string; excerpt: string; matchType: string }[];
-  documents: { id: string; title: string; excerpt: string }[];
   memories: { id: string; content: string; scope: string }[];
 }
 
@@ -68,7 +67,6 @@ export function SearchDialog({ open, onOpenChange, projectId, onSelectConversati
 
   const hasResults = results && (
     results.conversations.length > 0 ||
-    results.documents.length > 0 ||
     results.memories.length > 0
   );
 
@@ -80,7 +78,7 @@ export function SearchDialog({ open, onOpenChange, projectId, onSelectConversati
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput
-        placeholder="Search conversations, documents, memories..."
+        placeholder="Search conversations and memories..."
         value={query}
         onValueChange={setQuery}
         data-testid="input-search"
@@ -120,25 +118,6 @@ export function SearchDialog({ open, onOpenChange, projectId, onSelectConversati
                       {conv.excerpt && (
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{conv.excerpt}</p>
                       )}
-                    </div>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-
-            {results.documents.length > 0 && (
-              <CommandGroup heading="Documents">
-                {results.documents.map((doc) => (
-                  <CommandItem
-                    key={doc.id}
-                    value={doc.id}
-                    className="flex items-start gap-2 py-3"
-                    data-testid={`search-result-document-${doc.id}`}
-                  >
-                    <FileText className="h-4 w-4 mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{doc.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{doc.excerpt}</p>
                     </div>
                   </CommandItem>
                 ))}

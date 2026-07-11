@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, BookOpen, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2 } from "lucide-react";
+import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,7 +19,6 @@ import { ChatInput, type AttachedImage } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MemoryPanel } from "@/components/MemoryPanel";
-import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { SystemLogPanel } from "@/components/SystemLogPanel";
@@ -170,7 +169,6 @@ function ChatContent({
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const { isMobile } = useSidebar();
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
-  const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false);
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(false);
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [systemLogOpen, setSystemLogOpen] = useState(false);
@@ -343,15 +341,6 @@ function ChatContent({
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setKnowledgePanelOpen(true)}
-              data-testid="button-knowledge"
-              aria-label="Knowledge Base"
-            >
-              <BookOpen className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
               onClick={() => setMemoryPanelOpen(true)}
               data-testid="button-memory"
               aria-label="Memory"
@@ -387,11 +376,6 @@ function ChatContent({
           onOpenChange={setMemoryPanelOpen}
           projectId={selectedProjectId}
           conversationId={activeConversation?.id || null}
-        />
-        <KnowledgePanel
-          open={knowledgePanelOpen}
-          onOpenChange={setKnowledgePanelOpen}
-          projectId={selectedProjectId}
         />
         <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
         <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />

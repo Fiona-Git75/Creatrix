@@ -4,7 +4,6 @@ import {
   type Project, type InsertProject,
   type Connection, type InsertConnection,
   type MemoryEntry, type InsertMemoryEntry,
-  type KnowledgeDocument, type InsertKnowledgeDocument,
   type Settings,
   type LibraryFolder, type InsertLibraryFolder,
   type LibraryItem, type InsertLibraryItem,
@@ -13,7 +12,7 @@ import {
   type SystemLog,
   type Consultant, type InsertConsultant,
   type ConversationFlag, type InsertConversationFlag,
-  users, connections, projects, conversations, memoryEntries, knowledgeDocuments, settings,
+  users, connections, projects, conversations, memoryEntries, settings,
   libraryFolders, libraryItems, journalEntries, systemLogs, workspaceDocs, consultants,
   conversationFlags,
 } from "@shared/schema";
@@ -67,14 +66,6 @@ export interface IStorage {
   deleteMemoryEntry(id: string): Promise<boolean>;
   clearMemory(scope: string, scopeId?: string): Promise<boolean>;
 
-  // Knowledge Documents
-  getKnowledgeDocuments(projectId?: string): Promise<KnowledgeDocument[]>;
-  getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined>;
-  createKnowledgeDocument(doc: InsertKnowledgeDocument): Promise<KnowledgeDocument>;
-  updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined>;
-  deleteKnowledgeDocument(id: string): Promise<boolean>;
-  searchDocuments(query: string, projectId?: string, topK?: number): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]>;
-
   // Settings
   getSettings(): Promise<Settings>;
   updateSettings(settings: Partial<Settings>): Promise<Settings>;
@@ -82,7 +73,6 @@ export interface IStorage {
   // Unified Search
   unifiedSearch(query: string, projectId?: string): Promise<{
     conversations: { id: string; title: string; excerpt: string; matchType: string }[];
-    documents: { id: string; title: string; excerpt: string }[];
     memories: { id: string; content: string; scope: string }[];
   }>;
 
@@ -137,8 +127,6 @@ export interface IStorage {
 
   // ─── Vector / Semantic Search ──────────────────────────────────────────────
   initVectorStore?(): Promise<void>;
-  storeChunkEmbeddings?(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void>;
-  deleteChunkEmbeddings?(docId: string): Promise<void>;
 }
 
 // ─── In-Memory Implementation ────────────────────────────────────────────────
@@ -149,7 +137,6 @@ export class MemStorage implements IStorage {
   private projects: Map<string, Project>;
   private conversations: Map<string, Conversation>;
   private memoryEntries: Map<string, MemoryEntry>;
-  private knowledgeDocuments: Map<string, KnowledgeDocument>;
   private _libraryFolders: Map<string, LibraryFolder>;
   private _libraryItems: Map<string, LibraryItem>;
   private _journalEntries: Map<string, JournalEntry>;
@@ -163,7 +150,6 @@ export class MemStorage implements IStorage {
     this.projects = new Map();
     this.conversations = new Map();
     this.memoryEntries = new Map();
-    this.knowledgeDocuments = new Map();
     this._libraryFolders = new Map();
     this._libraryItems = new Map();
     this._journalEntries = new Map();
@@ -336,58 +322,6 @@ export class MemStorage implements IStorage {
     return true;
   }
 
-  // Knowledge Documents
-  async getKnowledgeDocuments(projectId?: string): Promise<KnowledgeDocument[]> {
-    let docs = Array.from(this.knowledgeDocuments.values());
-    if (projectId !== undefined) docs = docs.filter(d => d.projectId === projectId);
-    return docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }
-  async getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined> { return this.knowledgeDocuments.get(id); }
-  async createKnowledgeDocument(insertDoc: InsertKnowledgeDocument): Promise<KnowledgeDocument> {
-    const id = randomUUID();
-    const doc: KnowledgeDocument = { ...insertDoc, id, chunks: [], createdAt: new Date().toISOString() };
-    this.knowledgeDocuments.set(id, doc);
-    return doc;
-  }
-  async deleteKnowledgeDocument(id: string): Promise<boolean> { return this.knowledgeDocuments.delete(id); }
-  async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {
-    const doc = this.knowledgeDocuments.get(id);
-    if (!doc) return undefined;
-    const updated: KnowledgeDocument = { ...doc, ...updates };
-    this.knowledgeDocuments.set(id, updated);
-    return updated;
-  }
-  async searchDocuments(query: string, projectId?: string, topK: number = 3): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]> {
-    if (!query?.trim()) return [];
-    const docs = await this.getKnowledgeDocuments(projectId);
-    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
-    if (queryTerms.length === 0) return [];
-    const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[]; score: number }[] = [];
-    for (const doc of docs) {
-      if (!doc.chunks?.length) continue;
-      const matchingChunks: { chunk: import("@shared/schema").DocumentChunk; score: number; position: number }[] = [];
-      for (let i = 0; i < doc.chunks.length; i++) {
-        const chunk = doc.chunks[i];
-        const content = chunk.content.toLowerCase();
-        let score = 0;
-        for (const term of queryTerms) {
-          try {
-            const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "gi");
-            const matches = content.match(regex);
-            if (matches) score += matches.length;
-          } catch { if (content.includes(term)) score += 1; }
-        }
-        if (score > 0) matchingChunks.push({ chunk, score, position: i });
-      }
-      if (matchingChunks.length > 0) {
-        matchingChunks.sort((a, b) => b.score - a.score || a.position - b.position);
-        results.push({ doc, chunks: matchingChunks.slice(0, topK).map(m => m.chunk), score: matchingChunks.reduce((s, m) => s + m.score, 0) });
-      }
-    }
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, topK).map(r => ({ doc: r.doc, chunks: r.chunks }));
-  }
-
   // Settings
   async getSettings(): Promise<Settings> { return this.settings; }
   async updateSettings(updates: Partial<Settings>): Promise<Settings> {
@@ -397,12 +331,11 @@ export class MemStorage implements IStorage {
 
   async unifiedSearch(query: string, projectId?: string): Promise<{
     conversations: { id: string; title: string; excerpt: string; matchType: string }[];
-    documents: { id: string; title: string; excerpt: string }[];
     memories: { id: string; content: string; scope: string }[];
   }> {
-    if (!query?.trim()) return { conversations: [], documents: [], memories: [] };
+    if (!query?.trim()) return { conversations: [], memories: [] };
     const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
-    if (queryTerms.length === 0) return { conversations: [], documents: [], memories: [] };
+    if (queryTerms.length === 0) return { conversations: [], memories: [] };
 
     const convs: { id: string; title: string; excerpt: string; matchType: string; score: number }[] = [];
     for (const conv of await this.getConversations(projectId)) {
@@ -426,9 +359,6 @@ export class MemStorage implements IStorage {
     }
     convs.sort((a, b) => b.score - a.score);
 
-    const docResults = await this.searchDocuments(query, projectId, 5);
-    const documents = docResults.map(({ doc, chunks }) => ({ id: doc.id, title: doc.title, excerpt: chunks[0]?.content.slice(0, 100) + "..." || "" }));
-
     const memories: { id: string; content: string; scope: string }[] = [];
     for (const mem of Array.from(this.memoryEntries.values())) {
       if (projectId && mem.projectId !== projectId && mem.scope !== "global") continue;
@@ -436,7 +366,7 @@ export class MemStorage implements IStorage {
       if (queryTerms.some(t => cl.includes(t))) memories.push({ id: mem.id, content: mem.content.slice(0, 100), scope: mem.scope });
     }
 
-    return { conversations: convs.slice(0, 5).map(({ score, ...r }) => r), documents, memories: memories.slice(0, 5) };
+    return { conversations: convs.slice(0, 5).map(({ score, ...r }) => r), memories: memories.slice(0, 5) };
   }
 
   // ─── Phase 2: Library ──────────────────────────────────────────────────────
@@ -999,65 +929,6 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
-  async getKnowledgeDocuments(projectId?: string): Promise<KnowledgeDocument[]> {
-    const result = projectId !== undefined
-      ? await this.db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.projectId, projectId)).orderBy(desc(knowledgeDocuments.createdAt))
-      : await this.db.select().from(knowledgeDocuments).orderBy(desc(knowledgeDocuments.createdAt));
-    return result.map(d => ({ ...d, projectId: d.projectId ?? undefined, chunks: this._parseJson<KnowledgeDocument["chunks"]>(d.chunks as string, []) }));
-  }
-  async getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined> {
-    const result = await this.db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
-    if (!result[0]) return undefined;
-    const d = result[0];
-    return { ...d, projectId: d.projectId ?? undefined, chunks: this._parseJson<KnowledgeDocument["chunks"]>(d.chunks as string, []) };
-  }
-  async createKnowledgeDocument(insertDoc: InsertKnowledgeDocument): Promise<KnowledgeDocument> {
-    const id = randomUUID();
-    const createdAt = new Date().toISOString();
-    await this.db.insert(knowledgeDocuments).values({ ...insertDoc, id, chunks: JSON.stringify([]), createdAt, projectId: insertDoc.projectId ?? null });
-    return { ...insertDoc, id, chunks: [], createdAt };
-  }
-  async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {
-    const existing = await this.getKnowledgeDocument(id);
-    if (!existing) return undefined;
-    const dbUpdates: Record<string, any> = { ...updates };
-    if (updates.chunks !== undefined) dbUpdates.chunks = JSON.stringify(updates.chunks);
-    await this.db.update(knowledgeDocuments).set(dbUpdates).where(eq(knowledgeDocuments.id, id));
-    return { ...existing, ...updates };
-  }
-  async deleteKnowledgeDocument(id: string): Promise<boolean> {
-    const existing = await this.getKnowledgeDocument(id);
-    if (!existing) return false;
-    await this.db.delete(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
-    return true;
-  }
-  async searchDocuments(query: string, projectId?: string, topK: number = 3): Promise<{ doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[] }[]> {
-    if (!query?.trim()) return [];
-
-    // Keyword search
-    const docs = await this.getKnowledgeDocuments(projectId);
-    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
-    if (queryTerms.length === 0) return [];
-    const results: { doc: KnowledgeDocument; chunks: import("@shared/schema").DocumentChunk[]; score: number }[] = [];
-    for (const doc of docs) {
-      if (!doc.chunks?.length) continue;
-      const matchingChunks: { chunk: import("@shared/schema").DocumentChunk; score: number; position: number }[] = [];
-      for (let i = 0; i < doc.chunks.length; i++) {
-        const chunk = doc.chunks[i];
-        const content = chunk.content.toLowerCase();
-        let score = 0;
-        for (const term of queryTerms) { if (content.includes(term)) score += 1; }
-        if (score > 0) matchingChunks.push({ chunk, score, position: i });
-      }
-      if (matchingChunks.length > 0) {
-        matchingChunks.sort((a, b) => b.score - a.score || a.position - b.position);
-        results.push({ doc, chunks: matchingChunks.slice(0, topK).map(m => m.chunk), score: matchingChunks.reduce((s, m) => s + m.score, 0) });
-      }
-    }
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, topK).map(r => ({ doc: r.doc, chunks: r.chunks }));
-  }
-
   async getSettings(): Promise<Settings> {
     // Return the in-memory cache populated by initialize().
     // Fall back to a live DB read only if initialize() was never called
@@ -1104,12 +975,11 @@ export class DatabaseStorage implements IStorage {
 
   async unifiedSearch(query: string, projectId?: string): Promise<{
     conversations: { id: string; title: string; excerpt: string; matchType: string }[];
-    documents: { id: string; title: string; excerpt: string }[];
     memories: { id: string; content: string; scope: string }[];
   }> {
-    if (!query?.trim()) return { conversations: [], documents: [], memories: [] };
+    if (!query?.trim()) return { conversations: [], memories: [] };
     const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
-    if (queryTerms.length === 0) return { conversations: [], documents: [], memories: [] };
+    if (queryTerms.length === 0) return { conversations: [], memories: [] };
 
     const convs: { id: string; title: string; excerpt: string; matchType: string; score: number }[] = [];
     for (const conv of await this.getConversations(projectId)) {
@@ -1128,16 +998,13 @@ export class DatabaseStorage implements IStorage {
     }
     convs.sort((a, b) => b.score - a.score);
 
-    const docResults = await this.searchDocuments(query, projectId, 5);
-    const documents = docResults.map(({ doc, chunks }) => ({ id: doc.id, title: doc.title, excerpt: chunks[0]?.content.slice(0, 100) + "..." || "" }));
-
     const memories: { id: string; content: string; scope: string }[] = [];
     for (const mem of await this.getMemoryEntries("global")) {
       const cl = mem.content.toLowerCase();
       if (queryTerms.some(t => cl.includes(t))) memories.push({ id: mem.id, content: mem.content.slice(0, 100), scope: mem.scope });
     }
 
-    return { conversations: convs.slice(0, 5).map(({ score, ...r }) => r), documents, memories: memories.slice(0, 5) };
+    return { conversations: convs.slice(0, 5).map(({ score, ...r }) => r), memories: memories.slice(0, 5) };
   }
 
   // ─── Phase 2: Library ──────────────────────────────────────────────────────
@@ -1409,18 +1276,6 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async storeChunkEmbeddings(docId: string, chunks: { id: string; content: string; embedding: number[] }[]): Promise<void> {
-    for (const chunk of chunks) {
-      await this.db.$client.execute({
-        sql: `INSERT OR REPLACE INTO chunk_embeddings (id, document_id, content, embedding) VALUES (?, ?, ?, ?)`,
-        args: [chunk.id, docId, chunk.content, JSON.stringify(chunk.embedding)],
-      });
-    }
-  }
-
-  async deleteChunkEmbeddings(docId: string): Promise<void> {
-    await this.db.$client.execute({ sql: `DELETE FROM chunk_embeddings WHERE document_id = ?`, args: [docId] });
-  }
 }
 
 // SQLite is always available — no environment variable required.
