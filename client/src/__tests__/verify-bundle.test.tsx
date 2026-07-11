@@ -518,6 +518,82 @@ describe("build.ts verifyBundle wrapper guard", () => {
   });
 });
 
+// ── buildAll entry-point guard ────────────────────────────────────────────────
+//
+// build.ts orchestrates everything inside buildAll().  If that function is
+// renamed or its bottom-level call (`buildAll().catch(...)`) is removed, none
+// of the gates (tests, type-check, verifyBundle) run and the build silently
+// produces output with no checks at all.  These tests read build.ts as source
+// text and assert that the entry point still exists and is invoked.
+
+describe("build.ts buildAll entry-point guard", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test will surface a clear failure below.
+  }
+
+  function requireBuildSrcForEntryPoint(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  it("defines a buildAll function — update this test if the entry point is intentionally renamed", () => {
+    const src = requireBuildSrcForEntryPoint();
+    // Tolerates: `async function buildAll(`, `function buildAll(`,
+    // `const buildAll =`, `const buildAll=`.
+    const definitionPattern =
+      /(?:async\s+function\s+buildAll\s*\(|function\s+buildAll\s*\(|const\s+buildAll\s*=)/;
+
+    expect(
+      definitionPattern.test(src),
+      `\nCould not find a "buildAll" function in script/build.ts.\n\n` +
+        `If the function was renamed:\n` +
+        `  1. Restore the name to "buildAll", OR\n` +
+        `  2. Update the pattern in this test AND update the call-site assertion\n` +
+        `     below so the renamed function is still verified to be invoked.\n` +
+        `\nA missing buildAll means no build gates (tests, type-check, bundle\n` +
+        `verification) are executed — the build silently skips all checks.\n`,
+    ).toBe(true);
+  });
+
+  it("invokes buildAll at the top level with .catch() — removing this call silently skips all build gates", () => {
+    const src = requireBuildSrcForEntryPoint();
+    // Match the canonical top-level invocation pattern.
+    // Tolerates whitespace variants:
+    //   buildAll().catch(...)
+    //   buildAll().catch( ... )
+    //   buildAll()
+    //     .catch(...)
+    // The pattern requires both the call and the .catch chaining so that a
+    // bare `buildAll()` without error handling is also flagged.
+    const invocationPattern = /\bbuildAll\s*\(\s*\)\s*\.catch\s*\(/;
+
+    expect(
+      invocationPattern.test(src),
+      `\nscript/build.ts does not contain the expected top-level invocation:\n` +
+        `  buildAll().catch(...)\n\n` +
+        `This call is the sole entry point that triggers all build gates\n` +
+        `(tests, type-check, bundle verification).  Without it the script\n` +
+        `exits immediately and all checks are silently skipped.\n\n` +
+        `If the invocation was removed or restructured:\n` +
+        `  1. Restore "buildAll().catch((err) => { ... })" at the bottom of\n` +
+        `     script/build.ts, OR\n` +
+        `  2. Update this pattern to match the new invocation form AND ensure\n` +
+        `     the new form still propagates unhandled errors to process.exit.\n`,
+    ).toBe(true);
+  });
+
+});
+
 // ── live constants sanity check ───────────────────────────────────────────────
 
 describe("bundledPackages and externalPackages constants", () => {
