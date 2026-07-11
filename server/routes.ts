@@ -1323,6 +1323,11 @@ export async function registerRoutes(
     try {
       const scope = (req.query.scope as string) || "global";
       const scopeId = req.query.scopeId as string | undefined;
+      const validScopes = ["global", "project", "conversation", "resident"];
+      if (!validScopes.includes(scope)) {
+        res.status(400).json({ error: `Invalid scope: '${scope}'. Must be one of: ${validScopes.join(", ")}` });
+        return;
+      }
       const cleared = await storage.clearMemory(scope, scopeId);
       if (!cleared) {
         res.status(404).json({ error: "No memory entries found for the given scope" });

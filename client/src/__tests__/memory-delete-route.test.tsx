@@ -395,4 +395,17 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
       "scope must be the decoded string 'global', not the raw percent-encoded form",
     ).toBe("global");
   });
+
+  it("returns 400 with a structured error when a URL-encoded scope decodes to an invalid value (%62%61%64 → 'bad')", async () => {
+    mockStorage.clearMemory.mockClear();
+
+    const encodedBadScope = "%62%61%64";
+    const res = await fetch(`${baseUrl}/api/memory?scope=${encodedBadScope}`, { method: "DELETE" });
+    const text = await res.text();
+    const body = text.length > 0 ? JSON.parse(text) : null;
+
+    expect(res.status, "status must be 400, not 204 or 500, for an unrecognised scope").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(mockStorage.clearMemory, "clearMemory must not be called when the scope is invalid").not.toHaveBeenCalled();
+  });
 });
