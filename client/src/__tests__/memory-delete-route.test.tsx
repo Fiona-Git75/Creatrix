@@ -169,10 +169,21 @@ afterAll(() => {
   httpServer?.close();
 });
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function deleteMemory(id: string): Promise<{ status: number; body: unknown }> {
   const res = await fetch(`${baseUrl}/api/memory/${id}`, { method: "DELETE" });
+  const text = await res.text();
+  const body = text.length > 0 ? JSON.parse(text) : null;
+  return { status: res.status, body };
+}
+
+async function clearMemory(
+  params: Record<string, string> = {},
+): Promise<{ status: number; body: unknown }> {
+  const qs = new URLSearchParams(params).toString();
+  const url = qs ? `${baseUrl}/api/memory?${qs}` : `${baseUrl}/api/memory`;
+  const res = await fetch(url, { method: "DELETE" });
   const text = await res.text();
   const body = text.length > 0 ? JSON.parse(text) : null;
   return { status: res.status, body };
@@ -237,5 +248,55 @@ describe("DELETE /api/memory/:id", () => {
     expect(body, "body must contain an error field").toMatchObject({
       error: expect.any(String),
     });
+  });
+});
+
+// ── Bulk clear route ──────────────────────────────────────────────────────────
+
+describe("DELETE /api/memory (bulk clear by scope)", () => {
+  it("returns 404 with a structured error when clearMemory returns false (nothing matched)", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(false);
+
+    const { status, body } = await clearMemory({ scope: "global" });
+
+    expect(status, "status must be 404, not 204, when nothing was cleared").toBe(404);
+    expect(body).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 404 even without an explicit scope query param (defaults to 'global')", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(false);
+
+    const { status, body } = await clearMemory();
+
+    expect(status, "omitting ?scope should still yield 404 when clearMemory returns false").toBe(404);
+    expect(body).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("calls clearMemory with the scope and scopeId from the query string", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    await clearMemory({ scope: "project", scopeId: "proj-xyz" });
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(mockStorage.clearMemory).toHaveBeenCalledWith("project", "proj-xyz");
+  });
+
+  it("returns 204 with no body when clearMemory returns true (entries were cleared)", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+
+    const { status, body } = await clearMemory({ scope: "global" });
+
+    expect(status, "status must be 204 on a successful bulk clear").toBe(204);
+    expect(body, "body must be null/empty for 204").toBeNull();
+  });
+
+  it("returns 500 with a structured error body when clearMemory throws — not a silent crash", async () => {
+    mockStorage.clearMemory.mockRejectedValueOnce(new Error("db error"));
+
+    const { status, body } = await clearMemory({ scope: "global" });
+
+    expect(status, "status must be 500 when clearMemory throws").toBe(500);
+    expect(body).toMatchObject({ error: expect.any(String) });
   });
 });

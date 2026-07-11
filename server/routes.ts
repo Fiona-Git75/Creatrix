@@ -1322,7 +1322,11 @@ export async function registerRoutes(
     try {
       const scope = (req.query.scope as string) || "global";
       const scopeId = req.query.scopeId as string | undefined;
-      await storage.clearMemory(scope, scopeId);
+      const cleared = await storage.clearMemory(scope, scopeId);
+      if (!cleared) {
+        res.status(404).json({ error: "No memory entries found for the given scope" });
+        return;
+      }
       res.status(204).send();
     } catch (error) {
       console.error("Error clearing memory:", error);
