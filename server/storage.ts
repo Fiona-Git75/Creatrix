@@ -654,29 +654,52 @@ export class DatabaseStorage implements IStorage {
           .filter((line) => line.length > 0 && !line.startsWith("--"));
         if (executableLines.length === 0) continue;
 
-        // Rewrite CREATE TABLE / CREATE INDEX to idempotent form.
-        const safeStmt = stmt
-          .replace(/^CREATE TABLE\s+/im, "CREATE TABLE IF NOT EXISTS ")
-          .replace(/^CREATE UNIQUE INDEX\s+/im, "CREATE UNIQUE INDEX IF NOT EXISTS ")
-          .replace(/^CREATE INDEX\s+/im, "CREATE INDEX IF NOT EXISTS ");
+        // Split on semicolons so each DDL statement is sent as an individual
+        // execute() call.  @libsql/client rejects multi-statement strings with
+        // a syntax error ("near 'ALTER': syntax error") when two statements
+        // share a segment without a --> statement-breakpoint between them.
+        // Real Drizzle output always emits breakpoints, but hand-edited or
+        // third-party migration files may omit them.  Splitting here is safe
+        // for all normal migrations: a single-statement segment splits into
+        // exactly one non-empty chunk.
+        const subStatements = stmt
+          .split(";")
+          .map((s) => s.trim())
+          .filter((s) => {
+            // Drop empty chunks and comment-only chunks produced by the split.
+            const executable = s
+              .replace(/\/\*[\s\S]*?\*\//g, "")
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0 && !line.startsWith("--"));
+            return executable.length > 0;
+          });
 
-        try {
-          await this._client.execute(safeStmt);
-        } catch (err: any) {
-          const msg: string = err?.message ?? "";
-          // Tolerate known idempotency cases:
-          //   "duplicate column name" — ALTER TABLE ADD COLUMN for a column already present
-          //   "table … already exists" — CREATE TABLE on a pre-existing table (shouldn't
-          //     happen with IF NOT EXISTS rewrite above, but guard defensively)
-          //   "index … already exists" — same for CREATE INDEX
-          if (
-            msg.includes("duplicate column name") ||
-            /table `?\w+`? already exists/i.test(msg) ||
-            /index `?\w+`? already exists/i.test(msg)
-          ) {
-            continue;
+        for (const subStmt of subStatements) {
+          // Rewrite CREATE TABLE / CREATE INDEX to idempotent form.
+          const safeSubStmt = subStmt
+            .replace(/^CREATE TABLE\s+/im, "CREATE TABLE IF NOT EXISTS ")
+            .replace(/^CREATE UNIQUE INDEX\s+/im, "CREATE UNIQUE INDEX IF NOT EXISTS ")
+            .replace(/^CREATE INDEX\s+/im, "CREATE INDEX IF NOT EXISTS ");
+
+          try {
+            await this._client.execute(safeSubStmt);
+          } catch (err: any) {
+            const msg: string = err?.message ?? "";
+            // Tolerate known idempotency cases:
+            //   "duplicate column name" — ALTER TABLE ADD COLUMN for a column already present
+            //   "table … already exists" — CREATE TABLE on a pre-existing table (shouldn't
+            //     happen with IF NOT EXISTS rewrite above, but guard defensively)
+            //   "index … already exists" — same for CREATE INDEX
+            if (
+              msg.includes("duplicate column name") ||
+              /table `?\w+`? already exists/i.test(msg) ||
+              /index `?\w+`? already exists/i.test(msg)
+            ) {
+              continue;
+            }
+            throw new Error(`Migration failed in ${sqlPath}: ${msg || String(err)}`);
           }
-          throw new Error(`Migration failed in ${sqlPath}: ${msg || String(err)}`);
         }
       }
 

@@ -3314,4 +3314,82 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
 
     await client.close();
   });
+
+  // ── Two DDL statements in one segment, no breakpoint ───────────────────────
+  //
+  // When a migration file contains two semicolon-terminated DDL statements in a
+  // single segment (i.e. no "--> statement-breakpoint" separates them), the
+  // original code would send the entire segment as one execute() call.
+  // @libsql/client rejects multi-statement strings with "near 'ALTER': syntax
+  // error", silently dropping both columns and permanently blocking the journal.
+  //
+  // The fix splits each segment on ";" and executes sub-statements individually.
+  // This test confirms both columns are created and the tag is recorded.
+
+  it("applies both DDL statements when two ALTER TABLE calls share a segment with no statement-breakpoint", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000023,
+          tag: "0023_two_ddl_no_breakpoint",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Two ALTER TABLE statements in a single segment — no statement-breakpoint.
+    // A naive execute() of this string would raise "near 'ALTER': syntax error"
+    // in @libsql/client and silently skip both columns.
+    const twoStatementSql = [
+      "ALTER TABLE settings ADD COLUMN no_breakpoint_col_a TEXT;",
+      "ALTER TABLE settings ADD COLUMN no_breakpoint_col_b TEXT",
+    ].join("\n");
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0023_two_ddl_no_breakpoint.sql"),
+      twoStatementSql
+    );
+
+    // Must resolve — both sub-statements must be executed without error.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "migration with two DDL statements in one segment should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // Both columns from the two ALTER TABLE calls must exist.
+    await expect(
+      client.execute("SELECT no_breakpoint_col_a FROM settings LIMIT 0"),
+      "first column (no_breakpoint_col_a) must exist after two-statement segment migration"
+    ).resolves.toBeDefined();
+
+    await expect(
+      client.execute("SELECT no_breakpoint_col_b FROM settings LIMIT 0"),
+      "second column (no_breakpoint_col_b) must exist after two-statement segment migration"
+    ).resolves.toBeDefined();
+
+    // The tag must be recorded so the runner never retries it.
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0023_two_ddl_no_breakpoint'"
+    );
+    expect(
+      result.rows.length,
+      "tag must be recorded after two-statement segment migration is applied"
+    ).toBe(1);
+    expect(result.rows[0]["tag"]).toBe("0023_two_ddl_no_breakpoint");
+
+    await client.close();
+  });
 });

@@ -17,3 +17,5 @@ if (!("ResizeObserver" in window)) {
       disconnect() {}
     };
 }
+const _typeProbe: number = 'this is not a number'; // __TYPE_ERROR_PROBE__
+const _typeProbe: number = 'this is not a number'; // __TYPE_ERROR_PROBE__
