@@ -1454,6 +1454,57 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
     return match ? match[1] : null;
   }
 
+  /**
+   * Shared consistency checker: given an esbuild format string and a BUNDLE_OUT
+   * value, return an array of error strings describing any extension/format
+   * mismatch.  An empty array means the pairing is valid.
+   *
+   * This function is used by:
+   *   - the live consistency test (against actual script/build.ts)
+   *   - the iife round-trip and mismatch synthetic tests
+   *
+   * Keeping the logic in one place means the synthetic tests exercise exactly
+   * the same code path as the real check — not a parallel reimplementation.
+   */
+  function checkFormatExtensionConsistency(format: string, value: string): string[] {
+    const errors: string[] = [];
+    if (format === "cjs") {
+      if (!value.endsWith(".cjs")) {
+        errors.push(
+          `BUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}". ` +
+          `When format is "cjs", the output file must use the ".cjs" extension. ` +
+          `Using ".js" in a project that has "type": "module" in package.json causes ` +
+          `Node.js to treat the CommonJS bundle as an ES module and fail at startup. ` +
+          `To fix: update BUNDLE_OUT to end with ".cjs", ` +
+          `e.g. const BUNDLE_OUT = "dist/index.cjs"; ` +
+          `If you intentionally changed the format, update both the format field ` +
+          `and BUNDLE_OUT together, then update this test.`,
+        );
+      }
+    } else if (format === "esm") {
+      if (!(value.endsWith(".mjs") || value.endsWith(".js"))) {
+        errors.push(
+          `BUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}". ` +
+          `When format is "esm", the output file should use ".mjs" or ".js". ` +
+          `To fix: update BUNDLE_OUT to end with ".mjs" or ".js", ` +
+          `e.g. const BUNDLE_OUT = "dist/index.mjs";`,
+        );
+      }
+    } else if (format === "iife") {
+      if (!value.endsWith(".js")) {
+        errors.push(
+          `BUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}". ` +
+          `When format is "iife", the output file must use the ".js" extension. ` +
+          `To fix, update both together: ` +
+          `set BUNDLE_OUT to a ".js" path (e.g. const BUNDLE_OUT = "dist/index.iife.js") ` +
+          `and keep format: "iife" in the esbuild call inside buildAll. ` +
+          `Then update the baseline format test to expect "iife".`,
+        );
+      }
+    }
+    return errors;
+  }
+
   it("BUNDLE_OUT value starts with 'dist/' — a path outside dist/ would not be cleaned up by 'rm dist' and could silently retain a stale bundle", () => {
     const src = requireBuildSrcForBundleOutValue();
     const value = extractBundleOutValue(src);
@@ -1518,41 +1569,12 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
         `e.g. const BUNDLE_OUT = "dist/index.cjs";\n`,
     ).toBe(true);
 
-    if (format === "cjs") {
-      expect(
-        value!.endsWith(".cjs"),
-        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
-          `When format is "cjs", the output file must use the ".cjs" extension.\n` +
-          `Using ".js" in a project that has "type": "module" in package.json causes\n` +
-          `Node.js to treat the CommonJS bundle as an ES module and fail at startup.\n\n` +
-          `To fix: update BUNDLE_OUT to end with ".cjs",\n` +
-          `e.g. const BUNDLE_OUT = "dist/index.cjs";\n` +
-          `If you intentionally changed the format, update both the format field\n` +
-          `and BUNDLE_OUT together, then update this test.\n`,
-      ).toBe(true);
-    } else if (format === "esm") {
-      expect(
-        value!.endsWith(".mjs") || value!.endsWith(".js"),
-        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
-          `When format is "esm", the output file should use ".mjs" or ".js".\n\n` +
-          `To fix: update BUNDLE_OUT to end with ".mjs" or ".js",\n` +
-          `e.g. const BUNDLE_OUT = "dist/index.mjs";\n`,
-      ).toBe(true);
-    } else if (format === "iife") {
-      expect(
-        value!.endsWith(".js"),
-        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
-          `When format is "iife", the output file must use the ".js" extension.\n\n` +
-          `To fix, update both together:\n` +
-          `  1. Set BUNDLE_OUT to a ".js" path:\n` +
-          `       const BUNDLE_OUT = "dist/index.iife.js";\n` +
-          `  2. Keep format: "iife" in the esbuild call inside buildAll.\n` +
-          `  3. Confirm the serving layer (e.g. package.json "main" or the HTTP\n` +
-          `     server's static-file route) points at the new ".js" path.\n` +
-          `  4. Update the baseline format test below to expect "iife".\n` +
-          `  5. Run the full test suite to confirm no other checks break.\n`,
-      ).toBe(true);
-    }
+    const consistencyErrors = checkFormatExtensionConsistency(format!, value!);
+    expect(
+      consistencyErrors,
+      `\nBUNDLE_OUT / format consistency check failed:\n` +
+        consistencyErrors.map((e) => `  ${e}`).join("\n") + "\n",
+    ).toHaveLength(0);
   });
 
   it("esbuild format field in buildAll is a recognised value — an unrecognised format would produce an unusable bundle without a clear error", () => {
@@ -1611,6 +1633,67 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
         `  2. Update this test's expected value from "cjs" to "${format}".\n` +
         `  3. Run the full test suite to confirm no other checks break.\n`,
     ).toBe("cjs");
+  });
+
+  it("iife round-trip: format 'iife' + BUNDLE_OUT ending '.js' produces no consistency errors — if this fails, the iife branch of checkFormatExtensionConsistency is broken", () => {
+    const syntheticSrc = [
+      `const BUNDLE_OUT = "dist/index.iife.js";`,
+      `async function buildAll() {`,
+      `  await esbuild.build({`,
+      `    format: "iife",`,
+      `    outfile: BUNDLE_OUT,`,
+      `  });`,
+      `}`,
+    ].join("\n");
+
+    const value = extractBundleOutValue(syntheticSrc);
+    const format = extractEsbuildFormat(syntheticSrc);
+
+    expect(value).toBe("dist/index.iife.js");
+    expect(format).toBe("iife");
+
+    const errors = checkFormatExtensionConsistency(format!, value!);
+
+    expect(
+      errors,
+      `\ncheckFormatExtensionConsistency("iife", "dist/index.iife.js") returned errors:\n` +
+        errors.map((e) => `  ${e}`).join("\n") + "\n\n" +
+        `The iife branch must accept a ".js" extension — this pairing is valid.\n` +
+        `If you see this failure after editing checkFormatExtensionConsistency,\n` +
+        `verify the iife branch still allows ".js" as a valid extension.\n`,
+    ).toHaveLength(0);
+  });
+
+  it("iife mismatch: format 'iife' + BUNDLE_OUT ending '.cjs' produces a consistency error — the iife branch must reject a '.cjs' extension to prevent a silent module-type conflict", () => {
+    const syntheticSrc = [
+      `const BUNDLE_OUT = "dist/index.cjs";`,
+      `async function buildAll() {`,
+      `  await esbuild.build({`,
+      `    format: "iife",`,
+      `    outfile: BUNDLE_OUT,`,
+      `  });`,
+      `}`,
+    ].join("\n");
+
+    const value = extractBundleOutValue(syntheticSrc);
+    const format = extractEsbuildFormat(syntheticSrc);
+
+    expect(value).toBe("dist/index.cjs");
+    expect(format).toBe("iife");
+
+    const errors = checkFormatExtensionConsistency(format!, value!);
+
+    expect(
+      errors.length,
+      `\ncheckFormatExtensionConsistency("iife", "dist/index.cjs") returned no errors,\n` +
+        `but the iife branch must reject a ".cjs" extension.\n\n` +
+        `A mismatched iife+.cjs pairing causes a silent module-type conflict at\n` +
+        `runtime.  If the iife branch was removed or its condition was changed,\n` +
+        `restore it in checkFormatExtensionConsistency so this mismatch is caught.\n`,
+    ).toBeGreaterThan(0);
+
+    expect(errors[0]).toMatch(/"iife"/);
+    expect(errors[0]).toMatch(/"dist\/index\.cjs"/);
   });
 });
 
