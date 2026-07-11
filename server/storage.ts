@@ -977,8 +977,12 @@ export class DatabaseStorage implements IStorage {
       if (existing.length === 0) return false;
       await this.db.delete(memoryEntries).where(eq(memoryEntries.scope, "global"));
     } else if (scope === "project" && scopeId) {
+      const existing = await this.db.select({ id: memoryEntries.id }).from(memoryEntries).where(and(eq(memoryEntries.scope, "project"), eq(memoryEntries.projectId, scopeId)));
+      if (existing.length === 0) return false;
       await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "project"), eq(memoryEntries.projectId, scopeId)));
     } else if (scope === "conversation" && scopeId) {
+      const existing = await this.db.select({ id: memoryEntries.id }).from(memoryEntries).where(and(eq(memoryEntries.scope, "conversation"), eq(memoryEntries.conversationId, scopeId)));
+      if (existing.length === 0) return false;
       await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "conversation"), eq(memoryEntries.conversationId, scopeId)));
     }
     return true;

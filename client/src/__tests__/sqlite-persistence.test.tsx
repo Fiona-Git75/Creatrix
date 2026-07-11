@@ -970,6 +970,74 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBe(0);
   });
 
+  // ── 7j. clearMemory('project', id) returns false when that project scope is already empty ──
+  //
+  // The fix that made clearMemory('global') return false when empty was scoped
+  // only to the global branch. This test confirms the project branch behaves
+  // the same: returning false when no rows exist for the given projectId rather
+  // than unconditionally returning true.
+
+  it("clearMemory('project', id) returns false — not true — when that project scope is already empty", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const emptyProjectId = "project-no-entries-" + Date.now();
+
+    // Confirm no project entries exist for this id
+    const before = await storage.getMemoryEntries("project", emptyProjectId);
+    expect(
+      before.length,
+      "project scope must be empty before the test begins",
+    ).toBe(0);
+
+    // Call clearMemory with nothing to delete
+    const result = await storage.clearMemory("project", emptyProjectId);
+    expect(
+      result,
+      "clearMemory('project', id) must return false when the project scope is already empty",
+    ).toBe(false);
+
+    // Project scope must still be empty afterward
+    const after = await storage.getMemoryEntries("project", emptyProjectId);
+    expect(
+      after.length,
+      "project scope must remain empty after clearMemory on an already-empty scope",
+    ).toBe(0);
+  });
+
+  // ── 7k. clearMemory('conversation', id) returns false when that conversation scope is already empty ──
+  //
+  // Mirrors 7j for the conversation branch: calling clearMemory on a
+  // conversationId that has no entries must return false, not true.
+
+  it("clearMemory('conversation', id) returns false — not true — when that conversation scope is already empty", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const emptyConversationId = "conv-no-entries-" + Date.now();
+
+    // Confirm no conversation entries exist for this id
+    const before = await storage.getMemoryEntries("conversation", emptyConversationId);
+    expect(
+      before.length,
+      "conversation scope must be empty before the test begins",
+    ).toBe(0);
+
+    // Call clearMemory with nothing to delete
+    const result = await storage.clearMemory("conversation", emptyConversationId);
+    expect(
+      result,
+      "clearMemory('conversation', id) must return false when the conversation scope is already empty",
+    ).toBe(false);
+
+    // Conversation scope must still be empty afterward
+    const after = await storage.getMemoryEntries("conversation", emptyConversationId);
+    expect(
+      after.length,
+      "conversation scope must remain empty after clearMemory on an already-empty scope",
+    ).toBe(0);
+  });
+
 });
 
 // ── Fresh-install path ────────────────────────────────────────────────────────
