@@ -421,6 +421,94 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
   });
 });
 
+// ── POST /api/memory scope validation ────────────────────────────────────────
+
+async function postMemory(body: Record<string, unknown>): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${baseUrl}/api/memory`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  const parsed = text.length > 0 ? JSON.parse(text) : null;
+  return { status: res.status, body: parsed };
+}
+
+describe("POST /api/memory (scope validation)", () => {
+  it("returns 400 with a structured error when scope is an unrecognised value", async () => {
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status, body } = await postMemory({ content: "test", scope: "bad" });
+
+    expect(status, "status must be 400, not 201, for an invalid scope").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(mockStorage.createMemoryEntry, "createMemoryEntry must not be called when the scope is invalid").not.toHaveBeenCalled();
+  });
+
+  it("does not call createMemoryEntry when scope is invalid", async () => {
+    mockStorage.createMemoryEntry.mockClear();
+
+    await postMemory({ content: "test", scope: "invalid-scope" });
+
+    expect(mockStorage.createMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it("returns 201 and calls createMemoryEntry when scope is 'global'", async () => {
+    const fakeEntry = { id: "m1", content: "test", scope: "global" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test", scope: "global" });
+
+    expect(status, "status must be 201 for a valid scope").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 201 and calls createMemoryEntry when scope is 'project'", async () => {
+    const fakeEntry = { id: "m2", content: "test", scope: "project" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test", scope: "project", scopeId: "proj-1" });
+
+    expect(status, "status must be 201 for scope=project").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 201 and calls createMemoryEntry when scope is 'conversation'", async () => {
+    const fakeEntry = { id: "m3", content: "test", scope: "conversation" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test", scope: "conversation", scopeId: "conv-1" });
+
+    expect(status, "status must be 201 for scope=conversation").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 201 and calls createMemoryEntry when scope is 'resident'", async () => {
+    const fakeEntry = { id: "m4", content: "test", scope: "resident" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test", scope: "resident" });
+
+    expect(status, "status must be 201 for scope=resident").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 201 and calls createMemoryEntry when no scope field is provided", async () => {
+    const fakeEntry = { id: "m5", content: "test" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test" });
+
+    expect(status, "status must be 201 when scope is omitted").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── GET /api/memory scope validation ─────────────────────────────────────────
 
 describe("GET /api/memory (scope validation)", () => {
