@@ -1309,6 +1309,11 @@ export async function registerRoutes(
         res.status(400).json({ error: `Invalid scope '${scope}'. Must be one of: ${VALID_SCOPES.join(", ")}` });
         return;
       }
+      const scopeId = req.body?.scopeId;
+      if ((scope === "project" || scope === "conversation") && !scopeId) {
+        res.status(400).json({ error: `${scope} scope requires a scopeId` });
+        return;
+      }
       const entry = await storage.createMemoryEntry(req.body);
       res.status(201).json(entry);
     } catch (error) {

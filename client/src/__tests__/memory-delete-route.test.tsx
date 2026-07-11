@@ -509,6 +509,47 @@ describe("POST /api/memory (scope validation)", () => {
   });
 });
 
+// ── POST /api/memory scopeId required for project / conversation ──────────────
+
+describe("POST /api/memory (scopeId required)", () => {
+  it("returns 400 when scope is 'project' and scopeId is missing", async () => {
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status, body } = await postMemory({ content: "test", scope: "project" });
+
+    expect(status, "status must be 400 when scope=project and scopeId is absent").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(
+      mockStorage.createMemoryEntry,
+      "createMemoryEntry must not be called when scopeId is missing for project scope",
+    ).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when scope is 'conversation' and scopeId is missing", async () => {
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status, body } = await postMemory({ content: "test", scope: "conversation" });
+
+    expect(status, "status must be 400 when scope=conversation and scopeId is absent").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(
+      mockStorage.createMemoryEntry,
+      "createMemoryEntry must not be called when scopeId is missing for conversation scope",
+    ).not.toHaveBeenCalled();
+  });
+
+  it("returns 201 when scope is 'resident' and scopeId is missing — resident does not require scopeId", async () => {
+    const fakeEntry = { id: "m6", content: "test", scope: "resident" };
+    mockStorage.createMemoryEntry.mockResolvedValueOnce(fakeEntry);
+    mockStorage.createMemoryEntry.mockClear();
+
+    const { status } = await postMemory({ content: "test", scope: "resident" });
+
+    expect(status, "status must be 201 for scope=resident without scopeId").toBe(201);
+    expect(mockStorage.createMemoryEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── GET /api/memory scope validation ─────────────────────────────────────────
 
 describe("GET /api/memory (scope validation)", () => {
