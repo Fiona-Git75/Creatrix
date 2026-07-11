@@ -1,27 +1,24 @@
 /**
- * Component tests for MemoryPanel — Add Memory dialog scope guard.
+ * Component tests for MemoryPanel — Add Memory dialog.
  *
- * Covers the case where the panel is opened without a projectId or
- * conversationId, and confirms:
+ * MemoryPanel now shows only global-scope memories with a single Add button.
+ * The scope selector has been removed. These tests cover:
  *
- *  1. The "Project" and "Chat" SelectItems inside the Add Memory dialog are
- *     rendered as disabled when projectId and conversationId are null.
- *
- *  2. If the internal addScope state somehow reaches "project" while
- *     projectId is null (e.g. the parent drops projectId after the user
- *     already selected it), clicking Save fires the canAddScope toast error
- *     and does NOT forward any API call.
+ *  1. The Add Memory dialog opens when the button is clicked.
+ *  2. The Save button is disabled while the textarea is empty.
+ *  3. Filling the textarea and clicking Save calls apiRequest with the correct
+ *     global-scope payload.
+ *  4. Cancel closes the dialog without making any API call.
  *
  * Isolation strategy:
- *  - `@/lib/queryClient` apiRequest is vi.mock'd so no real network calls fire.
- *  - `@/hooks/use-toast` is vi.mock'd so the toast calls are observable.
- *  - global.fetch is stubbed to return empty arrays for all GET /api/memory
- *    queries the component fires on mount.
+ *  - `@/lib/queryClient` apiRequest is vi.mock'd — no real network calls.
+ *  - `@/hooks/use-toast` is vi.mock'd so toast calls are observable.
+ *  - global.fetch is stubbed to return empty arrays for GET /api/memory calls.
  *  - No live server, database, or AI provider is required.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryPanel } from "../components/MemoryPanel";
@@ -42,9 +39,6 @@ Object.defineProperty(window, "matchMedia", {
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-// vi.mock factories are hoisted to the top of the file before any variable
-// declarations, so we must declare mocks with vi.hoisted() to avoid
-// "Cannot access before initialization" errors.
 const { mockToast, mockApiRequest } = vi.hoisted(() => ({
   mockToast: vi.fn(),
   mockApiRequest: vi.fn(),
@@ -73,7 +67,6 @@ function makeClient() {
   });
 }
 
-/** Stub fetch so every GET /api/memory call returns an empty array. */
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
@@ -88,22 +81,14 @@ function stubFetch() {
   );
 }
 
-interface RenderOptions {
-  projectId?: string | null;
-  conversationId?: string | null;
-}
-
-function renderPanel(
-  client: QueryClient,
-  { projectId = null, conversationId = null }: RenderOptions = {},
-) {
+function renderPanel(client: QueryClient) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryPanel
         open={true}
         onOpenChange={vi.fn()}
-        projectId={projectId ?? null}
-        conversationId={conversationId ?? null}
+        projectId={null}
+        conversationId={null}
       />
     </QueryClientProvider>,
   );
@@ -111,7 +96,7 @@ function renderPanel(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("MemoryPanel Add Memory dialog — scope SelectItems disabled when context is absent", () => {
+describe("MemoryPanel Add Memory dialog", () => {
   let client: QueryClient;
 
   beforeEach(() => {
@@ -127,198 +112,76 @@ describe("MemoryPanel Add Memory dialog — scope SelectItems disabled when cont
     client.clear();
   });
 
-  it("the Project SelectItem is disabled when projectId is null", async () => {
-    renderPanel(client, { projectId: null, conversationId: null });
-
-    // Open the Add Memory dialog
-    const addBtn = await screen.findByTestId("button-add-memory");
-    await userEvent.click(addBtn);
-
-    // Open the scope Select so Radix renders the dropdown items into the DOM
-    const scopeTrigger = await screen.findByTestId("select-memory-scope");
-    await userEvent.click(scopeTrigger);
-
-    // Radix renders SelectItems as role="option" inside the open listbox
-    const projectOption = await screen.findByRole("option", { name: /project/i });
-    expect(
-      projectOption,
-      "Project option should be present in the dropdown",
-    ).toBeTruthy();
-    expect(
-      projectOption.getAttribute("data-disabled"),
-      "Project option must carry data-disabled when projectId is null",
-    ).toBe("");
-  });
-
-  it("the Chat SelectItem is disabled when conversationId is null", async () => {
-    renderPanel(client, { projectId: null, conversationId: null });
+  it("opens the Add Memory dialog when the button is clicked", async () => {
+    renderPanel(client);
 
     const addBtn = await screen.findByTestId("button-add-memory");
     await userEvent.click(addBtn);
 
-    const scopeTrigger = await screen.findByTestId("select-memory-scope");
-    await userEvent.click(scopeTrigger);
-
-    const chatOption = await screen.findByRole("option", { name: /chat/i });
-    expect(
-      chatOption,
-      "Chat option should be present in the dropdown",
-    ).toBeTruthy();
-    expect(
-      chatOption.getAttribute("data-disabled"),
-      "Chat option must carry data-disabled when conversationId is null",
-    ).toBe("");
+    expect(screen.getByTestId("textarea-memory-content")).toBeTruthy();
+    expect(screen.getByTestId("button-save-memory")).toBeTruthy();
   });
 
-  it("the Global SelectItem is NOT disabled when rendered with null context", async () => {
-    renderPanel(client, { projectId: null, conversationId: null });
+  it("Save button is disabled while the textarea is empty", async () => {
+    renderPanel(client);
 
     const addBtn = await screen.findByTestId("button-add-memory");
     await userEvent.click(addBtn);
 
-    const scopeTrigger = await screen.findByTestId("select-memory-scope");
-    await userEvent.click(scopeTrigger);
-
-    const globalOption = await screen.findByRole("option", { name: /global/i });
-    expect(
-      globalOption.getAttribute("data-disabled"),
-      "Global option must NOT be disabled",
-    ).toBeNull();
+    const saveBtn = screen.getByTestId("button-save-memory");
+    expect(saveBtn).toHaveProperty("disabled", true);
   });
-});
 
-describe("MemoryPanel Add Memory dialog — canAddScope guard fires when scope diverges from context", () => {
-  let client: QueryClient;
+  it("Save button becomes enabled once text is entered", async () => {
+    renderPanel(client);
 
-  beforeEach(() => {
-    client = makeClient();
-    stubFetch();
-    mockToast.mockClear();
-    // Make apiRequest resolve so mutations don't crash if they ever slip through
+    const addBtn = await screen.findByTestId("button-add-memory");
+    await userEvent.click(addBtn);
+
+    const textarea = screen.getByTestId("textarea-memory-content");
+    await userEvent.type(textarea, "I prefer concise responses.");
+
+    const saveBtn = screen.getByTestId("button-save-memory");
+    expect(saveBtn).toHaveProperty("disabled", false);
+  });
+
+  it("calls apiRequest with scope=global when Save is clicked", async () => {
     mockApiRequest.mockResolvedValue({ ok: true });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    client.clear();
-  });
-
-  it("shows toast error and makes no API call when addScope='project' but projectId is null", async () => {
-    // ── Step 1: render with a valid projectId so we can select Project scope ──
-    const { rerender } = renderPanel(client, {
-      projectId: "proj-test",
-      conversationId: null,
-    });
-
-    // Open the Add Memory dialog
-    const addBtn = await screen.findByTestId("button-add-memory");
-    await userEvent.click(addBtn);
-
-    // Open the scope select and pick "Project"
-    const scopeTrigger = await screen.findByTestId("select-memory-scope");
-    await userEvent.click(scopeTrigger);
-
-    const projectOption = await screen.findByRole("option", { name: /project/i });
-    await userEvent.click(projectOption);
-
-    // Verify the scope changed to Project (trigger now shows "Project")
-    await waitFor(() => {
-      expect(scopeTrigger.textContent).toMatch(/project/i);
-    });
-
-    // ── Step 2: parent drops projectId — scope state is "project", but no id ──
-    rerender(
-      <QueryClientProvider client={client}>
-        <MemoryPanel
-          open={true}
-          onOpenChange={vi.fn()}
-          projectId={null}
-          conversationId={null}
-        />
-      </QueryClientProvider>,
-    );
-
-    // ── Step 3: fill content and submit ───────────────────────────────────────
-    const textarea = screen.getByTestId("textarea-memory-content");
-    await userEvent.type(textarea, "This is a test memory.");
-
-    const saveBtn = screen.getByTestId("button-save-memory");
-    await userEvent.click(saveBtn);
-
-    // ── Assertions ────────────────────────────────────────────────────────────
-
-    // Toast error must fire
-    await waitFor(() => {
-      expect(mockToast, "toast error must be called").toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: "Error",
-          description: "Cannot add memory to this scope.",
-          variant: "destructive",
-        }),
-      );
-    });
-
-    // No POST to /api/memory must have been made
-    expect(
-      mockApiRequest,
-      "apiRequest must NOT be called when the guard fires",
-    ).not.toHaveBeenCalled();
-  });
-
-  it("shows toast error and makes no API call when addScope='conversation' but conversationId is null", async () => {
-    // ── Step 1: render with a valid conversationId ────────────────────────────
-    const { rerender } = renderPanel(client, {
-      projectId: null,
-      conversationId: "conv-test",
-    });
+    renderPanel(client);
 
     const addBtn = await screen.findByTestId("button-add-memory");
     await userEvent.click(addBtn);
 
-    const scopeTrigger = await screen.findByTestId("select-memory-scope");
-    await userEvent.click(scopeTrigger);
-
-    const chatOption = await screen.findByRole("option", { name: /chat/i });
-    await userEvent.click(chatOption);
-
-    await waitFor(() => {
-      expect(scopeTrigger.textContent).toMatch(/chat/i);
-    });
-
-    // ── Step 2: parent drops conversationId ───────────────────────────────────
-    rerender(
-      <QueryClientProvider client={client}>
-        <MemoryPanel
-          open={true}
-          onOpenChange={vi.fn()}
-          projectId={null}
-          conversationId={null}
-        />
-      </QueryClientProvider>,
-    );
-
-    // ── Step 3: fill content and submit ───────────────────────────────────────
     const textarea = screen.getByTestId("textarea-memory-content");
-    await userEvent.type(textarea, "This is a conversation memory.");
+    await userEvent.type(textarea, "Prefer British English.");
 
     const saveBtn = screen.getByTestId("button-save-memory");
     await userEvent.click(saveBtn);
 
-    // ── Assertions ────────────────────────────────────────────────────────────
     await waitFor(() => {
-      expect(mockToast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: "Error",
-          description: "Cannot add memory to this scope.",
-          variant: "destructive",
-        }),
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        "POST",
+        "/api/memory",
+        expect.objectContaining({ scope: "global", content: "Prefer British English." }),
       );
     });
+  });
 
-    expect(
-      mockApiRequest,
-      "apiRequest must NOT be called when the guard fires",
-    ).not.toHaveBeenCalled();
+  it("Cancel closes the dialog without calling apiRequest", async () => {
+    renderPanel(client);
+
+    const addBtn = await screen.findByTestId("button-add-memory");
+    await userEvent.click(addBtn);
+
+    const textarea = screen.getByTestId("textarea-memory-content");
+    await userEvent.type(textarea, "Some text.");
+
+    const cancelBtn = screen.getByRole("button", { name: /cancel/i });
+    await userEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("textarea-memory-content")).toBeNull();
+    });
+    expect(mockApiRequest).not.toHaveBeenCalled();
   });
 });

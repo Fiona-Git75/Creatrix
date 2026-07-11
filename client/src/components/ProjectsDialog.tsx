@@ -50,8 +50,8 @@ interface SortableProjectCardProps {
   project: Project;
   editingId: string | null;
   expandedConsultantsId: string | null;
-  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string };
-  setFormData: (d: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string }) => void;
+  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string; notes: string };
+  setFormData: (d: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string; notes: string }) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   isUpdateLoading: boolean;
@@ -168,6 +168,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
     systemPrompt: "",
     currentTask: "",
     folderPath: "",
+    notes: "",
   });
 
   const sensors = useSensors(
@@ -255,6 +256,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       systemPrompt: "",
       currentTask: "",
       folderPath: "",
+      notes: "",
     });
   };
 
@@ -266,6 +268,7 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
       systemPrompt: project.systemPrompt || "",
       currentTask: project.currentTask || "",
       folderPath: project.folderPath || "",
+      notes: project.notes || "",
     });
   };
 
@@ -382,8 +385,8 @@ export function ProjectsDialog({ open, onOpenChange }: ProjectsDialogProps) {
 // ─── Project Form ────────────────────────────────────────────────────────────
 
 interface ProjectFormProps {
-  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string };
-  setFormData: (data: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string }) => void;
+  formData: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string; notes: string };
+  setFormData: (data: { name: string; description: string; systemPrompt: string; currentTask: string; folderPath: string; notes: string }) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   isLoading: boolean;
@@ -459,6 +462,21 @@ function ProjectForm({ formData, setFormData, onSubmit, onCancel, isLoading, sub
         />
         <p className="text-xs text-muted-foreground">
           This context will be added to all conversations in this project.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="project-notes">Working Notes (optional)</Label>
+        <Textarea
+          id="project-notes"
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          placeholder="Short-term context: what to keep in mind right now, current constraints, things in flux..."
+          className="min-h-[80px]"
+          data-testid="input-project-notes"
+        />
+        <p className="text-xs text-muted-foreground">
+          Ephemeral working context. Unlike the system prompt, this is meant to change as the project evolves.
         </p>
       </div>
 

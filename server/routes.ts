@@ -853,6 +853,9 @@ export async function registerRoutes(
         if (project?.currentTask) {
           projectParts.push(`### Tasks In Progress\n${project.currentTask}`);
         }
+        if (project?.notes) {
+          projectParts.push(`### Working Notes\n${project.notes}`);
+        }
         if (project?.recentChanges) {
           projectParts.push(`### Recent Changes\n${project.recentChanges}`);
         }
@@ -904,16 +907,11 @@ export async function registerRoutes(
         }
       }
 
-      // Gather memories from all scopes
+      // Relationship memory — global only (preferences, working style, stable context)
       const globalMemories = await storage.getMemoryEntries("global");
-      const projectMemories = projectId ? await storage.getMemoryEntries("project", projectId) : [];
-      const conversationMemories = await storage.getMemoryEntries("conversation", currentConversationId);
-      
-      const allMemories = [...globalMemories, ...projectMemories, ...conversationMemories];
-      
-      if (allMemories.length > 0) {
-        const memoryText = allMemories.map(m => `- ${m.content}`).join("\n");
-        systemParts.push(`\n## Important Context (User Memories)\nRemember these facts about the user:\n${memoryText}`);
+      if (globalMemories.length > 0) {
+        const memoryText = globalMemories.map(m => `- ${m.content}`).join("\n");
+        systemParts.push(`\n## Relationship Context\nStable preferences and working style for this collaborator:\n${memoryText}`);
       }
 
       // === Tool capability injection — gated by model profile ===

@@ -813,13 +813,13 @@ export class DatabaseStorage implements IStorage {
 
   async getProjects(): Promise<Project[]> {
     const result = await this.db.select().from(projects).orderBy(projects.orderIndex);
-    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined }));
+    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, notes: p.notes ?? undefined, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined }));
   }
   async getProject(id: string): Promise<Project | undefined> {
     const result = await this.db.select().from(projects).where(eq(projects.id, id));
     if (!result[0]) return undefined;
     const p = result[0];
-    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined };
+    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, notes: p.notes ?? undefined, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined };
   }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();

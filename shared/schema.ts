@@ -34,6 +34,7 @@ export const projects = sqliteTable("projects", {
   createdAt: text("created_at").notNull(),
   orderIndex: integer("order_index").default(0),
   // Project dashboard fields
+  notes: text("notes"),
   goals: text("goals"),
   architecturalNotes: text("architectural_notes"),
   workState: text("work_state"),
@@ -168,6 +169,7 @@ export const projectSchema = z.object({
   folderPath: z.string().optional(),
   createdAt: z.string(),
   orderIndex: z.number().int().default(0),
+  notes: z.string().optional(),
   goals: z.string().optional(),
   architecturalNotes: z.string().optional(),
   workState: z.string().optional(),
