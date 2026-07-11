@@ -380,4 +380,19 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
       "scopeId with mixed %2F and + encoding must be fully decoded",
     ).toBe("team/q4 planning/review");
   });
+
+  it("calls clearMemory with the decoded scope value when scope itself is URL-encoded (%67%6C%6F%62%61%6C → 'global')", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    const encodedScope = "%67%6C%6F%62%61%6C";
+    const res = await fetch(`${baseUrl}/api/memory?scope=${encodedScope}`, { method: "DELETE" });
+    await res.text();
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(
+      mockStorage.clearMemory.mock.calls[0][0],
+      "scope must be the decoded string 'global', not the raw percent-encoded form",
+    ).toBe("global");
+  });
 });
