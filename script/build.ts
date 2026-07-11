@@ -10,6 +10,11 @@ import {
   checkBundleContents,
 } from "../server/verify-bundle-logic.js";
 
+// Single source of truth for the server bundle output path.
+// Both the esbuild outfile and verifyBundle's bundlePath must reference this
+// constant so they can never drift independently.
+const BUNDLE_OUT = "dist/index.cjs";
+
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
 const allowlist = [...bundledPackages];
@@ -35,7 +40,7 @@ async function runTypeCheck() {
 }
 
 async function verifyBundle() {
-  const bundlePath = "dist/index.cjs";
+  const bundlePath = BUNDLE_OUT;
   if (!existsSync(bundlePath)) {
     console.error(`bundle verification failed — ${bundlePath} does not exist`);
     process.exit(1);
@@ -79,7 +84,7 @@ async function buildAll() {
     platform: "node",
     bundle: true,
     format: "cjs",
-    outfile: "dist/index.cjs",
+    outfile: BUNDLE_OUT,
     define: {
       "process.env.NODE_ENV": '"production"',
     },
