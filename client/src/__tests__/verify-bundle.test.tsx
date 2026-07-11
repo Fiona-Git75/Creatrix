@@ -963,6 +963,49 @@ describe("build.ts process.exit guard — runTests and runTypeCheck abort on fai
     ).toBe(true);
   });
 
+  it("verifyBundle contains a process.exit call — removing it lets a corrupt or undersized bundle ship without aborting the build", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Extract the brace-balanced body of verifyBundle so the assertion is
+    // scoped to that function and not to process.exit calls elsewhere in the file.
+    const body = extractFunctionBody(src, "verifyBundle");
+    expect(
+      body,
+      `\nCould not extract the body of "verifyBundle" from script/build.ts.\n\n` +
+        `The extractor looks for "function verifyBundle(" or "async function verifyBundle("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the verifyBundle wrapper guard describe block\n`,
+    ).not.toBeNull();
+
+    // Assert process.exit appears as executable code — not only in single-line
+    // comments — within the verifyBundle body.
+    const executableBody = stripLineComments(body!);
+    expect(
+      /\bprocess\.exit\s*\(/.test(executableBody),
+      `\n"verifyBundle" in script/build.ts does not contain a process.exit() call.\n\n` +
+        `When bundle verification fails (corrupt bundle, wrong size, missing externals,\n` +
+        `or the bundle file does not exist) the build must abort immediately.\n` +
+        `Without process.exit the build completes silently and a corrupt or\n` +
+        `undersized bundle is deployed.\n\n` +
+        `To fix:\n` +
+        `  1. Restore process.exit(1) inside each failure branch of verifyBundle:\n` +
+        `       if (!existsSync(bundlePath)) {\n` +
+        `         console.error("bundle verification failed — ...");\n` +
+        `         process.exit(1);\n` +
+        `       }\n` +
+        `       if (errors.length > 0) {\n` +
+        `         ...\n` +
+        `         process.exit(1);\n` +
+        `       }\n` +
+        `  2. Do not replace process.exit with console.warn or a thrown error\n` +
+        `     that is subsequently caught — both allow the build to continue.\n` +
+        `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
+        `     are filtered out by this test.\n`,
+    ).toBe(true);
+  });
+
   it("runTypeCheck contains a process.exit call inside the result.status !== 0 branch — removing it lets broken TypeScript ship silently", () => {
     const src = requireBuildSrcForExitGuard();
 
