@@ -416,6 +416,99 @@ describe("build.ts allowlist derivation contract", () => {
   });
 });
 
+// ── verifyBundle wrapper guard ────────────────────────────────────────────────
+//
+// build.ts contains a thin `verifyBundle()` wrapper that reads the built file
+// and calls process.exit on failure.  If that wrapper is renamed or deleted the
+// build completes without any integrity check, silently.  These tests read
+// build.ts as source text and assert that the wrapper still exists and is
+// called.
+
+describe("build.ts verifyBundle wrapper guard", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test will surface a clear failure below.
+  }
+
+  function requireBuildSrcForWrapper(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  it("defines a verifyBundle function — update this test if the wrapper is intentionally renamed", () => {
+    const src = requireBuildSrcForWrapper();
+    // Match async or sync function declaration / arrow function assignment.
+    // Tolerates: `async function verifyBundle(`, `function verifyBundle(`,
+    // `const verifyBundle =`, `const verifyBundle=`.
+    const definitionPattern =
+      /(?:async\s+function\s+verifyBundle\s*\(|function\s+verifyBundle\s*\(|const\s+verifyBundle\s*=)/;
+
+    expect(
+      definitionPattern.test(src),
+      `\nCould not find a "verifyBundle" function in script/build.ts.\n\n` +
+        `If the wrapper was renamed:\n` +
+        `  1. Restore the name to "verifyBundle", OR\n` +
+        `  2. Update the pattern in this test AND update the call-site assertion below\n` +
+        `     so the renamed wrapper is still verified to be invoked.\n` +
+        `\nA missing wrapper means the build completes without any bundle integrity check.\n`,
+    ).toBe(true);
+  });
+
+  it("calls verifyBundle inside buildAll — renaming without updating the call site silently drops the check", () => {
+    const src = requireBuildSrcForWrapper();
+    // Find lines that contain `verifyBundle(` but do NOT contain `function`.
+    // A function declaration always has the word "function" on the same line;
+    // a call site never does.  This prevents the declaration itself from
+    // satisfying the assertion, which would let a deleted call-site go undetected.
+    const callSiteLines = src
+      .split("\n")
+      .filter(
+        (line) =>
+          /\bverifyBundle\s*\(/.test(line) && !/\bfunction\b/.test(line),
+      );
+
+    expect(
+      callSiteLines.length,
+      `\nscript/build.ts defines verifyBundle but does not appear to call it.\n\n` +
+        `Expected to find at least one line like "await verifyBundle()" that is\n` +
+        `NOT the function declaration (i.e. a line without the word "function").\n\n` +
+        `If the call was removed or the function was renamed at the call site:\n` +
+        `  1. Restore the call to "await verifyBundle()" inside buildAll(), OR\n` +
+        `  2. If the wrapper was intentionally renamed, update both the definition\n` +
+        `     pattern and the call pattern in client/src/__tests__/verify-bundle.test.tsx\n` +
+        `\nA wrapper that is defined but never invoked provides no protection.\n`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("verifyBundle reads the bundle file and delegates to checkBundleContents — renaming checkBundleContents severs the check", () => {
+    const src = requireBuildSrcForWrapper();
+    // The verifyBundle wrapper must call checkBundleContents.  Extracting just
+    // the function body is fragile, so we assert on the full file — if
+    // checkBundleContents appears, the delegation is present.
+    const delegationPattern = /\bcheckBundleContents\s*\(/;
+
+    expect(
+      delegationPattern.test(src),
+      `\nscript/build.ts does not appear to call checkBundleContents().\n\n` +
+        `The verifyBundle wrapper must delegate to checkBundleContents (from\n` +
+        `server/verify-bundle-logic) to perform the actual integrity check.\n\n` +
+        `If checkBundleContents was renamed:\n` +
+        `  1. Update the call inside verifyBundle in script/build.ts, AND\n` +
+        `  2. Rename the export in server/verify-bundle-logic.ts to match, AND\n` +
+        `  3. Update the pattern in this test.\n`,
+    ).toBe(true);
+  });
+});
+
 // ── live constants sanity check ───────────────────────────────────────────────
 
 describe("bundledPackages and externalPackages constants", () => {
