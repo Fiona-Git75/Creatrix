@@ -3161,6 +3161,92 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
     await client.close();
   });
 
+  it("applies both DDL statements when a block comment is interleaved between two ALTER TABLE calls at the file level", async () => {
+    // This is the interleaved variant: instead of a block comment appearing only
+    // at the top of a segment (before any DDL), the comment sits between two
+    // ALTER TABLE calls at the file level — trailing the first DDL in segment 1
+    // and preceding the second DDL in segment 2 (separated by a statement-breakpoint).
+    // The stripping regex /\/\*[\s\S]*?\*\//g must not eat into either ALTER TABLE.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000022,
+          tag: "0022_interleaved_block_comment_ddl",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Two segments separated by "--> statement-breakpoint", with a multi-line
+    // block comment appearing between the two DDL calls at the file level:
+    //
+    //   ALTER TABLE … ADD COLUMN col1      ← segment 1 DDL
+    //   /* interleaved comment */          ← block comment trailing segment 1
+    //   --> statement-breakpoint
+    //   ALTER TABLE … ADD COLUMN col2      ← segment 2 DDL
+    //
+    // Segment 1 ends with the block comment *after* the DDL — the inverse of the
+    // existing "leading block comment then DDL" test.  The emptiness check must
+    // still see the ALTER TABLE as executable (i.e. stripping the trailing comment
+    // must not accidentally eat the DDL text).
+    const interleavedSql = [
+      "ALTER TABLE settings ADD COLUMN interleaved_block_col_1 TEXT",
+      "",
+      "/* This block comment is interleaved between the two DDL statements.",
+      "   It trails the first ALTER TABLE and precedes the statement-breakpoint.",
+      "   The [\\ s\\S]*? path in the stripping regex must leave the DDL intact. */",
+      "--> statement-breakpoint",
+      "ALTER TABLE settings ADD COLUMN interleaved_block_col_2 TEXT",
+    ].join("\n");
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0022_interleaved_block_comment_ddl.sql"),
+      interleavedSql
+    );
+
+    // _runMigrations must resolve — both ALTER TABLE statements must execute.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "interleaved block-comment migration should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // Both columns from the two ALTER TABLE calls must exist.
+    await expect(
+      client.execute("SELECT interleaved_block_col_1 FROM settings LIMIT 0"),
+      "first column (before the interleaved comment) must exist"
+    ).resolves.toBeDefined();
+
+    await expect(
+      client.execute("SELECT interleaved_block_col_2 FROM settings LIMIT 0"),
+      "second column (after the interleaved comment) must exist"
+    ).resolves.toBeDefined();
+
+    // The tag must be recorded so the runner never retries it.
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0022_interleaved_block_comment_ddl'"
+    );
+    expect(
+      result.rows.length,
+      "tag must be recorded after interleaved block-comment migration is applied"
+    ).toBe(1);
+    expect(result.rows[0]["tag"]).toBe("0022_interleaved_block_comment_ddl");
+
+    await client.close();
+  });
+
   it("does not block a subsequent real migration that follows a comment-only entry in the journal", async () => {
     // This confirms the comment-only entry does not permanently brick the runner:
     // a second migration with real DDL applies correctly on the same run.
