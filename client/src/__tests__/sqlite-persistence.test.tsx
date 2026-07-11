@@ -2823,6 +2823,72 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
     await client.close();
   });
 
+  it("applies the real DDL when a single segment begins with comment lines then contains a real ALTER TABLE", async () => {
+    // This confirms the comment-stripping logic is not too aggressive: a segment
+    // that has comment lines at the top but also contains real DDL must still
+    // execute.  There is NO breakpoint inside the file — the whole file is one
+    // segment with mixed content.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000020,
+          tag: "0020_mixed_comment_and_ddl",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // Single segment: comment lines at the top, then a real ALTER TABLE.
+    // No "--> statement-breakpoint" marker — the whole file is one segment.
+    const mixedSql = [
+      "-- This migration adds a guard column.",
+      "-- It intentionally starts with comment lines.",
+      "",
+      "ALTER TABLE settings ADD COLUMN mixed_comment_guard_col TEXT",
+    ].join("\n");
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0020_mixed_comment_and_ddl.sql"),
+      mixedSql
+    );
+
+    // _runMigrations must resolve — the real ALTER TABLE must not be dropped.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "mixed-content migration should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    // The column from the ALTER TABLE must exist.
+    const client = createClient({ url: `file:${dbPath}` });
+    await expect(
+      client.execute("SELECT mixed_comment_guard_col FROM settings LIMIT 0"),
+      "column added by the real ALTER TABLE inside the mixed segment must exist"
+    ).resolves.toBeDefined();
+
+    // The tag must be recorded so the runner never retries it.
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0020_mixed_comment_and_ddl'"
+    );
+    expect(
+      result.rows.length,
+      "tag must be recorded after a mixed-content migration is applied"
+    ).toBe(1);
+    expect(result.rows[0]["tag"]).toBe("0020_mixed_comment_and_ddl");
+
+    await client.close();
+  });
+
   it("does not block a subsequent real migration that follows a comment-only entry in the journal", async () => {
     // This confirms the comment-only entry does not permanently brick the runner:
     // a second migration with real DDL applies correctly on the same run.
