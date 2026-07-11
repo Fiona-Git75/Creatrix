@@ -1268,6 +1268,118 @@ describe("build.ts process.exit guard — runTests and runTypeCheck abort on fai
   });
 });
 
+// ── outfile / bundlePath alignment guard ─────────────────────────────────────
+//
+// verifyBundle hardcodes the bundle path it looks for after the build.  The
+// esbuild config inside buildAll hardcodes the outfile it writes.  If one is
+// updated without the other, verifyBundle always hits the !existsSync branch
+// and exits — but the build itself succeeded.  There is no visible error
+// pointing at the mismatch.
+//
+// This test reads build.ts as source text, extracts both values, and asserts
+// they are identical.
+
+describe("build.ts outfile / bundlePath alignment guard", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; the test below surfaces a clear failure.
+  }
+
+  function requireBuildSrcForAlignment(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  it("esbuild outfile in buildAll matches the bundlePath literal in verifyBundle — changing one without the other silently breaks bundle verification", () => {
+    const src = requireBuildSrcForAlignment();
+
+    // ── Step 1: extract the esbuild outfile from the buildAll body ──────────
+    const buildAllBody = extractFunctionBody(src, "buildAll");
+    expect(
+      buildAllBody,
+      `\nCould not extract the body of "buildAll" from script/build.ts.\n\n` +
+        `The extractor looks for "function buildAll(" or "async function buildAll("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the buildAll entry-point guard describe block\n`,
+    ).not.toBeNull();
+
+    // Match: outfile: "dist/index.cjs"  or  outfile: 'dist/index.cjs'
+    // Tolerates whitespace around the colon.
+    const outfileMatch = buildAllBody!.match(
+      /\boutfile\s*:\s*["']([^"']+)["']/,
+    );
+    expect(
+      outfileMatch,
+      `\nCould not find an "outfile" property in the esbuild call inside buildAll.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  outfile: "..."  or  outfile: '...'\n` +
+        `within the brace-balanced body of buildAll.  If the esbuild config was\n` +
+        `restructured (e.g. the outfile was moved to a variable or the esbuild\n` +
+        `call was extracted to a helper), update this test to match the new form.\n`,
+    ).not.toBeNull();
+
+    const outfile = outfileMatch![1];
+
+    // ── Step 2: extract the bundlePath literal from the verifyBundle body ───
+    const verifyBundleBody = extractFunctionBody(src, "verifyBundle");
+    expect(
+      verifyBundleBody,
+      `\nCould not extract the body of "verifyBundle" from script/build.ts.\n\n` +
+        `The extractor looks for "function verifyBundle(" or "async function verifyBundle("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the verifyBundle wrapper guard describe block\n`,
+    ).not.toBeNull();
+
+    // Match: const bundlePath = "dist/index.cjs"  or  const bundlePath = 'dist/index.cjs'
+    // Tolerates whitespace around = and the semicolon.
+    const bundlePathMatch = verifyBundleBody!.match(
+      /\bconst\s+bundlePath\s*=\s*["']([^"']+)["']/,
+    );
+    expect(
+      bundlePathMatch,
+      `\nCould not find a "bundlePath" constant in the verifyBundle function body.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  const bundlePath = "..."  or  const bundlePath = '...'\n` +
+        `within the brace-balanced body of verifyBundle.  If the variable was\n` +
+        `renamed or the path was inlined directly (e.g. existsSync("dist/index.cjs")),\n` +
+        `update this test and restore a named bundlePath constant so both values\n` +
+        `remain independently extractable.\n`,
+    ).not.toBeNull();
+
+    const bundlePath = bundlePathMatch![1];
+
+    // ── Step 3: assert they are identical ────────────────────────────────────
+    expect(
+      outfile,
+      `\nThe esbuild outfile in buildAll ("${outfile}") does not match the\n` +
+        `bundlePath in verifyBundle ("${bundlePath}").\n\n` +
+        `When these differ, verifyBundle always hits the !existsSync branch and\n` +
+        `calls process.exit — but the esbuild step itself succeeded, so the build\n` +
+        `produced a valid bundle at a path that verifyBundle never checks.\n\n` +
+        `To fix:\n` +
+        `  1. Update verifyBundle so its bundlePath matches the esbuild outfile:\n` +
+        `       const bundlePath = "${outfile}";\n` +
+        `  2. Or update the esbuild outfile to match the existing bundlePath:\n` +
+        `       outfile: "${bundlePath}",\n` +
+        `  3. Better yet, derive both from a single shared constant so they\n` +
+        `     can never drift again.\n`,
+    ).toBe(bundlePath);
+  });
+});
+
 // ── live constants sanity check ───────────────────────────────────────────────
 
 describe("bundledPackages and externalPackages constants", () => {
