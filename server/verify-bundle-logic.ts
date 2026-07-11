@@ -63,9 +63,14 @@ export function checkBundleContents(
   }
 
   // ── "Must NOT be required" checks for bundled packages ───────────────────
-  const isRequired = (pkg: string) =>
-    bundle.includes(`require("${pkg}")`) ||
-    bundle.includes(`require('${pkg}')`);
+  //
+  // Match require("pkg"), require('pkg'), and whitespace-padded variants such
+  // as require( "pkg" ) that some bundlers or hand-edited bundles may emit.
+  // The package name is regex-escaped so scoped names like @scope/pkg work.
+  const isRequired = (pkg: string) => {
+    const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`require\\(\\s*["']${escaped}["']\\s*\\)`).test(bundle);
+  };
 
   for (const pkg of bundled) {
     if (isRequired(pkg)) {

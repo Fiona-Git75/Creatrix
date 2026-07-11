@@ -249,6 +249,32 @@ describe("checkBundleContents – external package presence", () => {
     expect(errors.some((e) => e.includes('"dotenv/config"'))).toBe(true);
   });
 
+  it("passes when external packages appear with whitespace-padded require() — e.g. require( \"pkg\" )", () => {
+    // Some bundlers or hand-edited bundles emit spaces inside the parens.
+    // The check must recognise these as valid require() calls so it does not
+    // produce false-positive EXTERNAL CHECK FAIL errors.
+    const requireCalls = [...EXTERNAL]
+      .map((pkg) => `require( "${pkg}" )`)
+      .join("; ");
+    const padding = "x".repeat(Math.max(0, MIN + 1 - requireCalls.length));
+    const bundle = requireCalls + padding;
+
+    const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
+
+    expect(errors.every((e) => !e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
+  });
+
+  it("fails when an external package is missing even when others use whitespace-padded require()", () => {
+    // Bundle includes @libsql/client with space-padded parens but omits dotenv/config entirely.
+    // The check must still report EXTERNAL CHECK FAIL for the missing package.
+    const bundle =
+      "x".repeat(MIN + 1) + ` require( "@libsql/client" )`;
+    const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
+
+    expect(errors.some((e) => e.includes("EXTERNAL CHECK FAIL"))).toBe(true);
+    expect(errors.some((e) => e.includes('"dotenv/config"'))).toBe(true);
+  });
+
   it("fails when a third external package is absent and the bundle mixes double- and single-quote require() styles", () => {
     // Three externals: pkg-a (double-quote), pkg-b (single-quote), pkg-c (absent).
     // The check must report EXTERNAL CHECK FAIL for pkg-c only.
