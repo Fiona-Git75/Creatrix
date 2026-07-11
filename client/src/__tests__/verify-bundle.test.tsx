@@ -1540,6 +1540,64 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
       ).toBe(true);
     }
   });
+
+  it("esbuild format field in buildAll is a recognised value — an unrecognised format would produce an unusable bundle without a clear error", () => {
+    const src = requireBuildSrcForBundleOutValue();
+    const format = extractEsbuildFormat(src);
+
+    expect(
+      format,
+      `\nCould not extract the esbuild "format" field from the buildAll function\n` +
+        `in script/build.ts.\n\n` +
+        `The test looks for a string literal assignment like:\n` +
+        `  format: "cjs",\n` +
+        `inside the brace-balanced body of buildAll.  If the field was removed\n` +
+        `or restructured, update the extractEsbuildFormat pattern in this test.\n`,
+    ).not.toBeNull();
+
+    const KNOWN_FORMATS = ["cjs", "esm", "iife"] as const;
+
+    expect(
+      KNOWN_FORMATS.includes(format! as (typeof KNOWN_FORMATS)[number]),
+      `\nThe esbuild "format" field in buildAll is "${format}", which is not a recognised value.\n\n` +
+        `Known valid values: ${KNOWN_FORMATS.join(", ")}\n\n` +
+        `An unrecognised format causes esbuild to fail or emit an unusable bundle.\n\n` +
+        `To fix: set the format field in buildAll to one of the known values,\n` +
+        `e.g.  format: "cjs",\n` +
+        `and update BUNDLE_OUT to match (e.g. "dist/index.cjs" for "cjs").\n` +
+        `Then update the baseline test below to reflect the new expected format.\n`,
+    ).toBe(true);
+  });
+
+  it("esbuild format field in buildAll is 'cjs' — update this test if the format is intentionally changed, then also update BUNDLE_OUT to match", () => {
+    const src = requireBuildSrcForBundleOutValue();
+    const format = extractEsbuildFormat(src);
+
+    expect(
+      format,
+      `\nCould not extract the esbuild "format" field from the buildAll function\n` +
+        `in script/build.ts.\n\n` +
+        `The test looks for a string literal assignment like:\n` +
+        `  format: "cjs",\n` +
+        `inside the brace-balanced body of buildAll.  If the field was removed\n` +
+        `or restructured, update the extractEsbuildFormat pattern in this test.\n`,
+    ).not.toBeNull();
+
+    expect(
+      format,
+      `\nThe esbuild "format" field in buildAll is "${format}", but the expected value is "cjs".\n\n` +
+        `This baseline test exists so that changing the format without updating\n` +
+        `BUNDLE_OUT (or vice versa) is caught immediately — the two must always\n` +
+        `be updated together:\n\n` +
+        `  format: "cjs"  →  BUNDLE_OUT = "dist/index.cjs"\n` +
+        `  format: "esm"  →  BUNDLE_OUT = "dist/index.mjs"\n` +
+        `  format: "iife" →  BUNDLE_OUT = "dist/index.js"\n\n` +
+        `If you intentionally changed the format to "${format}":\n` +
+        `  1. Update BUNDLE_OUT in script/build.ts to use the matching extension.\n` +
+        `  2. Update this test's expected value from "cjs" to "${format}".\n` +
+        `  3. Run the full test suite to confirm no other checks break.\n`,
+    ).toBe("cjs");
+  });
 });
 
 // ── live constants sanity check ───────────────────────────────────────────────
