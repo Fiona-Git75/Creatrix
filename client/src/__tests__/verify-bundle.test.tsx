@@ -1405,6 +1405,143 @@ describe("build.ts outfile / bundlePath alignment guard", () => {
   });
 });
 
+// ── BUNDLE_OUT value sanity check ─────────────────────────────────────────────
+//
+// The alignment guard (above) ensures outfile and bundlePath both reference the
+// BUNDLE_OUT identifier.  But if BUNDLE_OUT itself is renamed and its replacement
+// constant has an empty value, a path outside dist/, or an extension that
+// conflicts with the esbuild format field, the alignment guard still passes
+// while the build silently produces a broken or unverifiable output.
+//
+// These tests extract the *string value* of BUNDLE_OUT from build.ts source
+// text and assert:
+//   1. The value starts with "dist/" — the bundle must live under the dist tree
+//      so "rm dist" during a clean build reliably removes the previous output.
+//   2. The value ends with a recognised bundle extension (.cjs, .js, or .mjs) —
+//      an absent or unrecognised extension suggests the constant holds a wrong path.
+//   3. The extension is consistent with the esbuild "format" field in buildAll —
+//      format "cjs" must pair with ".cjs" to avoid Node.js ESM/CJS confusion.
+
+describe("build.ts BUNDLE_OUT value sanity check", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test surfaces a clear failure below.
+  }
+
+  function requireBuildSrcForBundleOutValue(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  function extractBundleOutValue(src: string): string | null {
+    const match = src.match(/^const\s+BUNDLE_OUT\s*=\s*["']([^"']+)["']\s*;/m);
+    return match ? match[1] : null;
+  }
+
+  function extractEsbuildFormat(src: string): string | null {
+    const body = extractFunctionBody(src, "buildAll");
+    if (!body) return null;
+    const match = body.match(/\bformat\s*:\s*["']([^"']+)["']/);
+    return match ? match[1] : null;
+  }
+
+  it("BUNDLE_OUT value starts with 'dist/' — a path outside dist/ would not be cleaned up by 'rm dist' and could silently retain a stale bundle", () => {
+    const src = requireBuildSrcForBundleOutValue();
+    const value = extractBundleOutValue(src);
+
+    expect(
+      value,
+      `\nCould not extract the string value of BUNDLE_OUT from script/build.ts.\n\n` +
+        `The test looks for a module-level declaration of the form:\n` +
+        `  const BUNDLE_OUT = "dist/index.cjs";\n` +
+        `If the constant was renamed or its declaration form changed, update:\n` +
+        `  1. The extractBundleOutValue pattern in this test\n` +
+        `  2. The alignment guard tests in the "outfile / bundlePath alignment guard"\n` +
+        `     describe block above\n`,
+    ).not.toBeNull();
+
+    expect(
+      value!.startsWith("dist/"),
+      `\nBUNDLE_OUT value "${value}" does not start with "dist/".\n\n` +
+        `The server bundle must be written inside the dist/ tree so that the\n` +
+        `"rm dist" step at the start of buildAll reliably removes the previous\n` +
+        `bundle before each build.  A path outside dist/ could retain a stale\n` +
+        `bundle across builds without any error being reported.\n\n` +
+        `To fix: update the BUNDLE_OUT constant to a path starting with "dist/",\n` +
+        `e.g. const BUNDLE_OUT = "dist/index.cjs";\n`,
+    ).toBe(true);
+  });
+
+  it("BUNDLE_OUT extension is consistent with the esbuild format field — format 'cjs' requires a .cjs extension to avoid Node.js module resolution errors", () => {
+    const src = requireBuildSrcForBundleOutValue();
+    const value = extractBundleOutValue(src);
+    const format = extractEsbuildFormat(src);
+
+    expect(
+      value,
+      `\nCould not extract the string value of BUNDLE_OUT from script/build.ts.\n\n` +
+        `The test looks for a module-level declaration of the form:\n` +
+        `  const BUNDLE_OUT = "dist/index.cjs";\n` +
+        `If the constant was renamed or its declaration form changed, update the\n` +
+        `extractBundleOutValue pattern in this test.\n`,
+    ).not.toBeNull();
+
+    expect(
+      format,
+      `\nCould not extract the esbuild "format" field from the buildAll function\n` +
+        `in script/build.ts.\n\n` +
+        `The test looks for a string literal assignment like:\n` +
+        `  format: "cjs",\n` +
+        `inside the brace-balanced body of buildAll.  If the field was removed\n` +
+        `or restructured, update the extractEsbuildFormat pattern in this test.\n`,
+    ).not.toBeNull();
+
+    const KNOWN_EXTENSIONS = [".cjs", ".js", ".mjs"];
+    const hasKnownExtension = KNOWN_EXTENSIONS.some((ext) => value!.endsWith(ext));
+
+    expect(
+      hasKnownExtension,
+      `\nBUNDLE_OUT value "${value}" does not end with a recognised bundle extension.\n\n` +
+        `Expected one of: ${KNOWN_EXTENSIONS.join(", ")}\n\n` +
+        `An unrecognised or absent extension suggests the constant was renamed and\n` +
+        `its value was not updated to point at the actual bundle file.\n\n` +
+        `To fix: update BUNDLE_OUT to end with a known bundle extension,\n` +
+        `e.g. const BUNDLE_OUT = "dist/index.cjs";\n`,
+    ).toBe(true);
+
+    if (format === "cjs") {
+      expect(
+        value!.endsWith(".cjs"),
+        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
+          `When format is "cjs", the output file must use the ".cjs" extension.\n` +
+          `Using ".js" in a project that has "type": "module" in package.json causes\n` +
+          `Node.js to treat the CommonJS bundle as an ES module and fail at startup.\n\n` +
+          `To fix: update BUNDLE_OUT to end with ".cjs",\n` +
+          `e.g. const BUNDLE_OUT = "dist/index.cjs";\n` +
+          `If you intentionally changed the format, update both the format field\n` +
+          `and BUNDLE_OUT together, then update this test.\n`,
+      ).toBe(true);
+    } else if (format === "esm") {
+      expect(
+        value!.endsWith(".mjs") || value!.endsWith(".js"),
+        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
+          `When format is "esm", the output file should use ".mjs" or ".js".\n\n` +
+          `To fix: update BUNDLE_OUT to end with ".mjs" or ".js",\n` +
+          `e.g. const BUNDLE_OUT = "dist/index.mjs";\n`,
+      ).toBe(true);
+    }
+  });
+});
+
 // ── live constants sanity check ───────────────────────────────────────────────
 
 describe("bundledPackages and externalPackages constants", () => {
