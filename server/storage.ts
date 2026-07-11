@@ -571,14 +571,20 @@ export class MemStorage implements IStorage {
 // so the parser simply toggles `inString` on the opening quote and off on the
 // closing one, treating '' pairs as escaped characters rather than boundaries.
 //
-// This is intentionally minimal: it handles the only quoting style that Drizzle
-// DDL (and hand-edited SQLite migrations) realistically uses.  Double-quoted
-// identifiers and back-tick quoting are not used in Drizzle output and are
+// Double-quoted identifiers (e.g. ALTER TABLE "my;table" ADD COLUMN ...) follow
+// the same escape convention — an embedded double-quote is represented as two
+// consecutive double-quotes ("").  The parser tracks `inDblQuote` so that a
+// semicolon inside a double-quoted identifier is never treated as a statement
+// boundary.  This matters for hand-edited migrations that use non-ASCII or
+// punctuation-heavy table/column names.
+//
+// Back-tick quoting (MySQL-style) is not used in SQLite or Drizzle DDL and is
 // deliberately out of scope.
 function _splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = "";
   let inString = false;
+  let inDblQuote = false;
 
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
@@ -594,9 +600,23 @@ function _splitSqlStatements(sql: string): string[] {
           inString = false;
         }
       }
+    } else if (inDblQuote) {
+      current += ch;
+      if (ch === '"') {
+        if (sql[i + 1] === '"') {
+          // Escaped double-quote inside identifier — consume both chars together.
+          current += '"';
+          i++;
+        } else {
+          inDblQuote = false;
+        }
+      }
     } else {
       if (ch === "'") {
         inString = true;
+        current += ch;
+      } else if (ch === '"') {
+        inDblQuote = true;
         current += ch;
       } else if (ch === ";") {
         statements.push(current);

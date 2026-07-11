@@ -3475,4 +3475,83 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
 
     await client.close();
   });
+
+  // ── Semicolon inside a double-quoted identifier ─────────────────────────────
+  //
+  // SQLite (when ANSI_QUOTES behaviour applies) and hand-edited migrations may
+  // use double-quoted identifiers such as "my;table".  A naive splitter that
+  // only tracks single-quoted strings would see the semicolon inside the
+  // identifier as a statement boundary, producing two broken fragments:
+  //
+  //   Fragment 1: CREATE TABLE "semi
+  //   Fragment 2: colon_table" (id TEXT PRIMARY KEY)
+  //
+  // Both fragments are invalid SQL — the migration would fail and the column /
+  // table would never be created.
+  //
+  // The splitter now also tracks `inDblQuote` using the same "" escape
+  // convention as '' for single-quoted strings, so the semicolon is treated as
+  // part of the identifier and the statement is executed as a single unit.
+
+  it("does not split on a semicolon embedded inside a double-quoted identifier", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000025,
+          tag: "0025_double_quoted_identifier_semicolon",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // The table name contains a semicolon inside a double-quoted identifier.
+    // A naive splitter would cut the statement at the semicolon, producing
+    // "CREATE TABLE \"semi" and "colon_table\" (id TEXT PRIMARY KEY)" — both
+    // invalid — and the table would never be created.
+    const sql = 'CREATE TABLE "semi;colon_table" (id TEXT PRIMARY KEY)';
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0025_double_quoted_identifier_semicolon.sql"),
+      sql
+    );
+
+    // The double-quote-aware splitter must not break on the embedded semicolon.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "migration with a semicolon inside a double-quoted identifier should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // The table must exist and be queryable using the double-quoted name.
+    await expect(
+      client.execute('SELECT id FROM "semi;colon_table" LIMIT 0'),
+      'table "semi;colon_table" must exist after migration — splitter must not have split on the embedded semicolon'
+    ).resolves.toBeDefined();
+
+    // The tag must be recorded so the runner never retries it.
+    const tagResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0025_double_quoted_identifier_semicolon'"
+    );
+    expect(
+      tagResult.rows.length,
+      "tag must be recorded after double-quoted-identifier migration is applied"
+    ).toBe(1);
+    expect(tagResult.rows[0]["tag"]).toBe(
+      "0025_double_quoted_identifier_semicolon"
+    );
+
+    await client.close();
+  });
 });
