@@ -171,6 +171,15 @@ describe("checkBundleContents – bundled package leaks", () => {
     expect(errors.some((e) => e.includes('"openai"'))).toBe(true);
   });
 
+  it("detects the leak with whitespace-padded require() style — e.g. require( \"pkg\" )", () => {
+    const bundle = makeValidBundle(EXTERNAL, MIN) + ` require( "express" )`;
+    const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/BUNDLED CHECK FAIL/);
+    expect(errors[0]).toMatch(/"express"/);
+  });
+
   it("passes cleanly when no allowlisted package appears as require()", () => {
     const bundle = makeValidBundle(EXTERNAL, MIN);
     const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
