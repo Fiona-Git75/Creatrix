@@ -761,21 +761,32 @@ export class DatabaseStorage implements IStorage {
     return this.db.select().from(users);
   }
 
+  private _mapConnection(c: typeof connections.$inferSelect): Connection {
+    return {
+      ...c,
+      provider: c.provider as Connection["provider"],
+      apiKey: c.apiKey ?? undefined,
+      isDefault: c.isDefault ?? false,
+      orderIndex: c.orderIndex ?? 0,
+      residentName: c.residentName ?? undefined,
+      residentRole: c.residentRole ?? undefined,
+      residentDescription: c.residentDescription ?? undefined,
+      residentEmoji: c.residentEmoji ?? undefined,
+    };
+  }
   async getConnections(): Promise<Connection[]> {
     const result = await this.db.select().from(connections).orderBy(connections.orderIndex);
-    return result.map(c => ({ ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 }));
+    return result.map(c => this._mapConnection(c));
   }
   async getConnection(id: string): Promise<Connection | undefined> {
     const result = await this.db.select().from(connections).where(eq(connections.id, id));
     if (!result[0]) return undefined;
-    const c = result[0];
-    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 };
+    return this._mapConnection(result[0]);
   }
   async getDefaultConnection(): Promise<Connection | undefined> {
     const result = await this.db.select().from(connections).where(eq(connections.isDefault, true));
     if (!result[0]) return undefined;
-    const c = result[0];
-    return { ...c, provider: c.provider as Connection["provider"], apiKey: c.apiKey ?? undefined, isDefault: c.isDefault ?? false, orderIndex: c.orderIndex ?? 0 };
+    return this._mapConnection(result[0]);
   }
   async createConnection(insertConnection: InsertConnection): Promise<Connection> {
     const id = randomUUID();
@@ -785,7 +796,20 @@ export class DatabaseStorage implements IStorage {
     const apiKey = insertConnection.apiKey?.trim() || null;
     const countResult = await this.db.select({ count: sql<number>`count(*)` }).from(connections);
     const nextOrder = Number(countResult[0]?.count ?? 0);
-    const connection = { id, name: insertConnection.name, provider: insertConnection.provider, endpoint: insertConnection.endpoint, apiKey, defaultModel: insertConnection.defaultModel, isDefault: insertConnection.isDefault ?? false, orderIndex: nextOrder };
+    const connection = {
+      id,
+      name: insertConnection.name,
+      provider: insertConnection.provider,
+      endpoint: insertConnection.endpoint,
+      apiKey,
+      defaultModel: insertConnection.defaultModel,
+      isDefault: insertConnection.isDefault ?? false,
+      orderIndex: nextOrder,
+      residentName: insertConnection.residentName ?? null,
+      residentRole: insertConnection.residentRole ?? null,
+      residentDescription: insertConnection.residentDescription ?? null,
+      residentEmoji: insertConnection.residentEmoji ?? null,
+    };
     console.log("Inserting connection:", JSON.stringify(connection));
     await this.db.insert(connections).values(connection);
     if (connection.isDefault) {
@@ -913,15 +937,34 @@ export class DatabaseStorage implements IStorage {
       result = await this.db.select().from(memoryEntries).where(and(eq(memoryEntries.scope, scope), eq(memoryEntries.conversationId, scopeId)));
     } else if (scope === "conversation" && !scopeId) {
       throw new Error("conversation scope requires a scopeId");
+    } else if (scope === "resident" && scopeId) {
+      result = await this.db.select().from(memoryEntries).where(and(eq(memoryEntries.scope, scope), eq(memoryEntries.connectionId, scopeId)));
+    } else if (scope === "resident" && !scopeId) {
+      throw new Error("resident scope requires a scopeId (connectionId)");
     } else {
       result = await this.db.select().from(memoryEntries).where(eq(memoryEntries.scope, scope));
     }
-    return result.map(m => ({ ...m, scope: m.scope as MemoryEntry["scope"], projectId: m.projectId ?? undefined, conversationId: m.conversationId ?? undefined, summary: m.summary ?? undefined }));
+    return result.map(m => ({
+      ...m,
+      scope: m.scope as MemoryEntry["scope"],
+      projectId: m.projectId ?? undefined,
+      conversationId: m.conversationId ?? undefined,
+      connectionId: m.connectionId ?? undefined,
+      summary: m.summary ?? undefined,
+    }));
   }
   async createMemoryEntry(insertEntry: InsertMemoryEntry): Promise<MemoryEntry> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    await this.db.insert(memoryEntries).values({ ...insertEntry, id, createdAt, projectId: insertEntry.projectId ?? null, conversationId: insertEntry.conversationId ?? null, summary: insertEntry.summary ?? null });
+    await this.db.insert(memoryEntries).values({
+      ...insertEntry,
+      id,
+      createdAt,
+      projectId: insertEntry.projectId ?? null,
+      conversationId: insertEntry.conversationId ?? null,
+      connectionId: insertEntry.connectionId ?? null,
+      summary: insertEntry.summary ?? null,
+    });
     return { ...insertEntry, id, createdAt };
   }
   async deleteMemoryEntry(id: string): Promise<boolean> {

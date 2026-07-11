@@ -907,11 +907,31 @@ export async function registerRoutes(
         }
       }
 
-      // Relationship memory — global only (preferences, working style, stable context)
+      // Continuity — global layer (preferences, working style, stable context)
       const globalMemories = await storage.getMemoryEntries("global");
       if (globalMemories.length > 0) {
         const memoryText = globalMemories.map(m => `- ${m.content}`).join("\n");
         systemParts.push(`\n## Relationship Context\nStable preferences and working style for this collaborator:\n${memoryText}`);
+      }
+
+      // Continuity — resident layer (how this specific resident operates)
+      if (connection) {
+        const residentMemories = await storage.getMemoryEntries("resident", connection.id);
+        if (residentMemories.length > 0) {
+          const residentText = residentMemories.map(m => `- ${m.content}`).join("\n");
+          const label = connection.residentName ? `Resident Context — ${connection.residentName}` : "Resident Context";
+          systemParts.push(`\n## ${label}\nHow this resident operates with this collaborator:\n${residentText}`);
+        }
+        // Inject resident identity when set
+        if (connection.residentName || connection.residentRole) {
+          const nameLine = connection.residentName ? `You are **${connection.residentName}**.` : "";
+          const roleLine = connection.residentRole ? `Your role: ${connection.residentRole}.` : "";
+          const descLine = connection.residentDescription ? connection.residentDescription : "";
+          const identityParts = [nameLine, roleLine, descLine].filter(Boolean).join(" ");
+          if (identityParts) {
+            systemParts.push(`\n## Resident Identity\n${identityParts}`);
+          }
+        }
       }
 
       // === Tool capability injection — gated by model profile ===
@@ -1262,8 +1282,8 @@ export async function registerRoutes(
   app.get("/api/memory", async (req: Request, res: Response) => {
     try {
       const scope = (req.query.scope as string) || "global";
-      const scopeId = req.query.scopeId as string | undefined;
-      if ((scope === "project" || scope === "conversation") && !scopeId) {
+      const scopeId = (req.query.scopeId ?? req.query.connectionId) as string | undefined;
+      if ((scope === "project" || scope === "conversation" || scope === "resident") && !scopeId) {
         res.status(400).json({ error: `${scope} scope requires a scopeId` });
         return;
       }

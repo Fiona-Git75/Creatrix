@@ -36,6 +36,20 @@
       "when": 1783745868363,
       "tag": "0004_real_mockingbird",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783752000000,
+      "tag": "0005_residents",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783753000000,
+      "tag": "0006_residents_patch",
+      "breakpoints": true
     }
   ]
 }

@@ -181,6 +181,10 @@ type EditForm = {
   apiKey: string;
   defaultModel: string;
   maxImageSizeMb: string;
+  residentName: string;
+  residentRole: string;
+  residentDescription: string;
+  residentEmoji: string;
 };
 
 interface SortableConnectionCardProps {
@@ -324,6 +328,63 @@ function SortableConnectionCard({
               </div>
             </details>
 
+            <details className="group">
+              <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
+                <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                Resident Identity
+              </summary>
+              <div className="pt-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Give this connection a named identity — who they are, not just what they are.
+                </p>
+                <div className="grid grid-cols-[56px_1fr] gap-2">
+                  <div className="space-y-2">
+                    <Label htmlFor={`edit-emoji-${connection.id}`}>Emoji</Label>
+                    <Input
+                      id={`edit-emoji-${connection.id}`}
+                      value={editForm.residentEmoji}
+                      onChange={(e) => setEditForm({ ...editForm, residentEmoji: e.target.value })}
+                      placeholder="🤖"
+                      className="text-center text-lg"
+                      data-testid={`input-edit-resident-emoji-${connection.id}`}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`edit-resident-name-${connection.id}`}>Display name</Label>
+                    <Input
+                      id={`edit-resident-name-${connection.id}`}
+                      value={editForm.residentName}
+                      onChange={(e) => setEditForm({ ...editForm, residentName: e.target.value })}
+                      placeholder="e.g. Sage, Atlas, Aria"
+                      data-testid={`input-edit-resident-name-${connection.id}`}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-resident-role-${connection.id}`}>Role</Label>
+                  <Input
+                    id={`edit-resident-role-${connection.id}`}
+                    value={editForm.residentRole}
+                    onChange={(e) => setEditForm({ ...editForm, residentRole: e.target.value })}
+                    placeholder="e.g. Research companion, Writing partner"
+                    data-testid={`input-edit-resident-role-${connection.id}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-resident-desc-${connection.id}`}>Description</Label>
+                  <textarea
+                    id={`edit-resident-desc-${connection.id}`}
+                    value={editForm.residentDescription}
+                    onChange={(e) => setEditForm({ ...editForm, residentDescription: e.target.value })}
+                    placeholder="How this resident operates, their character, what they care about…"
+                    rows={3}
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                    data-testid={`input-edit-resident-desc-${connection.id}`}
+                  />
+                </div>
+              </div>
+            </details>
+
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="ghost" onClick={onCancelEdit}>Cancel</Button>
               <Button
@@ -349,13 +410,24 @@ function SortableConnectionCard({
             <div className="flex items-start justify-between gap-3 flex-1 min-w-0">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium truncate">{connection.name}</span>
+                  {connection.residentEmoji && (
+                    <span className="text-base leading-none">{connection.residentEmoji}</span>
+                  )}
+                  <span className="font-medium truncate">
+                    {connection.residentName || connection.name}
+                  </span>
+                  {connection.residentName && connection.residentName !== connection.name && (
+                    <span className="text-xs text-muted-foreground">({connection.name})</span>
+                  )}
                   {connection.isDefault && (
                     <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
                       Default
                     </span>
                   )}
                 </div>
+                {connection.residentRole && (
+                  <p className="text-sm text-foreground/70 mt-0.5">{connection.residentRole}</p>
+                )}
                 <p className="text-sm text-muted-foreground mt-1">
                   {providerLabels[connection.provider as ProviderType]}
                 </p>
@@ -426,6 +498,10 @@ function ConnectionsTab() {
     apiKey: "",
     defaultModel: "",
     maxImageSizeMb: "",
+    residentName: "",
+    residentRole: "",
+    residentDescription: "",
+    residentEmoji: "",
   });
   const [newConnection, setNewConnection] = useState({
     name: "",
@@ -435,6 +511,10 @@ function ConnectionsTab() {
     defaultModel: "",
     isDefault: false,
     maxImageSizeMb: "" as string,
+    residentName: "",
+    residentRole: "",
+    residentDescription: "",
+    residentEmoji: "",
   });
   const [localOrder, setLocalOrder] = useState<Connection[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; count: number } | null>(null);
@@ -506,6 +586,7 @@ function ConnectionsTab() {
   type ConnectionPatchPayload = {
     name?: string; provider?: ProviderType; endpoint?: string;
     apiKey?: string; defaultModel?: string; maxImageSizeMb?: number;
+    residentName?: string; residentRole?: string; residentDescription?: string; residentEmoji?: string;
   };
 
   const updateMutation = useMutation({
@@ -530,6 +611,10 @@ function ConnectionsTab() {
       apiKey: connection.apiKey ?? "",
       defaultModel: connection.defaultModel ?? "",
       maxImageSizeMb: connection.maxImageSizeMb != null ? String(connection.maxImageSizeMb) : "",
+      residentName: connection.residentName ?? "",
+      residentRole: connection.residentRole ?? "",
+      residentDescription: connection.residentDescription ?? "",
+      residentEmoji: connection.residentEmoji ?? "",
     });
     setEditingId(connection.id);
     setIsAdding(false);
@@ -548,6 +633,10 @@ function ConnectionsTab() {
         apiKey: editForm.apiKey || undefined,
         defaultModel: editForm.defaultModel || undefined,
         maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
+        residentName: editForm.residentName || undefined,
+        residentRole: editForm.residentRole || undefined,
+        residentDescription: editForm.residentDescription || undefined,
+        residentEmoji: editForm.residentEmoji || undefined,
       },
     });
   };
@@ -561,6 +650,10 @@ function ConnectionsTab() {
       defaultModel: "",
       isDefault: false,
       maxImageSizeMb: "",
+      residentName: "",
+      residentRole: "",
+      residentDescription: "",
+      residentEmoji: "",
     });
   };
 
@@ -637,7 +730,7 @@ function ConnectionsTab() {
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
             onUse={(name, provider, endpoint, defaultModel) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined });
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined, residentName: "", residentRole: "", residentDescription: "", residentEmoji: "" });
             }}
             onManual={() => setIsAdding(true)}
           />
@@ -771,6 +864,63 @@ function ConnectionsTab() {
                     <p className="text-xs text-muted-foreground">
                       Leave blank to use the provider default. Raise this for high-VRAM setups or lower it to protect constrained hardware.
                     </p>
+                  </div>
+                </div>
+              </details>
+
+              <details className="group">
+                <summary className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none list-none">
+                  <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                  Resident Identity
+                </summary>
+                <div className="pt-3 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Give this connection a named identity — who they are, not just what they are.
+                  </p>
+                  <div className="grid grid-cols-[56px_1fr] gap-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="residentEmoji">Emoji</Label>
+                      <Input
+                        id="residentEmoji"
+                        value={newConnection.residentEmoji}
+                        onChange={(e) => setNewConnection({ ...newConnection, residentEmoji: e.target.value })}
+                        placeholder="🤖"
+                        className="text-center text-lg"
+                        data-testid="input-connection-resident-emoji"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="residentName">Display name</Label>
+                      <Input
+                        id="residentName"
+                        value={newConnection.residentName}
+                        onChange={(e) => setNewConnection({ ...newConnection, residentName: e.target.value })}
+                        placeholder="e.g. Sage, Atlas, Aria"
+                        data-testid="input-connection-resident-name"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="residentRole">Role</Label>
+                    <Input
+                      id="residentRole"
+                      value={newConnection.residentRole}
+                      onChange={(e) => setNewConnection({ ...newConnection, residentRole: e.target.value })}
+                      placeholder="e.g. Research companion, Writing partner"
+                      data-testid="input-connection-resident-role"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="residentDescription">Description</Label>
+                    <textarea
+                      id="residentDescription"
+                      value={newConnection.residentDescription}
+                      onChange={(e) => setNewConnection({ ...newConnection, residentDescription: e.target.value })}
+                      placeholder="How this resident operates, their character, what they care about…"
+                      rows={3}
+                      className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                      data-testid="input-connection-resident-desc"
+                    />
                   </div>
                 </div>
               </details>

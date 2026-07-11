@@ -20,6 +20,11 @@ export const connections = sqliteTable("connections", {
   isDefault: integer("is_default", { mode: "boolean" }).default(false),
   maxImageSizeMb: integer("max_image_size_mb"),
   orderIndex: integer("order_index").default(0),
+  // Resident identity — the relationship layer above the model
+  residentName: text("resident_name"),
+  residentRole: text("resident_role"),
+  residentDescription: text("resident_description"),
+  residentEmoji: text("resident_emoji"),
 });
 
 // Projects table
@@ -61,6 +66,7 @@ export const memoryEntries = sqliteTable("memory_entries", {
   scope: text("scope").notNull(),
   projectId: text("project_id"),
   conversationId: text("conversation_id"),
+  connectionId: text("connection_id"),
   content: text("content").notNull(),
   summary: text("summary"),
   createdAt: text("created_at").notNull(),
@@ -154,6 +160,11 @@ export const connectionSchema = z.object({
   isDefault: z.boolean().default(false),
   maxImageSizeMb: z.number().int().positive().nullable().optional(),
   orderIndex: z.number().int().default(0),
+  // Resident identity
+  residentName: z.string().optional(),
+  residentRole: z.string().optional(),
+  residentDescription: z.string().optional(),
+  residentEmoji: z.string().optional(),
 });
 export type Connection = z.infer<typeof connectionSchema>;
 export const insertConnectionSchema = connectionSchema.omit({ id: true });
@@ -223,7 +234,7 @@ export const insertConversationSchema = conversationSchema.omit({
 });
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 
-export const memoryScopeTypes = ["global", "project", "conversation"] as const;
+export const memoryScopeTypes = ["global", "project", "conversation", "resident"] as const;
 export type MemoryScope = typeof memoryScopeTypes[number];
 
 export const memoryEntrySchema = z.object({
@@ -231,6 +242,7 @@ export const memoryEntrySchema = z.object({
   scope: z.enum(memoryScopeTypes),
   projectId: z.string().optional(),
   conversationId: z.string().optional(),
+  connectionId: z.string().optional(),
   content: z.string(),
   summary: z.string().optional(),
   createdAt: z.string(),

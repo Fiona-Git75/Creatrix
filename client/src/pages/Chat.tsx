@@ -18,7 +18,7 @@ import { ChatMessage, type Message } from "@/components/ChatMessage";
 import { ChatInput, type AttachedImage } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { MemoryPanel } from "@/components/MemoryPanel";
+import { ContinuityPanel } from "@/components/ContinuityPanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { SystemLogPanel } from "@/components/SystemLogPanel";
@@ -371,11 +371,13 @@ function ChatContent({
           </div>
         </header>
 
-        <MemoryPanel
+        <ContinuityPanel
           open={memoryPanelOpen}
           onOpenChange={setMemoryPanelOpen}
           projectId={selectedProjectId}
           conversationId={activeConversation?.id || null}
+          connectionId={selectedConnectionId}
+          connections={connections}
         />
         <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
         <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />
