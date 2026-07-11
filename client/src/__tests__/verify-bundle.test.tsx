@@ -1016,6 +1016,116 @@ describe("build.ts process.exit guard — runTests and runTypeCheck abort on fai
     ).toBe(true);
   });
 
+  it("verifyBundle file-existence branch contains process.exit — removing existsSync guard lets a missing bundle be silently ignored", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Step 1: isolate the verifyBundle function body.
+    const body = extractFunctionBody(src, "verifyBundle");
+    expect(
+      body,
+      `\nCould not extract the body of "verifyBundle" from script/build.ts.\n\n` +
+        `The extractor looks for "function verifyBundle(" or "async function verifyBundle("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the verifyBundle wrapper guard describe block\n`,
+    ).not.toBeNull();
+
+    // Step 2: within that body, isolate the if (!existsSync(...)) { ... } block.
+    const existsSyncBranchPattern = /if\s*\(\s*!\s*existsSync\s*\(/;
+    const existsSyncBlock = extractConditionBlock(body!, existsSyncBranchPattern);
+    expect(
+      existsSyncBlock,
+      `\n"verifyBundle" in script/build.ts does not contain an\n` +
+        `  if (!existsSync(...)) { ... }\n` +
+        `branch that the extractor can find.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  if ( !existsSync(  (whitespace-tolerant)\n` +
+        `followed by a brace-balanced block.  If the condition was rewritten\n` +
+        `(e.g. to a try/catch or a separate helper), update the pattern in\n` +
+        `this test to match the new form.\n\n` +
+        `Without this guard a missing bundle file is silently ignored — the\n` +
+        `build reports success even though no bundle was produced.\n`,
+    ).not.toBeNull();
+
+    // Step 3: assert process.exit appears as executable code — not only in
+    // single-line comments — within that specific branch block.
+    const executableExistsSyncBlock = stripLineComments(existsSyncBlock!);
+    expect(
+      /\bprocess\.exit\s*\(/.test(executableExistsSyncBlock),
+      `\nThe file-existence branch of "verifyBundle" in script/build.ts does not\n` +
+        `call process.exit().\n\n` +
+        `When the bundle file does not exist the build must abort immediately.\n` +
+        `Without process.exit the build continues silently and no bundle is deployed.\n\n` +
+        `To fix:\n` +
+        `  1. Restore the process.exit call inside the !existsSync branch:\n` +
+        `       if (!existsSync(bundlePath)) {\n` +
+        `         console.error("bundle verification failed — ...");\n` +
+        `         process.exit(1);\n` +
+        `       }\n` +
+        `  2. Do not replace process.exit with console.warn or a thrown error\n` +
+        `     that is subsequently caught — both allow the build to continue.\n` +
+        `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
+        `     are filtered out by this test.\n`,
+    ).toBe(true);
+  });
+
+  it("verifyBundle errors branch contains process.exit — removing it lets a corrupt or invalid bundle ship without aborting the build", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Step 1: isolate the verifyBundle function body.
+    const body = extractFunctionBody(src, "verifyBundle");
+    expect(
+      body,
+      `\nCould not extract the body of "verifyBundle" from script/build.ts.\n\n` +
+        `The extractor looks for "function verifyBundle(" or "async function verifyBundle("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the verifyBundle wrapper guard describe block\n`,
+    ).not.toBeNull();
+
+    // Step 2: within that body, isolate the if (errors.length > 0) { ... } block.
+    const errorsLengthBranchPattern = /if\s*\(\s*errors\s*\.\s*length\s*>\s*0\s*\)/;
+    const errorsLengthBlock = extractConditionBlock(body!, errorsLengthBranchPattern);
+    expect(
+      errorsLengthBlock,
+      `\n"verifyBundle" in script/build.ts does not contain an\n` +
+        `  if (errors.length > 0) { ... }\n` +
+        `branch that the extractor can find.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  if ( errors.length > 0 )  (whitespace-tolerant)\n` +
+        `followed by a brace-balanced block.  If the condition was rewritten\n` +
+        `(e.g. to errors.length !== 0, errors.length >= 1, or checking a boolean)\n` +
+        `update the pattern in this test to match the new form.\n\n` +
+        `Without this guard a bundle that fails content checks is silently\n` +
+        `accepted — the build reports success even though the bundle is invalid.\n`,
+    ).not.toBeNull();
+
+    // Step 3: assert process.exit appears as executable code — not only in
+    // single-line comments — within that specific branch block.
+    const executableErrorsBlock = stripLineComments(errorsLengthBlock!);
+    expect(
+      /\bprocess\.exit\s*\(/.test(executableErrorsBlock),
+      `\nThe errors branch of "verifyBundle" in script/build.ts does not\n` +
+        `call process.exit().\n\n` +
+        `When checkBundleContents returns errors the build must abort immediately.\n` +
+        `Without process.exit the build continues silently and an invalid bundle\n` +
+        `(wrong size, leaked bundled packages, missing externals) is deployed.\n\n` +
+        `To fix:\n` +
+        `  1. Restore the process.exit call inside the errors.length > 0 branch:\n` +
+        `       if (errors.length > 0) {\n` +
+        `         console.error("bundle verification failed:");\n` +
+        `         for (const err of errors) console.error(\`  \${err}\`);\n` +
+        `         process.exit(1);\n` +
+        `       }\n` +
+        `  2. Do not replace process.exit with console.warn or a thrown error\n` +
+        `     that is subsequently caught — both allow the build to continue.\n` +
+        `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
+        `     are filtered out by this test.\n`,
+    ).toBe(true);
+  });
+
   it("runTypeCheck contains a process.exit call inside the result.status !== 0 branch — removing it lets broken TypeScript ship silently", () => {
     const src = requireBuildSrcForExitGuard();
 
