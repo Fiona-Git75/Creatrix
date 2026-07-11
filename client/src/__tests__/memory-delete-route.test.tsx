@@ -317,4 +317,67 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
     expect(status, "status must be 404 when no entries matched the conversation scope").toBe(404);
     expect(body).toMatchObject({ error: expect.any(String) });
   });
+
+  it("calls clearMemory with the decoded scopeId when it contains a URL-encoded slash (%2F)", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    const encodedScopeId = "projects%2Fmy-project%2Fsub";
+    const decodedScopeId = "projects/my-project/sub";
+
+    const qs = `scope=project&scopeId=${encodedScopeId}`;
+    const res = await fetch(`${baseUrl}/api/memory?${qs}`, { method: "DELETE" });
+    await res.text();
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(
+      mockStorage.clearMemory.mock.calls[0][1],
+      "scopeId must be the decoded string, not the raw %2F-encoded form",
+    ).toBe(decodedScopeId);
+  });
+
+  it("calls clearMemory with the decoded scopeId when it contains a literal space (encoded as +)", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    const qs = `scope=project&scopeId=my+project+name`;
+    const res = await fetch(`${baseUrl}/api/memory?${qs}`, { method: "DELETE" });
+    await res.text();
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(
+      mockStorage.clearMemory.mock.calls[0][1],
+      "scopeId encoded with + must arrive as a space-separated string",
+    ).toBe("my project name");
+  });
+
+  it("calls clearMemory with the decoded scopeId when it contains a %20-encoded space", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    const qs = `scope=conversation&scopeId=conv%20with%20spaces`;
+    const res = await fetch(`${baseUrl}/api/memory?${qs}`, { method: "DELETE" });
+    await res.text();
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(
+      mockStorage.clearMemory.mock.calls[0][1],
+      "scopeId encoded with %20 must arrive as a string with literal spaces",
+    ).toBe("conv with spaces");
+  });
+
+  it("calls clearMemory with the decoded scopeId when it contains multiple mixed special characters", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(true);
+    mockStorage.clearMemory.mockClear();
+
+    const qs = `scope=project&scopeId=team%2Fq4+planning%2Freview`;
+    const res = await fetch(`${baseUrl}/api/memory?${qs}`, { method: "DELETE" });
+    await res.text();
+
+    expect(mockStorage.clearMemory).toHaveBeenCalledTimes(1);
+    expect(
+      mockStorage.clearMemory.mock.calls[0][1],
+      "scopeId with mixed %2F and + encoding must be fully decoded",
+    ).toBe("team/q4 planning/review");
+  });
 });
