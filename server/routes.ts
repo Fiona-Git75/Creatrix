@@ -1283,6 +1283,11 @@ export async function registerRoutes(
   app.get("/api/memory", async (req: Request, res: Response) => {
     try {
       const scope = (req.query.scope as string) || "global";
+      const validScopes = ["global", "project", "conversation", "resident"];
+      if (!validScopes.includes(scope)) {
+        res.status(400).json({ error: `Invalid scope: '${scope}'. Must be one of: ${validScopes.join(", ")}` });
+        return;
+      }
       const scopeId = (req.query.scopeId ?? req.query.connectionId) as string | undefined;
       if ((scope === "project" || scope === "conversation" || scope === "resident") && !scopeId) {
         res.status(400).json({ error: `${scope} scope requires a scopeId` });

@@ -171,6 +171,17 @@ afterAll(() => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+async function getMemory(
+  params: Record<string, string> = {},
+): Promise<{ status: number; body: unknown }> {
+  const qs = new URLSearchParams(params).toString();
+  const url = qs ? `${baseUrl}/api/memory?${qs}` : `${baseUrl}/api/memory`;
+  const res = await fetch(url, { method: "GET" });
+  const text = await res.text();
+  const body = text.length > 0 ? JSON.parse(text) : null;
+  return { status: res.status, body };
+}
+
 async function deleteMemory(id: string): Promise<{ status: number; body: unknown }> {
   const res = await fetch(`${baseUrl}/api/memory/${id}`, { method: "DELETE" });
   const text = await res.text();
@@ -407,5 +418,52 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
     expect(res.status, "status must be 400, not 204 or 500, for an unrecognised scope").toBe(400);
     expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
     expect(mockStorage.clearMemory, "clearMemory must not be called when the scope is invalid").not.toHaveBeenCalled();
+  });
+});
+
+// ── GET /api/memory scope validation ─────────────────────────────────────────
+
+describe("GET /api/memory (scope validation)", () => {
+  it("returns 400 with a structured error when scope is an unrecognised value", async () => {
+    mockStorage.getMemoryEntries.mockClear();
+
+    const { status, body } = await getMemory({ scope: "bad" });
+
+    expect(status, "status must be 400, not 200, for an invalid scope").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(mockStorage.getMemoryEntries, "getMemoryEntries must not be called when the scope is invalid").not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when a URL-encoded scope decodes to an invalid value (%62%61%64 → 'bad')", async () => {
+    mockStorage.getMemoryEntries.mockClear();
+
+    const encodedBadScope = "%62%61%64";
+    const res = await fetch(`${baseUrl}/api/memory?scope=${encodedBadScope}`, { method: "GET" });
+    const text = await res.text();
+    const body = text.length > 0 ? JSON.parse(text) : null;
+
+    expect(res.status, "status must be 400 for a percent-encoded invalid scope").toBe(400);
+    expect(body, "body must contain a structured error field").toMatchObject({ error: expect.any(String) });
+    expect(mockStorage.getMemoryEntries, "getMemoryEntries must not be called when the scope is invalid").not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and calls getMemoryEntries when scope is valid ('global')", async () => {
+    mockStorage.getMemoryEntries.mockResolvedValueOnce([]);
+    mockStorage.getMemoryEntries.mockClear();
+
+    const { status } = await getMemory({ scope: "global" });
+
+    expect(status, "status must be 200 for a valid scope").toBe(200);
+    expect(mockStorage.getMemoryEntries).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 200 and calls getMemoryEntries when no scope param is provided (defaults to global)", async () => {
+    mockStorage.getMemoryEntries.mockResolvedValueOnce([]);
+    mockStorage.getMemoryEntries.mockClear();
+
+    const { status } = await getMemory();
+
+    expect(status, "omitting ?scope should still return 200").toBe(200);
+    expect(mockStorage.getMemoryEntries).toHaveBeenCalledTimes(1);
   });
 });
