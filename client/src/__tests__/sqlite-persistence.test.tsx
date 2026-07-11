@@ -3392,4 +3392,87 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
 
     await client.close();
   });
+
+  // ── Semicolon inside a string literal in a DEFAULT clause ──────────────────
+  //
+  // The segment splitter uses a string-literal-aware parser so that a semicolon
+  // embedded inside a single-quoted value (e.g. DEFAULT 'a;b') is NOT treated
+  // as a statement boundary.  A naive .split(";") would break the ALTER TABLE
+  // into two invalid fragments: one with an unclosed string literal and one with
+  // orphaned text, causing a syntax error and silently dropping the column.
+  //
+  // This test confirms the splitter sees the semicolon as part of the literal,
+  // executes the single statement correctly, and that the column is created with
+  // the right default value.
+
+  it("does not split on a semicolon embedded inside a string literal in a DEFAULT clause", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000024,
+          tag: "0024_semicolon_in_string_literal",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // The DEFAULT value contains a semicolon inside a single-quoted string.
+    // A naive split(";") would treat this semicolon as a statement boundary,
+    // producing two broken fragments and raising a syntax error.
+    const sql = "ALTER TABLE settings ADD COLUMN semicolon_default_col TEXT DEFAULT 'a;b'";
+
+    writeFileSync(
+      join(tmpMigrationsDir, "0024_semicolon_in_string_literal.sql"),
+      sql
+    );
+
+    // The string-literal-aware splitter must not break on the embedded semicolon.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "migration with a semicolon inside a string literal should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    const client = createClient({ url: `file:${dbPath}` });
+
+    // The column must exist.
+    await expect(
+      client.execute("SELECT semicolon_default_col FROM settings LIMIT 0"),
+      "column with semicolon-containing DEFAULT must exist after migration"
+    ).resolves.toBeDefined();
+
+    // The default value must be the full literal 'a;b', not a truncated fragment.
+    await client.execute(
+      "INSERT INTO settings (id) VALUES ('semicolon-default-test') ON CONFLICT(id) DO NOTHING"
+    );
+    const row = await client.execute(
+      "SELECT semicolon_default_col FROM settings WHERE id = 'semicolon-default-test'"
+    );
+    expect(
+      row.rows[0]["semicolon_default_col"],
+      "default value must be the full literal 'a;b' — not truncated at the semicolon"
+    ).toBe("a;b");
+
+    // The tag must be recorded so the runner never retries it.
+    const tagResult = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0024_semicolon_in_string_literal'"
+    );
+    expect(
+      tagResult.rows.length,
+      "tag must be recorded after semicolon-in-literal migration is applied"
+    ).toBe(1);
+    expect(tagResult.rows[0]["tag"]).toBe("0024_semicolon_in_string_literal");
+
+    await client.close();
+  });
 });

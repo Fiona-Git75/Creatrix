@@ -562,6 +562,56 @@ export class MemStorage implements IStorage {
   }
 }
 
+// ─── SQL statement splitter ───────────────────────────────────────────────────
+//
+// Splits a SQL string into individual statements on semicolons that are NOT
+// inside single-quoted string literals.  SQLite (and SQL in general) encodes a
+// literal single-quote inside a string as two consecutive single-quotes (''),
+// so the parser simply toggles `inString` on the opening quote and off on the
+// closing one, treating '' pairs as escaped characters rather than boundaries.
+//
+// This is intentionally minimal: it handles the only quoting style that Drizzle
+// DDL (and hand-edited SQLite migrations) realistically uses.  Double-quoted
+// identifiers and back-tick quoting are not used in Drizzle output and are
+// deliberately out of scope.
+function _splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inString = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+
+    if (inString) {
+      current += ch;
+      if (ch === "'") {
+        if (sql[i + 1] === "'") {
+          // Escaped quote inside string literal — consume both chars together.
+          current += "'";
+          i++;
+        } else {
+          inString = false;
+        }
+      }
+    } else {
+      if (ch === "'") {
+        inString = true;
+        current += ch;
+      } else if (ch === ";") {
+        statements.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+  }
+
+  // The final statement may have no trailing semicolon.
+  statements.push(current);
+
+  return statements;
+}
+
 // ─── Database Storage Implementation ─────────────────────────────────────────
 
 export class DatabaseStorage implements IStorage {
@@ -662,8 +712,14 @@ export class DatabaseStorage implements IStorage {
         // third-party migration files may omit them.  Splitting here is safe
         // for all normal migrations: a single-statement segment splits into
         // exactly one non-empty chunk.
-        const subStatements = stmt
-          .split(";")
+        //
+        // The splitter is string-literal-aware: a semicolon inside a
+        // single-quoted string (e.g. DEFAULT 'a;b') is NOT treated as a
+        // statement boundary.  SQLite represents a literal single-quote inside
+        // a string as two consecutive single-quotes (''), so the parser
+        // toggles inString on the first quote and off on the closing one,
+        // skipping over '' pairs as escaped characters.
+        const subStatements = _splitSqlStatements(stmt)
           .map((s) => s.trim())
           .filter((s) => {
             // Drop empty chunks and comment-only chunks produced by the split.
