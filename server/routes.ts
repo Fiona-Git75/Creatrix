@@ -1128,6 +1128,7 @@ export async function registerRoutes(
               title: `${toolName.replace(/_/g, " ")}: ${String(toolArgs.path || toolArgs.query || toolArgs.title || toolArgs.url || "").slice(0, 60)}`,
               detail: JSON.stringify(invocation.result)?.slice(0, 200),
               relatedPath: (toolArgs.path || toolArgs.destination) as string | undefined,
+              connectionId: connection?.id,
               resolved: false,
             });
             const src = makeSource(toolName, toolArgs, invocation.result, project?.folderPath || settings.rootFolder);
@@ -1605,6 +1606,7 @@ export async function registerRoutes(
           title: `${capability.replace(/_/g, " ")}: ${String(args?.path || args?.query || args?.title || args?.url || "").slice(0, 60)}`,
           detail: JSON.stringify(result.result)?.slice(0, 200),
           relatedPath: (args?.path || args?.destination) as string | undefined,
+          connectionId: capConnection?.id,
           resolved: false,
         });
       }
@@ -1897,12 +1899,14 @@ export async function registerRoutes(
       const limit = parseInt(req.query.limit as string) || 50;
       const type = req.query.type as string | undefined;
       const since = req.query.since as string | undefined;
+      const connectionId = req.query.connectionId as string | undefined;
 
       let entries;
       if (since) {
         entries = await storage.getJournalEntriesSince(since);
+        if (connectionId) entries = entries.filter((e: any) => e.connectionId === connectionId);
       } else {
-        entries = await storage.getJournalEntries(limit, type);
+        entries = await storage.getJournalEntries(limit, type, connectionId);
       }
       res.json(entries);
     } catch (error) {

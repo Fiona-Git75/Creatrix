@@ -50,6 +50,13 @@
       "when": 1783753000000,
       "tag": "0006_residents_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1783900000000,
+      "tag": "0007_journal_connection_id",
+      "breakpoints": true
     }
   ]
 }

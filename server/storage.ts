@@ -92,7 +92,7 @@ export interface IStorage {
   searchLibraryItems(query: string): Promise<LibraryItem[]>;
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────
-  getJournalEntries(limit?: number, type?: string): Promise<JournalEntry[]>;
+  getJournalEntries(limit?: number, type?: string, connectionId?: string): Promise<JournalEntry[]>;
   getJournalEntry(id: string): Promise<JournalEntry | undefined>;
   createJournalEntry(entry: InsertJournalEntry): Promise<JournalEntry>;
   updateJournalEntry(id: string, updates: Partial<InsertJournalEntry>): Promise<JournalEntry | undefined>;
@@ -436,9 +436,10 @@ export class MemStorage implements IStorage {
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────
 
-  async getJournalEntries(limit: number = 50, type?: string): Promise<JournalEntry[]> {
+  async getJournalEntries(limit: number = 50, type?: string, connectionId?: string): Promise<JournalEntry[]> {
     let entries = Array.from(this._journalEntries.values());
     if (type) entries = entries.filter(e => e.type === type);
+    if (connectionId) entries = entries.filter(e => e.connectionId === connectionId);
     return entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, limit);
   }
   async getJournalEntry(id: string): Promise<JournalEntry | undefined> { return this._journalEntries.get(id); }
@@ -1231,10 +1232,12 @@ export class DatabaseStorage implements IStorage {
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────
 
-  async getJournalEntries(limit: number = 50, type?: string): Promise<JournalEntry[]> {
+  async getJournalEntries(limit: number = 50, type?: string, connectionId?: string): Promise<JournalEntry[]> {
     const result = await this.db.select().from(journalEntries).orderBy(desc(journalEntries.createdAt)).limit(limit);
-    const all = result.map(e => this._mapJournalEntry(e));
-    return type ? all.filter(e => e.type === type) : all;
+    let all = result.map(e => this._mapJournalEntry(e));
+    if (type) all = all.filter(e => e.type === type);
+    if (connectionId) all = all.filter(e => e.connectionId === connectionId);
+    return all;
   }
   async getJournalEntry(id: string): Promise<JournalEntry | undefined> {
     const result = await this.db.select().from(journalEntries).where(eq(journalEntries.id, id));
@@ -1244,7 +1247,7 @@ export class DatabaseStorage implements IStorage {
   async createJournalEntry(insertEntry: InsertJournalEntry): Promise<JournalEntry> {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
-    const row = { ...insertEntry, id, createdAt, detail: insertEntry.detail ?? null, relatedPath: insertEntry.relatedPath ?? null, relatedLibraryItemId: insertEntry.relatedLibraryItemId ?? null, relatedConversationId: insertEntry.relatedConversationId ?? null, resolved: insertEntry.resolved ?? false };
+    const row = { ...insertEntry, id, createdAt, detail: insertEntry.detail ?? null, relatedPath: insertEntry.relatedPath ?? null, relatedLibraryItemId: insertEntry.relatedLibraryItemId ?? null, relatedConversationId: insertEntry.relatedConversationId ?? null, connectionId: insertEntry.connectionId ?? null, resolved: insertEntry.resolved ?? false };
     await this.db.insert(journalEntries).values(row);
     return { ...insertEntry, id, createdAt, resolved: insertEntry.resolved ?? false };
   }
@@ -1261,7 +1264,7 @@ export class DatabaseStorage implements IStorage {
     return result.map(e => this._mapJournalEntry(e));
   }
   private _mapJournalEntry(e: typeof journalEntries.$inferSelect): JournalEntry {
-    return { ...e, type: e.type as JournalEntry["type"], detail: e.detail ?? undefined, relatedPath: e.relatedPath ?? undefined, relatedLibraryItemId: e.relatedLibraryItemId ?? undefined, relatedConversationId: e.relatedConversationId ?? undefined, resolved: e.resolved ?? false };
+    return { ...e, type: e.type as JournalEntry["type"], detail: e.detail ?? undefined, relatedPath: e.relatedPath ?? undefined, relatedLibraryItemId: e.relatedLibraryItemId ?? undefined, relatedConversationId: e.relatedConversationId ?? undefined, connectionId: e.connectionId ?? undefined, resolved: e.resolved ?? false };
   }
 
   // ─── Conversation Flags ─────────────────────────────────────────────────────

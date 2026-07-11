@@ -23,11 +23,12 @@ import {
 } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { JournalEntry, JournalEntryType } from "@shared/schema";
+import type { JournalEntry, JournalEntryType, Connection } from "@shared/schema";
 
 interface JournalPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  connections?: Connection[];
 }
 
 const TYPE_LABELS: Record<JournalEntryType, string> = {
@@ -57,15 +58,6 @@ const TYPE_COLORS: Record<JournalEntryType, string> = {
   summary: "text-muted-foreground",
 };
 
-const BADGE_VARIANTS: Record<JournalEntryType, "default" | "secondary" | "destructive" | "outline"> = {
-  read: "secondary",
-  created: "secondary",
-  question: "secondary",
-  search: "secondary",
-  action: "secondary",
-  summary: "secondary",
-};
-
 function formatRelative(dateString: string) {
   const date = new Date(dateString);
   const now = new Date();
@@ -81,7 +73,29 @@ function formatRelative(dateString: string) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function EntryCard({ entry, onToggleResolved }: { entry: JournalEntry; onToggleResolved: (id: string, resolved: boolean) => void }) {
+function ResidentPill({ connectionId, connections }: { connectionId?: string; connections: Connection[] }) {
+  if (!connectionId) return null;
+  const conn = connections.find(c => c.id === connectionId);
+  if (!conn) return null;
+  const label = conn.residentEmoji
+    ? `${conn.residentEmoji} ${conn.residentName || conn.name}`
+    : conn.residentName || conn.name;
+  return (
+    <span className="text-xs text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5 shrink-0">
+      {label}
+    </span>
+  );
+}
+
+function EntryCard({
+  entry,
+  connections,
+  onToggleResolved,
+}: {
+  entry: JournalEntry;
+  connections: Connection[];
+  onToggleResolved: (id: string, resolved: boolean) => void;
+}) {
   const Icon = TYPE_ICONS[entry.type] || Zap;
   const colorClass = TYPE_COLORS[entry.type] || "text-muted-foreground";
 
@@ -104,10 +118,11 @@ function EntryCard({ entry, onToggleResolved }: { entry: JournalEntry; onToggleR
         {entry.relatedPath && (
           <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">{entry.relatedPath}</p>
         )}
-        <div className="flex items-center gap-2 mt-1.5">
-          <Badge variant={BADGE_VARIANTS[entry.type]} className="text-xs px-1.5 py-0">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          <Badge variant="secondary" className="text-xs px-1.5 py-0">
             {TYPE_LABELS[entry.type]}
           </Badge>
+          <ResidentPill connectionId={entry.connectionId} connections={connections} />
           {entry.type === "question" && (
             <Button
               variant="ghost"
@@ -128,15 +143,19 @@ function EntryCard({ entry, onToggleResolved }: { entry: JournalEntry; onToggleR
   );
 }
 
-export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
+export function JournalPanel({ open, onOpenChange, connections = [] }: JournalPanelProps) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [residentFilter, setResidentFilter] = useState<string>("all");
   const { toast } = useToast();
 
+  const connectionId = residentFilter !== "all" ? residentFilter : undefined;
+
   const { data: entries = [], isLoading } = useQuery<JournalEntry[]>({
-    queryKey: ["/api/journal", { type: typeFilter }],
+    queryKey: ["/api/journal", { type: typeFilter, connectionId }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "100" });
       if (typeFilter !== "all") params.set("type", typeFilter);
+      if (connectionId) params.set("connectionId", connectionId);
       const res = await fetch(`/api/journal?${params}`);
       return res.json();
     },
@@ -154,6 +173,8 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
 
   const openQuestions = entries.filter(e => e.type === "question" && !e.resolved);
 
+  const residents = connections.filter(c => c.residentName);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
@@ -163,7 +184,7 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
             Resident Journal
           </DialogTitle>
           <DialogDescription>
-            A visible record of what the resident has read, created, searched, and noted.
+            A visible record of what residents have read, created, searched, and noted.
           </DialogDescription>
         </DialogHeader>
 
@@ -179,11 +200,11 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="h-8 text-sm" data-testid="select-journal-filter">
+            <SelectTrigger className="h-8 text-sm flex-1" data-testid="select-journal-filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All entries</SelectItem>
+              <SelectItem value="all">All types</SelectItem>
               <SelectItem value="read">Read</SelectItem>
               <SelectItem value="created">Created</SelectItem>
               <SelectItem value="question">Questions</SelectItem>
@@ -192,7 +213,24 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
               <SelectItem value="summary">Summaries</SelectItem>
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground ml-auto">{entries.length} entries</span>
+
+          {residents.length > 0 && (
+            <Select value={residentFilter} onValueChange={setResidentFilter}>
+              <SelectTrigger className="h-8 text-sm flex-1" data-testid="select-journal-resident-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All residents</SelectItem>
+                {residents.map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.residentEmoji ? `${c.residentEmoji} ` : ""}{c.residentName || c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <span className="text-xs text-muted-foreground shrink-0">{entries.length}</span>
         </div>
 
         <ScrollArea className="flex-1 h-[420px]">
@@ -203,9 +241,11 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
           ) : entries.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <BookOpenCheck className="h-8 w-8 mx-auto mb-2" />
-              <p className="text-sm">Journal is empty</p>
+              <p className="text-sm">No entries</p>
               <p className="text-xs mt-1">
-                The journal fills automatically as the resident reads, creates, and searches.
+                {residentFilter !== "all"
+                  ? "This resident hasn't logged any activity yet."
+                  : "The journal fills automatically as residents read, create, and search."}
               </p>
             </div>
           ) : (
@@ -214,6 +254,7 @@ export function JournalPanel({ open, onOpenChange }: JournalPanelProps) {
                 <EntryCard
                   key={entry.id}
                   entry={entry}
+                  connections={connections}
                   onToggleResolved={(id, resolved) => updateMutation.mutate({ id, updates: { resolved } })}
                 />
               ))}

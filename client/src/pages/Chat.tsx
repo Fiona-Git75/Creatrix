@@ -380,7 +380,7 @@ function ChatContent({
           connections={connections}
         />
         <LibraryPanel open={libraryPanelOpen} onOpenChange={setLibraryPanelOpen} />
-        <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} />
+        <JournalPanel open={journalPanelOpen} onOpenChange={setJournalPanelOpen} connections={connections} />
         <SystemLogPanel open={systemLogOpen} onOpenChange={setSystemLogOpen} />
         <MomentsPanel
           open={momentsOpen}

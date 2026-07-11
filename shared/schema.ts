@@ -134,6 +134,7 @@ export const journalEntries = sqliteTable("journal_entries", {
   relatedPath: text("related_path"),
   relatedLibraryItemId: text("related_library_item_id"),
   relatedConversationId: text("related_conversation_id"),
+  connectionId: text("connection_id"),
   resolved: integer("resolved", { mode: "boolean" }).default(false),
   createdAt: text("created_at").notNull(),
 });
@@ -329,6 +330,7 @@ export const journalEntrySchema = z.object({
   relatedPath: z.string().optional(),
   relatedLibraryItemId: z.string().optional(),
   relatedConversationId: z.string().optional(),
+  connectionId: z.string().optional(),
   resolved: z.boolean().default(false),
   createdAt: z.string(),
 });
