@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Layers, Plus, Trash2, Loader2, Globe, User } from "lucide-react";
+import { Layers, Plus, Trash2, Loader2, Globe, User, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -146,6 +146,9 @@ export function ContinuityPanel({
     );
   };
 
+  const [globalCollapsed, setGlobalCollapsed] = useState(false);
+  const [residentCollapsed, setResidentCollapsed] = useState(false);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
@@ -164,10 +167,15 @@ export function ContinuityPanel({
             {/* Global continuity */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                <button
+                  className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+                  onClick={() => setGlobalCollapsed(v => !v)}
+                  data-testid="button-toggle-global-section"
+                >
+                  {globalCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   <Globe className="h-3.5 w-3.5" />
                   Environment
-                </div>
+                </button>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -179,20 +187,29 @@ export function ContinuityPanel({
                   Add
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mb-2">
-                Known by every resident. Collaboration preferences, project principles, environment culture.
-              </p>
-              <EntryList entries={globalEntries} loading={globalLoading} testPrefix="global" />
+              {!globalCollapsed && (
+                <>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Known by every resident. Collaboration preferences, project principles, environment culture.
+                  </p>
+                  <EntryList entries={globalEntries} loading={globalLoading} testPrefix="global" />
+                </>
+              )}
             </div>
 
             {/* Resident continuity */}
             {connectionId && (
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <button
+                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+                    onClick={() => setResidentCollapsed(v => !v)}
+                    data-testid="button-toggle-resident-section"
+                  >
+                    {residentCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     <User className="h-3.5 w-3.5" />
                     {residentLabel}
-                  </div>
+                  </button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -204,10 +221,14 @@ export function ContinuityPanel({
                     Add
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground mb-2">
-                  How this resident operates — working style, specialties, conventions with you.
-                </p>
-                <EntryList entries={residentEntries} loading={residentLoading} testPrefix="resident" />
+                {!residentCollapsed && (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      How this resident operates — working style, specialties, conventions with you.
+                    </p>
+                    <EntryList entries={residentEntries} loading={residentLoading} testPrefix="resident" />
+                  </>
+                )}
               </div>
             )}
           </div>
