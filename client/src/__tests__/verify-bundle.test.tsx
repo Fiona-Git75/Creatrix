@@ -1538,6 +1538,20 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
           `To fix: update BUNDLE_OUT to end with ".mjs" or ".js",\n` +
           `e.g. const BUNDLE_OUT = "dist/index.mjs";\n`,
       ).toBe(true);
+    } else if (format === "iife") {
+      expect(
+        value!.endsWith(".js"),
+        `\nBUNDLE_OUT value "${value}" is inconsistent with esbuild format "${format}".\n\n` +
+          `When format is "iife", the output file must use the ".js" extension.\n\n` +
+          `To fix, update both together:\n` +
+          `  1. Set BUNDLE_OUT to a ".js" path:\n` +
+          `       const BUNDLE_OUT = "dist/index.iife.js";\n` +
+          `  2. Keep format: "iife" in the esbuild call inside buildAll.\n` +
+          `  3. Confirm the serving layer (e.g. package.json "main" or the HTTP\n` +
+          `     server's static-file route) points at the new ".js" path.\n` +
+          `  4. Update the baseline format test below to expect "iife".\n` +
+          `  5. Run the full test suite to confirm no other checks break.\n`,
+      ).toBe(true);
     }
   });
 
