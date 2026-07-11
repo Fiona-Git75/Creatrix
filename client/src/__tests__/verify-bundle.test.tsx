@@ -665,6 +665,39 @@ function extractFunctionBody(src: string, name: string): string | null {
   return null; // unbalanced braces
 }
 
+/**
+ * Extract the brace-balanced body of the first `if` statement whose condition
+ * matches a given regex.  The regex is tested against the source starting from
+ * the beginning; when a match is found the scanner advances past it, skips to
+ * the next `{`, then walks character-by-character keeping a brace depth counter
+ * to find the matching `}`.  Returns the block text from `{` to `}` inclusive,
+ * or null when no match is found.
+ *
+ * Used to isolate a specific branch (e.g. `if (result.status !== 0) { ... }`)
+ * so assertions can be scoped to that branch rather than the full function body.
+ */
+function extractConditionBlock(src: string, conditionPattern: RegExp): string | null {
+  const match = conditionPattern.exec(src);
+  if (!match) return null;
+
+  // Advance past the matched condition to the opening brace of the block.
+  let i = match.index + match[0].length;
+  while (i < src.length && src[i] !== "{") i++;
+  if (i >= src.length) return null;
+
+  let depth = 0;
+  const start = i;
+  while (i < src.length) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+    i++;
+  }
+  return null; // unbalanced braces
+}
+
 describe("build.ts buildAll gate-call guard — runTests and runTypeCheck", () => {
   const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
   let buildSrc: string | null = null;
@@ -813,6 +846,163 @@ describe("build.ts buildAll gate-call guard — runTests and runTypeCheck", () =
         `\nA bundle integrity check that is never invoked from buildAll provides\n` +
         `no protection — a corrupt or oversized bundle will ship silently.\n`,
     ).toBeGreaterThan(0);
+  });
+});
+
+// ── process.exit guard for runTests and runTypeCheck ─────────────────────────
+//
+// runTests() and runTypeCheck() each spawn a subprocess and check the exit
+// status.  On a non-zero status they must call process.exit so the build
+// aborts immediately.  If someone replaces the exit call with a console.warn
+// or simply removes it, the build continues silently past a failing gate.
+//
+// These tests read build.ts as source text, extract each function body via the
+// shared brace-balanced scanner, and assert that process.exit appears within
+// that specific body — not merely somewhere else in the file.
+
+describe("build.ts process.exit guard — runTests and runTypeCheck abort on failure", () => {
+  const BUILD_TS_PATH = resolve(__dirname, "../../../script/build.ts");
+  let buildSrc: string | null = null;
+  try {
+    buildSrc = readFileSync(BUILD_TS_PATH, "utf-8");
+  } catch {
+    // buildSrc stays null; each test will surface a clear failure below.
+  }
+
+  function requireBuildSrcForExitGuard(): string {
+    expect(
+      buildSrc,
+      `script/build.ts was not found at the expected path:\n` +
+        `  ${BUILD_TS_PATH}\n` +
+        `If the file was renamed or relocated, update the path in:\n` +
+        `  client/src/__tests__/verify-bundle.test.tsx`,
+    ).not.toBeNull();
+    return buildSrc!;
+  }
+
+  /**
+   * The pattern that identifies the non-zero status branch inside each gate
+   * function.  It matches `if (result.status !== 0)` tolerating whitespace
+   * variants.  The closing `)` is included so `extractConditionBlock` can scan
+   * forward to find the opening `{` of the block.
+   */
+  const NON_ZERO_BRANCH_PATTERN =
+    /if\s*\(\s*result\s*\.\s*status\s*!==?\s*0\s*\)/;
+
+  /**
+   * Strip lines that are pure single-line comments (`// …`) so that
+   * `process.exit` appearing only in a commented-out line does not satisfy
+   * the assertion.
+   */
+  function stripLineComments(src: string): string {
+    return src
+      .split("\n")
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join("\n");
+  }
+
+  it("runTests contains a process.exit call inside the result.status !== 0 branch — removing it lets a failing test suite continue the build silently", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Step 1: isolate the runTests function body.
+    const body = extractFunctionBody(src, "runTests");
+    expect(
+      body,
+      `\nCould not extract the body of "runTests" from script/build.ts.\n\n` +
+        `The extractor looks for "function runTests(" or "async function runTests("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the gate-call guard describe block\n`,
+    ).not.toBeNull();
+
+    // Step 2: within that body, isolate the if (result.status !== 0) { ... } block.
+    const nonZeroBlock = extractConditionBlock(body!, NON_ZERO_BRANCH_PATTERN);
+    expect(
+      nonZeroBlock,
+      `\n"runTests" in script/build.ts does not contain an\n` +
+        `  if (result.status !== 0) { ... }\n` +
+        `branch that the extractor can find.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  if ( result.status !== 0 )  (whitespace-tolerant)\n` +
+        `followed by a brace-balanced block.  If the condition was rewritten\n` +
+        `(e.g. to result.status != 0, result.status > 0, or status !== 0)\n` +
+        `update NON_ZERO_BRANCH_PATTERN in this test to match the new form.\n`,
+    ).not.toBeNull();
+
+    // Step 3: assert process.exit appears as executable code — not only in
+    // single-line comments — within that specific branch block.
+    const executableBranchSrc = stripLineComments(nonZeroBlock!);
+    expect(
+      /\bprocess\.exit\s*\(/.test(executableBranchSrc),
+      `\nThe non-zero status branch of "runTests" in script/build.ts does not\n` +
+        `call process.exit().\n\n` +
+        `When the spawned test command exits with a non-zero status the build\n` +
+        `must abort immediately.  Without process.exit the build continues\n` +
+        `silently even when tests are failing.\n\n` +
+        `To fix:\n` +
+        `  1. Restore the process.exit call inside the non-zero branch:\n` +
+        `       if (result.status !== 0) {\n` +
+        `         console.error("tests failed — aborting build");\n` +
+        `         process.exit(result.status ?? 1);\n` +
+        `       }\n` +
+        `  2. Do not replace process.exit with console.warn or a thrown error\n` +
+        `     that is subsequently caught — both allow the build to continue.\n` +
+        `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
+        `     are filtered out by this test.\n`,
+    ).toBe(true);
+  });
+
+  it("runTypeCheck contains a process.exit call inside the result.status !== 0 branch — removing it lets broken TypeScript ship silently", () => {
+    const src = requireBuildSrcForExitGuard();
+
+    // Step 1: isolate the runTypeCheck function body.
+    const body = extractFunctionBody(src, "runTypeCheck");
+    expect(
+      body,
+      `\nCould not extract the body of "runTypeCheck" from script/build.ts.\n\n` +
+        `The extractor looks for "function runTypeCheck(" or "async function runTypeCheck("\n` +
+        `followed by a brace-balanced body.  If the function was renamed or\n` +
+        `restructured (e.g. converted to an arrow function), update:\n` +
+        `  1. This test's extractFunctionBody call\n` +
+        `  2. The definition guard pattern in the gate-call guard describe block\n`,
+    ).not.toBeNull();
+
+    // Step 2: within that body, isolate the if (result.status !== 0) { ... } block.
+    const nonZeroBlock = extractConditionBlock(body!, NON_ZERO_BRANCH_PATTERN);
+    expect(
+      nonZeroBlock,
+      `\n"runTypeCheck" in script/build.ts does not contain an\n` +
+        `  if (result.status !== 0) { ... }\n` +
+        `branch that the extractor can find.\n\n` +
+        `The test looks for the pattern:\n` +
+        `  if ( result.status !== 0 )  (whitespace-tolerant)\n` +
+        `followed by a brace-balanced block.  If the condition was rewritten\n` +
+        `(e.g. to result.status != 0, result.status > 0, or status !== 0)\n` +
+        `update NON_ZERO_BRANCH_PATTERN in this test to match the new form.\n`,
+    ).not.toBeNull();
+
+    // Step 3: assert process.exit appears as executable code — not only in
+    // single-line comments — within that specific branch block.
+    const executableBranchSrc = stripLineComments(nonZeroBlock!);
+    expect(
+      /\bprocess\.exit\s*\(/.test(executableBranchSrc),
+      `\nThe non-zero status branch of "runTypeCheck" in script/build.ts does not\n` +
+        `call process.exit().\n\n` +
+        `When the spawned tsc command exits with a non-zero status the build\n` +
+        `must abort immediately.  Without process.exit the build continues\n` +
+        `silently even when TypeScript compilation is failing.\n\n` +
+        `To fix:\n` +
+        `  1. Restore the process.exit call inside the non-zero branch:\n` +
+        `       if (result.status !== 0) {\n` +
+        `         console.error("type check failed — aborting build");\n` +
+        `         process.exit(result.status ?? 1);\n` +
+        `       }\n` +
+        `  2. Do not replace process.exit with console.warn or a thrown error\n` +
+        `     that is subsequently caught — both allow the build to continue.\n` +
+        `  3. Do not leave process.exit only in a comment — commented-out calls\n` +
+        `     are filtered out by this test.\n`,
+    ).toBe(true);
   });
 });
 
