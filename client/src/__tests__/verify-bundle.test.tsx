@@ -219,6 +219,16 @@ describe("checkBundleContents – bundled package leaks", () => {
     expect(errors[0]).toMatch(/"@notionhq\/client"/);
   });
 
+  it("detects the leak for a scoped bundled package with double-quote non-padded require() — e.g. require(\"@scope/pkg\")", () => {
+    const SCOPED_BUNDLED = ["@notionhq/client"] as const;
+    const bundle = makeValidBundle(EXTERNAL, MIN) + ` require("@notionhq/client")`;
+    const { errors } = checkBundleContents(bundle, SCOPED_BUNDLED, EXTERNAL, MIN);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/BUNDLED CHECK FAIL/);
+    expect(errors[0]).toMatch(/"@notionhq\/client"/);
+  });
+
   it("passes cleanly when no allowlisted package appears as require()", () => {
     const bundle = makeValidBundle(EXTERNAL, MIN);
     const { errors } = checkBundleContents(bundle, BUNDLED, EXTERNAL, MIN);
