@@ -1038,6 +1038,42 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBe(0);
   });
 
+  // ── 7l. deleteMemoryEntry returns false when the entry does not exist ─────────
+  //
+  // The original implementation returned true unconditionally. This test
+  // confirms that deleting a non-existent id returns false, and that
+  // deleting an existing entry still returns true.
+
+  it("deleteMemoryEntry returns false for a non-existent id and true for an existing one", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Deleting an id that was never inserted must return false
+    const missingResult = await storage.deleteMemoryEntry("does-not-exist-ever");
+    expect(
+      missingResult,
+      "deleteMemoryEntry must return false when the entry does not exist",
+    ).toBe(false);
+
+    // Insert a real entry then delete it — must return true
+    const entry = await storage.createMemoryEntry({
+      scope: "global",
+      content: "delete-me-value",
+    });
+    const presentResult = await storage.deleteMemoryEntry(entry.id);
+    expect(
+      presentResult,
+      "deleteMemoryEntry must return true when the entry exists and was deleted",
+    ).toBe(true);
+
+    // The entry must no longer be retrievable
+    const after = await storage.getMemoryEntries("global");
+    expect(
+      after.find(e => e.id === entry.id),
+      "deleted entry must not appear in subsequent getMemoryEntries results",
+    ).toBeUndefined();
+  });
+
 });
 
 // ── Fresh-install path ────────────────────────────────────────────────────────

@@ -968,6 +968,8 @@ export class DatabaseStorage implements IStorage {
     return { ...insertEntry, id, createdAt };
   }
   async deleteMemoryEntry(id: string): Promise<boolean> {
+    const existing = await this.db.select({ id: memoryEntries.id }).from(memoryEntries).where(eq(memoryEntries.id, id));
+    if (existing.length === 0) return false;
     await this.db.delete(memoryEntries).where(eq(memoryEntries.id, id));
     return true;
   }
