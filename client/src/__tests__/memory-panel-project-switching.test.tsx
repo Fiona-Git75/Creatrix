@@ -606,4 +606,88 @@ describe("MemoryPanel — switching conversations shows isolated entries", () =>
       "conv-A entry must not appear after conv-B data arrives",
     ).toBeNull();
   });
+
+  it("global tab shows spinner and no stale entries while global fetch is in-flight after a conversation switch", async () => {
+    // Deferred promise to control when the global response resolves.
+    let resolveGlobal!: (entries: MemoryEntry[]) => void;
+    const globalPending = new Promise<MemoryEntry[]>(res => { resolveGlobal = res; });
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const params = new URLSearchParams(url.split("?")[1] ?? "");
+        const scope = params.get("scope");
+        const scopeId = params.get("scopeId");
+
+        // Global fetch is artificially delayed
+        if (scope === "global") {
+          return globalPending.then(data =>
+            new Response(JSON.stringify(data), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        // All other fetches resolve immediately
+        let data: MemoryEntry[] = [];
+        if (scope === "conversation" && scopeId === "conv-a") data = [CONV_A_ENTRY];
+        else if (scope === "conversation" && scopeId === "conv-b") data = [CONV_B_ENTRY];
+        return Promise.resolve(
+          new Response(JSON.stringify(data), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    const { rerender } = renderPanel(client, { conversationId: "conv-a" });
+
+    // The global tab is active by default; while global fetch is pending, a spinner
+    // must be shown and no stale global content must be visible.
+    expect(
+      screen.queryByTestId("spinner-memory-global"),
+      "loading spinner must be shown for the global tab while global fetch is in-flight",
+    ).not.toBeNull();
+
+    expect(
+      screen.queryByText(GLOBAL_ENTRY.content),
+      "global entry must not be visible while global fetch is in-flight",
+    ).toBeNull();
+
+    // Switch to conv-b while global is still pending — spinner must remain
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryPanel
+          open={true}
+          onOpenChange={vi.fn()}
+          projectId={null}
+          conversationId="conv-b"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.queryByTestId("spinner-memory-global"),
+      "loading spinner must still be shown on the global tab after conversation switch, before global resolves",
+    ).not.toBeNull();
+
+    expect(
+      screen.queryByText(GLOBAL_ENTRY.content),
+      "global entry must still not be visible after conversation switch while fetch is in-flight",
+    ).toBeNull();
+
+    // Resolve the global fetch — content must appear
+    resolveGlobal([GLOBAL_ENTRY]);
+    await waitFor(() => {
+      expect(screen.queryByText(GLOBAL_ENTRY.content)).not.toBeNull();
+    });
+
+    expect(
+      screen.queryByTestId("spinner-memory-global"),
+      "spinner must be gone after global data arrives",
+    ).toBeNull();
+  });
 });
