@@ -938,6 +938,38 @@ describe("DatabaseStorage – SQLite persistence across restart", () => {
     ).toBe(0);
   });
 
+  // ── 7i. clearMemory('global') returns false when the global scope is already empty ──
+  //
+  // If the global scope has no entries, clearMemory should return false to
+  // signal that nothing was actually deleted. An incorrect `true` here would
+  // mislead callers into thinking a deletion occurred when it did not.
+
+  it("clearMemory('global') returns false — not true — when the global scope is already empty", async () => {
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    // Confirm no global entries exist on a fresh storage instance
+    const before = await storage.getMemoryEntries("global");
+    expect(
+      before.length,
+      "global scope must be empty before the test begins",
+    ).toBe(0);
+
+    // Call clearMemory("global") with nothing to delete
+    const result = await storage.clearMemory("global");
+    expect(
+      result,
+      "clearMemory('global') must return false when the global scope is already empty",
+    ).toBe(false);
+
+    // Global scope must still be empty afterward
+    const after = await storage.getMemoryEntries("global");
+    expect(
+      after.length,
+      "global scope must remain empty after clearMemory on an already-empty scope",
+    ).toBe(0);
+  });
+
 });
 
 // ── Fresh-install path ────────────────────────────────────────────────────────

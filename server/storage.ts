@@ -923,9 +923,15 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
   async clearMemory(scope: string, scopeId?: string): Promise<boolean> {
-    if (scope === "global") await this.db.delete(memoryEntries).where(eq(memoryEntries.scope, "global"));
-    else if (scope === "project" && scopeId) await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "project"), eq(memoryEntries.projectId, scopeId)));
-    else if (scope === "conversation" && scopeId) await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "conversation"), eq(memoryEntries.conversationId, scopeId)));
+    if (scope === "global") {
+      const existing = await this.db.select({ id: memoryEntries.id }).from(memoryEntries).where(eq(memoryEntries.scope, "global"));
+      if (existing.length === 0) return false;
+      await this.db.delete(memoryEntries).where(eq(memoryEntries.scope, "global"));
+    } else if (scope === "project" && scopeId) {
+      await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "project"), eq(memoryEntries.projectId, scopeId)));
+    } else if (scope === "conversation" && scopeId) {
+      await this.db.delete(memoryEntries).where(and(eq(memoryEntries.scope, "conversation"), eq(memoryEntries.conversationId, scopeId)));
+    }
     return true;
   }
 
