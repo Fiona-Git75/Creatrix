@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ConnectionsDialog } from "@/components/ConnectionsDialog";
+import { ResidentsPanel } from "@/components/ResidentsPanel";
 import { ChatMessage, type Message } from "@/components/ChatMessage";
 import { ChatInput, type AttachedImage } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
@@ -76,7 +77,8 @@ function ConnectionGroup({
     <>
       <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-2 py-1.5">
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
-        {conn.name}
+        {conn.residentEmoji && <span className="text-sm leading-none">{conn.residentEmoji}</span>}
+        {conn.residentName || conn.name}
       </DropdownMenuLabel>
       {isLoading ? (
         <DropdownMenuItem disabled className="pl-5">
@@ -173,6 +175,7 @@ function ChatContent({
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [systemLogOpen, setSystemLogOpen] = useState(false);
   const [momentsOpen, setMomentsOpen] = useState(false);
+  const [residentsOpen, setResidentsOpen] = useState(false);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [docPanelWidth, setDocPanelWidth] = useState(480);
   const [focusMode, setFocusMode] = useState(false);
@@ -260,6 +263,7 @@ function ChatContent({
         onOpenDocs={() => onDocChange(null)}
         onOpenMoments={() => setMomentsOpen(true)}
         onOpenSystemLog={() => setSystemLogOpen(true)}
+        onOpenResidents={() => setResidentsOpen(true)}
       />
 
       <div className="flex flex-row flex-1 min-w-0">
@@ -387,6 +391,7 @@ function ChatContent({
           onOpenChange={setMomentsOpen}
           onSelectConversation={onSelectConversation}
         />
+        <ResidentsPanel open={residentsOpen} onOpenChange={setResidentsOpen} />
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}

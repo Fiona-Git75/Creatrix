@@ -40,7 +40,7 @@ export function ContinuityPanel({
   const { toast } = useToast();
 
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
-  const residentLabel = activeConnection?.residentName ?? activeConnection?.name ?? "This Resident";
+  const residentLabel = activeConnection?.residentName ?? "This Resident";
 
   const invalidate = () =>
     queryClient.invalidateQueries({
