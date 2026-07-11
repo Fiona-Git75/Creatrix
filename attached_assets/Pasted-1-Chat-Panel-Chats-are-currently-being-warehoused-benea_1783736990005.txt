@@ -1,0 +1,23 @@
+1. Chat Panel
+Chats are currently being warehoused beneath active projects. Now if I was a linear thinking and only ever had project related conversations, that might be nice. It might be nice if I could choose that if I *was* working on a specific project ... but there are implications. 1. That my conversation is single focused (rare) 2. That I would have to start a new conversation if I switched projects (clunky) 3. That conversations that aren't project related are incidental (false).
+
+2. Library - testing affordances versus reality
+Files: Mirrors my workhub drive - perfect. Parent folders are visible. Perfect. However, opening a parent folder = hanging,not loading to expose what is in the folders
+
+Notion: Searching a known project in Notion ie: Anavere, creates a hanging state. Can Creatrix say: “I found Anavere. Here is the object.” At the very least, I would be expecting to see Anavere: and the URL link. Better still would be the Notion indexing for that project, and model access. After some time an error message surfaced, and the Notion capability requirement was not met 
+Could not connect to Notion. 400: {"error":"capability is required"}
+This could be The Notion integration backend is complete enough for agent invocation, but the direct human Library workflow may be incomplete or bypassing the capability context.
+
+Collections: I can make a collection ie. Anavere Flora. I cannot add anything to that collection. There should be a drop down - probably the same drop down that exists to add a note/URL/file links etc, under the Collection. Right now collection is the suggestion of an idea. If I make a document outside of collections, which could also work, there needs to be an option to "Add to collection" Also, if I then "add item" ie. Notion link to Anavere Flora, it saves link but does not expose it anywhere. 
+Collections need membership management.
+
+Required behaviours:
+
+Create collection.
+Add existing Library items to collection.
+Add new Library items directly into collection.
+Display collection contents.
+Display an item's collection memberships.
+Preserve canonical source relationships (URL/path/reference rather than duplicate content).
+
+Deletion Option: There should be an "X" to remove any item in the library if it is no longer useful. 

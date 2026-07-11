@@ -93,11 +93,10 @@ export function AppSidebar({
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) ?? null;
 
-  const filteredConversations = selectedProjectId
-    ? conversations.filter((c) => c.projectId === selectedProjectId)
-    : conversations;
+  // Always show all conversations — project selection sets AI context, not a view filter
+  const filteredConversations = conversations;
 
-  const conversationLabel = selectedProject ? selectedProject.name : "Conversations";
+  const conversationLabel = "Conversations";
 
   return (
     <>

@@ -180,8 +180,64 @@ function AddToProjectDialog({ filePath, title, open, onClose }: { filePath: stri
   );
 }
 
+function MoveToCollectionDialog({ item, open, onClose }: { item: LibraryItem; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [selectedFolderId, setSelectedFolderId] = useState(item.folderId ?? "none");
+
+  const { data: folders = [] } = useQuery<LibraryFolder[]>({ queryKey: ["/api/library/folders"], enabled: open });
+
+  const moveMutation = useMutation({
+    mutationFn: async () => {
+      const folderId = selectedFolderId === "none" ? null : selectedFolderId;
+      const res = await apiRequest("PATCH", `/api/library/items/${item.id}`, { folderId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/items"] });
+      toast({ title: "Collection updated" });
+      onClose();
+    },
+    onError: () => toast({ title: "Could not update collection", variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Move to Collection</DialogTitle>
+          <DialogDescription className="truncate text-xs">{item.title}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Collection</label>
+          <Select value={selectedFolderId} onValueChange={setSelectedFolderId}>
+            <SelectTrigger data-testid="select-move-to-collection">
+              <SelectValue placeholder="No collection" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No collection</SelectItem>
+              {folders.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => moveMutation.mutate()}
+            disabled={moveMutation.isPending}
+            data-testid="button-confirm-move-collection"
+          >
+            {moveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Move"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string) => void }) {
   const [addToProjectOpen, setAddToProjectOpen] = useState(false);
+  const [moveToCollectionOpen, setMoveToCollectionOpen] = useState(false);
   const isImage = item.source === "file" && isImagePath(item.filePath);
   return (
     <div
@@ -225,12 +281,12 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
           ))}
         </div>
       </div>
-      <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100">
+      <div className="flex flex-col gap-1 shrink-0">
         {item.filePath && (
           <Button
             size="icon"
             variant="ghost"
-            className="h-6 w-6"
+            className="h-6 w-6 opacity-0 group-hover:opacity-100"
             title="Add to project context"
             onClick={() => setAddToProjectOpen(true)}
             data-testid={`button-add-to-project-${item.id}`}
@@ -241,8 +297,19 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
         <Button
           size="icon"
           variant="ghost"
-          className="h-6 w-6"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+          title="Move to collection"
+          onClick={() => setMoveToCollectionOpen(true)}
+          data-testid={`button-move-collection-${item.id}`}
+        >
+          <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
           onClick={() => onDelete(item.id)}
+          title="Remove from library"
           data-testid={`button-delete-library-item-${item.id}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -256,6 +323,11 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
           onClose={() => setAddToProjectOpen(false)}
         />
       )}
+      <MoveToCollectionDialog
+        item={item}
+        open={moveToCollectionOpen}
+        onClose={() => setMoveToCollectionOpen(false)}
+      />
     </div>
   );
 }
@@ -324,7 +396,7 @@ function NotionBrowser({ onImport }: { onImport: (item: NotionResult) => void })
     queryFn: async () => {
       if (!submitted.trim()) return { results: [] };
       const res = await apiRequest("POST", "/api/capabilities/invoke", {
-        name: "notion_search",
+        capability: "notion_search",
         args: { query: submitted, maxResults: 20 },
       });
       return res.json();
@@ -433,7 +505,7 @@ function FilesystemBrowser({ onImport, onScanFolder }: { onImport: (entry: FsEnt
   const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
   const { toast } = useToast();
 
-  const { data, isLoading, error } = useQuery<FsBrowseResult>({
+  const { data, isLoading, isFetching, error } = useQuery<FsBrowseResult>({
     queryKey: ["/api/filesystem/browse", currentPath],
     queryFn: async () => {
       const params = currentPath ? `?path=${encodeURIComponent(currentPath)}` : "";
@@ -480,6 +552,7 @@ function FilesystemBrowser({ onImport, onScanFolder }: { onImport: (entry: FsEnt
       {/* Breadcrumb + Scan button */}
       <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
         <div className="flex items-center gap-1 flex-1 flex-wrap">
+          {isFetching && !isLoading && <Loader2 className="h-3 w-3 animate-spin shrink-0" />}
           <button
             className="hover:text-foreground transition-colors font-medium"
             onClick={() => setCurrentPath(undefined)}
@@ -580,6 +653,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
   const [newFilePath, setNewFilePath] = useState("");
   const [newNotes, setNewNotes] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderId, setNewFolderId] = useState<string>("");
   const { toast } = useToast();
 
   const { data: folders = [], isLoading: loadingFolders } = useQuery<LibraryFolder[]>({
@@ -842,7 +916,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
       {/* Add Item Dialog */}
       <Dialog open={addItemOpen} onOpenChange={(v) => {
         setAddItemOpen(v);
-        if (!v) { setNewTitle(""); setNewContent(""); setNewFilePath(""); setNewNotes(""); setNewSource("note"); }
+        if (!v) { setNewTitle(""); setNewContent(""); setNewFilePath(""); setNewNotes(""); setNewSource("note"); setNewFolderId(""); }
       }}>
         <DialogContent>
           <DialogHeader>
@@ -908,17 +982,33 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                 data-testid="input-library-notes"
               />
             </div>
+            {folders.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Collection <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <Select value={newFolderId} onValueChange={setNewFolderId}>
+                  <SelectTrigger data-testid="select-library-collection">
+                    <SelectValue placeholder="No collection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No collection</SelectItem>
+                    {folders.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddItemOpen(false)}>Cancel</Button>
             <Button
               onClick={() => {
+                const folderId = newFolderId && newFolderId !== "none" ? newFolderId : undefined;
                 if (newSource === "file") {
                   createItemMutation.mutate({
                     title: newTitle,
                     source: "file",
                     filePath: newFilePath,
                     notes: newNotes || undefined,
+                    folderId,
                   });
                 } else {
                   createItemMutation.mutate({
@@ -927,6 +1017,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                     content: newContent,
                     summary: newContent.slice(0, 200),
                     notes: newNotes || undefined,
+                    folderId,
                   });
                 }
               }}
