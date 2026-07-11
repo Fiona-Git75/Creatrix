@@ -636,13 +636,19 @@ export class DatabaseStorage implements IStorage {
         const stmt = rawStmt.trim();
         if (!stmt) continue;
 
-        // Skip segments that contain only SQL line-comments (-- ...) and
-        // whitespace.  Passing a bare comment to @libsql/client raises
-        // SQLITE_UNKNOWN_0 ("not an error") which would otherwise be
-        // re-thrown as a migration failure, permanently blocking any
-        // subsequent migrations in the journal.  A comment-only segment
-        // is a valid no-op placeholder and should be treated as such.
+        // Skip segments that contain only SQL comments and whitespace.
+        // Passing a bare comment to @libsql/client raises SQLITE_UNKNOWN_0
+        // ("not an error") which would otherwise be re-thrown as a migration
+        // failure, permanently blocking any subsequent migrations in the
+        // journal.  A comment-only segment is a valid no-op placeholder and
+        // should be treated as such.
+        //
+        // Two comment forms are stripped before the emptiness check:
+        //   • Line comments:  -- …   (stripped per-line)
+        //   • Block comments: /* … */ (may span multiple lines; stripped
+        //     with a non-greedy regex before the line split)
         const executableLines = stmt
+          .replace(/\/\*[\s\S]*?\*\//g, "") // strip /* ... */ block comments
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0 && !line.startsWith("--"));

@@ -2855,6 +2855,72 @@ describe("DatabaseStorage – comment-only migration file is skipped and tag is 
     await client.close();
   });
 
+  it("resolves and records the tag when the SQL file contains only block comments (/* ... */) and whitespace", async () => {
+    // Block comments are the second comment form SQL supports.  The earlier
+    // guard only stripped "-- …" line comments; a file made entirely of
+    // /* ... */ spans would previously bypass the filter and be sent to
+    // @libsql/client, raising SQLITE_UNKNOWN_0 and permanently blocking the
+    // migration journal.  This test confirms the updated guard handles both.
+    const storage = new DatabaseStorage();
+    await storage.initialize();
+
+    const metaDir = join(tmpMigrationsDir, "meta");
+    mkdirSync(metaDir, { recursive: true });
+
+    const journal = {
+      version: "7",
+      dialect: "sqlite",
+      entries: [
+        {
+          idx: 0,
+          version: "6",
+          when: 9999000000009,
+          tag: "0009_block_comment_only_placeholder",
+          breakpoints: true,
+        },
+      ],
+    };
+    writeFileSync(join(metaDir, "_journal.json"), JSON.stringify(journal));
+
+    // The SQL file is valid UTF-8 text but contains no executable statements.
+    // It uses only block-comment spans and whitespace to exercise the new path.
+    const blockCommentOnlySql = [
+      "/* This migration is intentionally left as a placeholder. */",
+      "",
+      "/*",
+      " * Multi-line block comment.",
+      " * No schema changes are introduced here.",
+      " */",
+      "",
+      "   ",
+      "/* Another single-line block comment. */",
+      "",
+    ].join("\n");
+
+    const sqlFileName = "0009_block_comment_only_placeholder.sql";
+    writeFileSync(join(tmpMigrationsDir, sqlFileName), blockCommentOnlySql);
+
+    // _runMigrations must RESOLVE — block-comment-only segments are skipped
+    // without calling the driver, so no SQLITE_UNKNOWN_0 is raised.
+    await expect(
+      (storage as any)._runMigrations(tmpMigrationsDir),
+      "block-comment-only migration file should resolve without throwing"
+    ).resolves.toBeUndefined();
+
+    // The tag MUST be recorded so the runner never retries it on the next restart.
+    const client = createClient({ url: `file:${dbPath}` });
+    const result = await client.execute(
+      "SELECT tag FROM __creatrix_migrations WHERE tag = '0009_block_comment_only_placeholder'"
+    );
+    expect(
+      result.rows.length,
+      "tag must be recorded after a block-comment-only migration is skipped"
+    ).toBe(1);
+    expect(result.rows[0]["tag"]).toBe("0009_block_comment_only_placeholder");
+
+    await client.close();
+  });
+
   it("applies the real DDL when a single segment begins with comment lines then contains a real ALTER TABLE", async () => {
     // This confirms the comment-stripping logic is not too aggressive: a segment
     // that has comment lines at the top but also contains real DDL must still
