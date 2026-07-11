@@ -299,4 +299,22 @@ describe("DELETE /api/memory (bulk clear by scope)", () => {
     expect(status, "status must be 500 when clearMemory throws").toBe(500);
     expect(body).toMatchObject({ error: expect.any(String) });
   });
+
+  it("returns 404 when clearMemory returns false for a project scope with a scopeId", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(false);
+
+    const { status, body } = await clearMemory({ scope: "project", scopeId: "missing-project-id" });
+
+    expect(status, "status must be 404 when no entries matched the project scope").toBe(404);
+    expect(body).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 404 when clearMemory returns false for a conversation scope with a scopeId", async () => {
+    mockStorage.clearMemory.mockResolvedValueOnce(false);
+
+    const { status, body } = await clearMemory({ scope: "conversation", scopeId: "missing-conversation-id" });
+
+    expect(status, "status must be 404 when no entries matched the conversation scope").toBe(404);
+    expect(body).toMatchObject({ error: expect.any(String) });
+  });
 });
