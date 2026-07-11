@@ -225,4 +225,17 @@ describe("DELETE /api/memory/:id", () => {
     expect(status, "status must be 204 on successful delete").toBe(204);
     expect(body, "body must be null/empty for 204").toBeNull();
   });
+
+  it("returns 500 with a structured error body when deleteMemoryEntry throws — not a silent crash", async () => {
+    mockStorage.deleteMemoryEntry.mockRejectedValueOnce(
+      new Error("database connection lost"),
+    );
+
+    const { status, body } = await deleteMemory("any-id");
+
+    expect(status, "status must be 500 when the db throws").toBe(500);
+    expect(body, "body must contain an error field").toMatchObject({
+      error: expect.any(String),
+    });
+  });
 });
