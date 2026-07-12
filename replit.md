@@ -93,6 +93,32 @@ The project is hosted on GitHub at **https://github.com/Fiona-Git75/Creatrix**.
 
 > ⚠️ **Platform issue (Replit support ticket open):** Replit's platform-level GitHub binding is incorrectly set to the non-existent `Kitt-Kaleen/Creatrix-UI`. This is a Replit-side configuration failure — automatic checkpoint sync to GitHub is not working until support resolves it. The correct repository is `Fiona-Git75/Creatrix`.
 
+### Replit agent git identity
+
+Replit task agents set `GIT_CONFIG_GLOBAL` to `/run/replit/user/<uid>/.config/git/config` (not `~/.gitconfig`). That directory is empty by default, so any git operation requiring identity (commit, tag, amend) fails with "could not lock config file". The fix is:
+
+```bash
+mkdir -p /run/replit/user/$(id -u)/.config/git
+cat > /run/replit/user/$(id -u)/.config/git/config << 'EOF'
+[user]
+        name = Replit Agent
+        email = agent@replit.dev
+EOF
+```
+
+This must be re-applied in each new agent sandbox (the `/run` filesystem is ephemeral).
+
+### Manually pushing to GitHub and refreshing the tracking ref
+
+Replit's automatic checkpoint sync to GitHub is broken (see above). To push manually from within the Replit shell:
+
+```bash
+git push origin main
+git fetch origin          # sets origin/main tracking ref so git log origin/main..HEAD works
+```
+
+After each manual push, run `git fetch origin` so the local tracking ref is up to date. Without it, `git log origin/main..HEAD` fails with "unknown revision".
+
 ### First-time setup (one time only)
 
 If you downloaded the files manually, open a terminal in your project folder on your desktop and run:

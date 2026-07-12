@@ -10,3 +10,4 @@
 - [Provenance annotation convention](provenance-convention.md) — symbolic anchor comments at integration boundaries; canonical/derives/overrides/consumed-by; never line numbers.
 - [Service runtime architecture](service-runtime-arch.md) — each service owns its probe, failure interpretation, and firstLook hint; coherence.ts only reads state; HTTP 200 ≠ ready.
 - [SQLite migration](sqlite-migration.md) — PostgreSQL replaced by SQLite via @libsql/client + drizzle-orm/libsql; better-sqlite3 won't compile in Replit (no Python/node-gyp).
+- [Replit git identity](replit-git-identity.md) — GIT_CONFIG_GLOBAL points to /run/replit/user/<uid>/.config/git/config (ephemeral); must mkdir+write it each sandbox to avoid "could not lock config file" on commit.
