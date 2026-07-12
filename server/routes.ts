@@ -742,27 +742,35 @@ export async function registerRoutes(
       const {
         conversationId: _cid, projectId: _pid, connectionId: _connid, message, model: _model,
         imageBase64s: _imageBase64s, imageMimeTypes: _imageMimeTypes,
+        respondingConnectionId: _respondingConnId,
+        skipUserMessage,
       } = parsed.data;
       const imageBase64s = _imageBase64s ?? [];
       const imageMimeTypes = _imageMimeTypes ?? [];
       // Normalize null → undefined so storage functions receive string | undefined
-      const conversationId = _cid ?? undefined;
-      const projectId      = _pid ?? undefined;
-      const connectionId   = _connid ?? undefined;
-      const model          = _model ?? undefined;
+      const conversationId       = _cid ?? undefined;
+      const projectId            = _pid ?? undefined;
+      const connectionId         = _connid ?? undefined;
+      const model                = _model ?? undefined;
+      const respondingConnectionId = _respondingConnId ?? undefined;
 
-      // Get connection
-      let connection;
+      // Get primary connection (establishes the conversation's resident)
+      let primaryConnection;
       if (connectionId) {
-        connection = await storage.getConnection(connectionId);
+        primaryConnection = await storage.getConnection(connectionId);
       } else {
-        connection = await storage.getDefaultConnection();
+        primaryConnection = await storage.getDefaultConnection();
       }
 
-      if (!connection) {
+      if (!primaryConnection) {
         syslog("warn", "chat", "Chat attempted with no connection configured");
         return res.status(400).json({ error: "No connection configured" });
       }
+
+      // Council mode: use the responding connection if specified and different from primary
+      const connection = respondingConnectionId && respondingConnectionId !== primaryConnection.id
+        ? (await storage.getConnection(respondingConnectionId)) ?? primaryConnection
+        : primaryConnection;
 
       const selectedModel = model || connection.defaultModel;
       
@@ -786,19 +794,23 @@ export async function registerRoutes(
         }
       }
 
-      // Add user message
-      const userMessage: Message = {
-        id: randomUUID(),
-        role: "user",
-        content: message,
-        ...(imageBase64s.length > 0 && {
-          images: imageBase64s.map((base64, i) => ({
-            base64,
-            mimeType: imageMimeTypes[i] ?? "image/jpeg",
-          })),
-        }),
-      };
-      await storage.addMessageToConversation(currentConversationId, userMessage);
+      // Add user message (skipped in council mode when guest is responding to existing last message)
+      let userMessageId: string | undefined;
+      if (!skipUserMessage) {
+        const userMessage: Message = {
+          id: randomUUID(),
+          role: "user",
+          content: message,
+          ...(imageBase64s.length > 0 && {
+            images: imageBase64s.map((base64, i) => ({
+              base64,
+              mimeType: imageMimeTypes[i] ?? "image/jpeg",
+            })),
+          }),
+        };
+        await storage.addMessageToConversation(currentConversationId, userMessage);
+        userMessageId = userMessage.id;
+      }
 
       // Update title if this is the first message
       if (conversation.messages.length === 0) {
@@ -932,6 +944,20 @@ export async function registerRoutes(
           }
           if (connection.residentDescription) {
             systemParts.push(`\n## Orientation\n${connection.residentDescription}`);
+          }
+        }
+
+        // Council mode: if a second resident is in this conversation, tell each model who else is present
+        const convoForCouncil = await storage.getConversation(currentConversationId);
+        const guestConnId = convoForCouncil?.guestConnectionId;
+        if (guestConnId) {
+          const otherConnId = connection.id === primaryConnection.id ? guestConnId : primaryConnection.id;
+          const otherConn = await storage.getConnection(otherConnId);
+          if (otherConn) {
+            const otherLabel = otherConn.residentName ?? otherConn.name;
+            const otherEmoji = otherConn.residentEmoji ? `${otherConn.residentEmoji} ` : "";
+            const otherRole = otherConn.residentRole ? ` (${otherConn.residentRole})` : "";
+            systemParts.push(`\n## Council Conversation\nYou are in a council conversation alongside ${otherEmoji}**${otherLabel}**${otherRole}. Both of you can see the full conversation thread. Their responses appear prefixed with [${otherLabel}]. Engage with each other's ideas when it adds value — you are collaborators, not just parallel responders.`);
           }
         }
       }
@@ -1259,12 +1285,14 @@ export async function registerRoutes(
           }
         }
 
-        // Save complete assistant message (with provenance sources)
+        // Save complete assistant message (with provenance sources + council attribution)
         const assistantMessage: Message = {
           id: assistantMessageId,
           role: "assistant",
           content: fullContent,
           ...(sources.length > 0 ? { sources } : {}),
+          // Council mode: tag which connection produced this message
+          ...(connection.id ? { connectionId: connection.id } : {}),
         };
         await storage.addMessageToConversation(currentConversationId, assistantMessage);
 

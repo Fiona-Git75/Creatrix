@@ -54,6 +54,7 @@ export const conversations = sqliteTable("conversations", {
   title: text("title").notNull(),
   projectId: text("project_id"),
   connectionId: text("connection_id"),
+  guestConnectionId: text("guest_connection_id"),  // Council mode: second resident
   model: text("model").notNull(),
   messages: text("messages").notNull().default("[]"),  // JSON-encoded Message[]
   createdAt: text("created_at").notNull(),
@@ -213,6 +214,8 @@ export const messageSchema = z.object({
   createdAt: z.string().optional(),
   sources: z.array(sourceSchema).optional(),
   images: z.array(messageImageSchema).optional(),
+  // Council mode: which connection produced this assistant message
+  connectionId: z.string().optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 
@@ -221,6 +224,8 @@ export const conversationSchema = z.object({
   title: z.string(),
   projectId: z.string().optional(),
   connectionId: z.string().optional(),
+  // Council mode: a second resident invited into the conversation
+  guestConnectionId: z.string().optional(),
   model: z.string(),
   messages: z.array(messageSchema),
   createdAt: z.string(),
@@ -267,6 +272,10 @@ export const chatRequestSchema = z.object({
   conversationId: z.string().nullish(),
   projectId: z.string().nullish(),
   connectionId: z.string().nullish(),
+  // Council mode: which connection should respond to this specific message
+  respondingConnectionId: z.string().nullish(),
+  // Council mode: skip adding a new user message (guest responding to existing last user message)
+  skipUserMessage: z.boolean().optional(),
   message: z.string().min(1),
   model: z.string().nullish(),
   imageBase64s: z.array(z.string()).optional(),

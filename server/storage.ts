@@ -56,7 +56,7 @@ export interface IStorage {
   getConversations(projectId?: string): Promise<Conversation[]>;
   getConversation(id: string): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation): Promise<Conversation>;
-  updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId'>>): Promise<Conversation | undefined>;
+  updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined>;
   deleteConversation(id: string): Promise<boolean>;
   addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined>;
 
@@ -271,7 +271,7 @@ export class MemStorage implements IStorage {
     this.conversations.set(id, conversation);
     return conversation;
   }
-  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId'>>): Promise<Conversation | undefined> {
+  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined> {
     const conversation = this.conversations.get(id);
     if (!conversation) return undefined;
     const updated: Conversation = { ...conversation, ...updates, updatedAt: new Date().toISOString() };
@@ -1001,13 +1001,13 @@ export class DatabaseStorage implements IStorage {
     const result = projectId !== undefined
       ? await this.db.select().from(conversations).where(eq(conversations.projectId, projectId)).orderBy(desc(conversations.updatedAt))
       : await this.db.select().from(conversations).orderBy(desc(conversations.updatedAt));
-    return result.map(c => ({ ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) }));
+    return result.map(c => ({ ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, guestConnectionId: (c as any).guestConnectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) }));
   }
   async getConversation(id: string): Promise<Conversation | undefined> {
     const result = await this.db.select().from(conversations).where(eq(conversations.id, id));
     if (!result[0]) return undefined;
     const c = result[0];
-    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) };
+    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, guestConnectionId: (c as any).guestConnectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) };
   }
   async createConversation(insertConversation: InsertConversation): Promise<Conversation> {
     const id = randomUUID();
@@ -1015,12 +1015,13 @@ export class DatabaseStorage implements IStorage {
     await this.db.insert(conversations).values({ ...insertConversation, id, messages: JSON.stringify([]), createdAt: now, updatedAt: now, projectId: insertConversation.projectId ?? null, connectionId: insertConversation.connectionId ?? null });
     return { ...insertConversation, id, messages: [], createdAt: now, updatedAt: now };
   }
-  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId'>>): Promise<Conversation | undefined> {
+  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined> {
     const existing = await this.getConversation(id);
     if (!existing) return undefined;
     const now = new Date().toISOString();
     const dbUpdates: Record<string, any> = { ...updates, updatedAt: now };
     if (updates.messages !== undefined) dbUpdates.messages = JSON.stringify(updates.messages);
+    if ('guestConnectionId' in updates) dbUpdates.guest_connection_id = updates.guestConnectionId ?? null;
     await this.db.update(conversations).set(dbUpdates).where(eq(conversations.id, id));
     return { ...existing, ...updates, updatedAt: now };
   }

@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Source, MessageImage } from "@shared/schema";
+import type { Source, MessageImage, Connection } from "@shared/schema";
 
 export interface Message {
   id: string;
@@ -15,6 +15,7 @@ export interface Message {
   content: string;
   sources?: Source[];
   images?: MessageImage[];
+  connectionId?: string;  // Council mode: which resident produced this message
 }
 
 interface ChatMessageProps {
@@ -24,6 +25,7 @@ interface ChatMessageProps {
   conversationId?: string;
   conversationTitle?: string;
   projectId?: string;
+  connections?: Connection[];
 }
 
 const SOURCE_ICONS: Record<Source["type"], React.ElementType> = {
@@ -55,7 +57,7 @@ function SourceCitations({ sources }: { sources: Source[] }) {
   );
 }
 
-export function ChatMessage({ message, isStreaming, messageIndex = 0, conversationId, conversationTitle, projectId }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming, messageIndex = 0, conversationId, conversationTitle, projectId, connections = [] }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [isFlagging, setIsFlagging] = useState(false);
   const [pivot, setPivot] = useState("");
@@ -63,6 +65,9 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
   const [isSaving, setIsSaving] = useState(false);
   const [flagged, setFlagged] = useState(false);
   const isUser = message.role === "user";
+  const residentConnection = !isUser && message.connectionId
+    ? connections.find(c => c.id === message.connectionId) ?? null
+    : null;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -116,11 +121,21 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
           <AvatarFallback className={cn(
             isUser ? "bg-primary text-primary-foreground" : "bg-muted"
           )}>
-            {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+            {isUser
+              ? <User className="h-4 w-4" />
+              : residentConnection?.residentEmoji
+                ? <span className="text-base leading-none">{residentConnection.residentEmoji}</span>
+                : <Bot className="h-4 w-4" />
+            }
           </AvatarFallback>
         </Avatar>
 
         <div className={cn("flex-1 space-y-2", isUser ? "text-right" : "")}>
+          {residentConnection && (
+            <p className="text-xs text-muted-foreground font-medium" data-testid={`message-attribution-${message.id}`}>
+              {residentConnection.residentName ?? residentConnection.name}
+            </p>
+          )}
           <div
             className={cn(
               "inline-block rounded-lg px-4 py-3 text-base leading-relaxed",

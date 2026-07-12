@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2 } from "lucide-react";
+import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -130,6 +130,11 @@ function ChatContent({
   onProjectChange,
   onSelectConnection,
   onOpenSettings,
+  guestConnectionId,
+  respondingMode,
+  streamingConnectionId,
+  onGuestChange,
+  onRespondingModeChange,
   openDocId,
   onDocChange,
   pinnedDocId,
@@ -158,6 +163,11 @@ function ChatContent({
   onProjectChange: (projectId: string | null) => void;
   onSelectConnection: (connectionId: string, model: string) => void;
   onOpenSettings: () => void;
+  guestConnectionId: string | null;
+  respondingMode: "primary" | "both";
+  streamingConnectionId: string | null;
+  onGuestChange: (id: string | null) => void;
+  onRespondingModeChange: (mode: "primary" | "both") => void;
   openDocId: string | null | undefined;
   onDocChange: (id: string | null | undefined) => void;
   pinnedDocId: string | null;
@@ -243,8 +253,9 @@ function ChatContent({
   if (streamingContent) {
     displayMessages.push({
       id: "streaming",
-      role: "assistant",
+      role: "assistant" as const,
       content: streamingContent,
+      connectionId: streamingConnectionId ?? undefined,
     });
   }
 
@@ -308,6 +319,98 @@ function ChatContent({
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Council mode: guest resident selector */}
+            {connections.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={guestConnectionId ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs px-2"
+                    data-testid="button-council-selector"
+                    aria-label="Council mode — add a guest resident"
+                  >
+                    {guestConnectionId ? (
+                      <>
+                        {connections.find(c => c.id === guestConnectionId)?.residentEmoji && (
+                          <span className="text-sm leading-none">
+                            {connections.find(c => c.id === guestConnectionId)?.residentEmoji}
+                          </span>
+                        )}
+                        <span className="max-w-[100px] truncate text-foreground">
+                          {connections.find(c => c.id === guestConnectionId)?.residentName
+                            ?? connections.find(c => c.id === guestConnectionId)?.name
+                            ?? "Guest"}
+                        </span>
+                        <ChevronDown className="h-3 w-3 opacity-60" />
+                      </>
+                    ) : (
+                      <>
+                        <Users className="h-3 w-3" />
+                        <ChevronDown className="h-3 w-3 opacity-60" />
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">Council — guest resident</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {connections
+                    .filter(c => c.id !== selectedConnectionId)
+                    .map(c => (
+                      <DropdownMenuItem
+                        key={c.id}
+                        onClick={() => onGuestChange(guestConnectionId === c.id ? null : c.id)}
+                        className="flex items-center gap-2 text-xs"
+                        data-testid={`council-guest-${c.id}`}
+                      >
+                        {guestConnectionId === c.id
+                          ? <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          : <span className="w-3.5 h-3.5 shrink-0" />}
+                        {c.residentEmoji && <span className="text-sm leading-none">{c.residentEmoji}</span>}
+                        <span className="truncate">{c.residentName ?? c.name}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  {guestConnectionId && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">Response mode</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onClick={() => onRespondingModeChange("primary")}
+                        className="text-xs gap-2"
+                        data-testid="council-mode-primary"
+                      >
+                        {respondingMode === "primary"
+                          ? <Check className="h-3.5 w-3.5 text-primary" />
+                          : <span className="w-3.5 h-3.5" />}
+                        Primary only
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => onRespondingModeChange("both")}
+                        className="text-xs gap-2"
+                        data-testid="council-mode-both"
+                      >
+                        {respondingMode === "both"
+                          ? <Check className="h-3.5 w-3.5 text-primary" />
+                          : <span className="w-3.5 h-3.5" />}
+                        Ask both
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => { onGuestChange(null); onRespondingModeChange("primary"); }}
+                        className="text-xs gap-2 text-muted-foreground"
+                        data-testid="council-dismiss"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Dismiss council
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
             {hasMessages && (
               <span className="text-sm font-medium truncate max-w-[200px]">
                 {activeConversation?.title}
@@ -413,6 +516,7 @@ function ChatContent({
                       conversationId={activeConversation?.id}
                       conversationTitle={activeConversation?.title}
                       projectId={selectedProjectId ?? undefined}
+                      connections={connections}
                     />
                   ))}
 
@@ -507,9 +611,12 @@ export default function Chat() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingConnectionId, setStreamingConnectionId] = useState<string | null>(null);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
   const [pinnedDocId, setPinnedDocId] = useState<string | null>(null);
+  const [guestConnectionId, setGuestConnectionId] = useState<string | null>(null);
+  const [respondingMode, setRespondingMode] = useState<"primary" | "both">("primary");
   const CONN_KEY = "creatrix:selectedConnectionId";
   const MODEL_KEY = "creatrix:selectedModel";
 
@@ -589,126 +696,172 @@ export default function Chat() {
     setToolEvents([]);
   };
 
+  // Streams a single chat request and processes server-sent events.
+  // Returns the conversationId discovered during streaming (if any).
+  const streamChatRequest = async (opts: {
+    conversationId: string | null;
+    connectionId: string | null;
+    respondingConnectionId?: string;
+    skipUserMessage?: boolean;
+    message: string;
+    model?: string;
+    images?: AttachedImage[];
+    onConversationId?: (id: string) => void;
+  }): Promise<{ streamDone: boolean; partialContent: boolean }> => {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: opts.conversationId ?? undefined,
+        projectId: selectedProjectId ?? undefined,
+        connectionId: opts.connectionId ?? undefined,
+        respondingConnectionId: opts.respondingConnectionId,
+        skipUserMessage: opts.skipUserMessage,
+        message: opts.message,
+        model: opts.model || undefined,
+        imageBase64s: opts.images && opts.images.length > 0 ? opts.images.map(img => img.base64) : undefined,
+        imageMimeTypes: opts.images && opts.images.length > 0 ? opts.images.map(img => img.mimeType) : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to send message");
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response stream");
+
+    const decoder = new TextDecoder();
+    let accumulated = "";
+    const activeToolEvents = new Map<string, string>();
+    let eventCounter = 0;
+    let streamDoneReceived = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+
+        let data: any;
+        try {
+          data = JSON.parse(line.slice(6));
+        } catch {
+          continue;
+        }
+
+        if (data.type === "conversation_id") {
+          opts.onConversationId?.(data.id);
+        } else if (data.type === "content") {
+          accumulated += data.content;
+          setStreamingContent(accumulated);
+        } else if (data.type === "tool_call") {
+          const eventId = `tool-${++eventCounter}`;
+          activeToolEvents.set(data.capability, eventId);
+          setToolEvents(prev => [...prev, {
+            id: eventId,
+            capability: data.capability as CapabilityName,
+            args: data.args || {},
+            status: "running",
+          }]);
+        } else if (data.type === "confirm_required") {
+          const eventId = `tool-${++eventCounter}`;
+          activeToolEvents.set(data.capability, eventId);
+          setToolEvents(prev => [...prev, {
+            id: eventId,
+            capability: data.capability as CapabilityName,
+            args: data.args || {},
+            status: "pending_confirm",
+            confirmId: data.confirmId,
+          }]);
+        } else if (data.type === "tool_result") {
+          const eventId = activeToolEvents.get(data.capability);
+          if (eventId) {
+            setToolEvents(prev => prev.map(e =>
+              e.id === eventId
+                ? { ...e, status: data.status === "success" ? "success" : "error", result: data.result, error: data.error }
+                : e
+            ));
+          }
+          if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
+            setOpenDocId((data.result as any).id);
+          }
+        } else if (data.type === "done") {
+          streamDoneReceived = true;
+          setStreamingContent("");
+          setToolEvents([]);
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
+        } else if (data.type === "error") {
+          throw new Error(data.message || data.error || "Stream error from provider");
+        }
+      }
+    }
+
+    const partialContent = !streamDoneReceived && accumulated.length > 0;
+    return { streamDone: streamDoneReceived, partialContent };
+  };
+
   const handleSendMessage = async (content: string, images?: AttachedImage[]) => {
     setIsLoading(true);
     setStreamingContent("");
     setToolEvents([]);
 
-    // Declared outside try/finally so both blocks share the same binding.
-    let streamDoneReceived = false;
     let keepPartialContent = false;
 
+    // Capture the conversationId at call time; may be updated after new-conversation creation.
+    let currentConversationId = activeConversationId;
+
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId: activeConversationId ?? undefined,
-          projectId: selectedProjectId ?? undefined,
-          connectionId: selectedConnectionId ?? undefined,
-          message: content,
-          model: selectedModel || undefined,
-          imageBase64s: images && images.length > 0 ? images.map(img => img.base64) : undefined,
-          imageMimeTypes: images && images.length > 0 ? images.map(img => img.mimeType) : undefined,
-        }),
+      // --- Primary response ---
+      setStreamingConnectionId(selectedConnectionId);
+      const primary = await streamChatRequest({
+        conversationId: currentConversationId,
+        connectionId: selectedConnectionId,
+        message: content,
+        model: selectedModel,
+        images,
+        onConversationId: (id) => {
+          if (!currentConversationId) {
+            currentConversationId = id;
+            setActiveConversationId(id);
+          }
+        },
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to send message");
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let accumulated = "";
-      // Maps tool event id → index in toolEvents array (via closure)
-      const activeToolEvents = new Map<string, string>();
-      let eventCounter = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-
-          // Parse JSON first in an isolated try/catch so that only genuine
-          // JSON decode failures are silently skipped.  Event-processing code
-          // below runs outside this catch, so intentional throws (e.g. on
-          // "error" events) propagate to the outer handler instead of being
-          // silently swallowed alongside malformed lines.
-          let data: any;
-          try {
-            data = JSON.parse(line.slice(6));
-          } catch {
-            continue; // Malformed JSON — skip this line
-          }
-
-          if (data.type === "conversation_id" && !activeConversationId) {
-            setActiveConversationId(data.id);
-          } else if (data.type === "content") {
-            accumulated += data.content;
-            setStreamingContent(accumulated);
-          } else if (data.type === "tool_call") {
-            const eventId = `tool-${++eventCounter}`;
-            activeToolEvents.set(data.capability, eventId);
-            setToolEvents(prev => [...prev, {
-              id: eventId,
-              capability: data.capability as CapabilityName,
-              args: data.args || {},
-              status: "running",
-            }]);
-          } else if (data.type === "confirm_required") {
-            const eventId = `tool-${++eventCounter}`;
-            activeToolEvents.set(data.capability, eventId);
-            setToolEvents(prev => [...prev, {
-              id: eventId,
-              capability: data.capability as CapabilityName,
-              args: data.args || {},
-              status: "pending_confirm",
-              confirmId: data.confirmId,
-            }]);
-          } else if (data.type === "tool_result") {
-            const eventId = activeToolEvents.get(data.capability);
-            if (eventId) {
-              setToolEvents(prev => prev.map(e =>
-                e.id === eventId
-                  ? { ...e, status: data.status === "success" ? "success" : "error", result: data.result, error: data.error }
-                  : e
-              ));
-            }
-            if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
-              setOpenDocId((data.result as any).id);
-            }
-          } else if (data.type === "done") {
-            streamDoneReceived = true;
-            setStreamingContent("");
-            setToolEvents([]);
-            queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
-          } else if (data.type === "error") {
-            // Throw outside the JSON-parse catch so the error reaches the
-            // outer handler and is shown to the user via toast.
-            throw new Error(data.message || data.error || "Stream error from provider");
-          }
-        }
-      }
-
-      // Stream closed without a "done" event (network drop / provider crash).
-      // Keep whatever arrived so the user can read the partial response, and
-      // surface a toast explaining that the response was cut short.
-      if (!streamDoneReceived && accumulated) {
+      if (primary.partialContent) {
         keepPartialContent = true;
         toast({
           title: "Connection dropped",
           description: "The response was cut short. Partial content is shown above.",
           variant: "destructive",
         });
+      }
+
+      // --- Council: guest response (ask both mode) ---
+      if (primary.streamDone && respondingMode === "both" && guestConnectionId && currentConversationId) {
+        setStreamingConnectionId(guestConnectionId);
+        setStreamingContent("");
+        const guest = await streamChatRequest({
+          conversationId: currentConversationId,
+          connectionId: selectedConnectionId,
+          respondingConnectionId: guestConnectionId,
+          skipUserMessage: true,
+          message: content,
+        });
+        if (guest.partialContent) {
+          keepPartialContent = true;
+          toast({
+            title: "Connection dropped",
+            description: "Guest response was cut short. Partial content is shown above.",
+            variant: "destructive",
+          });
+        }
       }
     } catch (error: any) {
       toast({
@@ -718,7 +871,7 @@ export default function Chat() {
       });
     } finally {
       setIsLoading(false);
-      // Preserve partial content on abrupt drops; clear on clean done or errors.
+      setStreamingConnectionId(null);
       if (!keepPartialContent) {
         setStreamingContent("");
       }
@@ -752,6 +905,7 @@ export default function Chat() {
           activeConversation={activeConversation}
           isLoading={isLoading}
           streamingContent={streamingContent}
+          streamingConnectionId={streamingConnectionId}
           toolEvents={toolEvents}
           selectedProjectId={selectedProjectId}
           connections={connections}
@@ -765,6 +919,10 @@ export default function Chat() {
           onProjectChange={setSelectedProjectId}
           onSelectConnection={(id, model) => { setSelectedConnectionId(id); setSelectedModel(model); }}
           onOpenSettings={() => setSettingsOpen(true)}
+          guestConnectionId={guestConnectionId}
+          respondingMode={respondingMode}
+          onGuestChange={setGuestConnectionId}
+          onRespondingModeChange={setRespondingMode}
           openDocId={openDocId}
           onDocChange={setOpenDocId}
           pinnedDocId={pinnedDocId}
