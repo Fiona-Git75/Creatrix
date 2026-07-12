@@ -95,7 +95,7 @@ export function AppSidebar({
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) ?? null;
 
-  // Always show all conversations — project selection sets AI context, not a view filter
+  // Always show all conversations. Project membership is shown as a tag on each item.
   const filteredConversations = conversations;
 
   const conversationLabel = "Conversations";
@@ -124,7 +124,7 @@ export function AppSidebar({
                 <SidebarMenu>
                   {filteredConversations.length === 0 ? (
                     <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                      {selectedProjectId ? "No conversations in this project yet" : "No conversations yet"}
+                      No conversations yet
                     </div>
                   ) : (
                     filteredConversations.map((conversation) => (
@@ -132,6 +132,11 @@ export function AppSidebar({
                         <ConversationItem
                           conversation={conversation}
                           isActive={conversation.id === activeConversationId}
+                          projectName={
+                            conversation.projectId
+                              ? (projects.find(p => p.id === conversation.projectId)?.name ?? undefined)
+                              : undefined
+                          }
                           onClick={() => onSelectConversation(conversation.id)}
                           onDelete={() => onDeleteConversation(conversation.id)}
                         />
