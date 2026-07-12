@@ -30,6 +30,7 @@ import type { Connection, Project, ProviderType } from "@shared/schema";
 interface ResidentsPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialEditingId?: number;
 }
 
 type CommissionStep = 1 | 2;
@@ -564,16 +565,17 @@ function CommissionForm({
   );
 }
 
-export function ResidentsPanel({ open, onOpenChange }: ResidentsPanelProps) {
+export function ResidentsPanel({ open, onOpenChange, initialEditingId }: ResidentsPanelProps) {
   const { toast } = useToast();
   const [commissioning, setCommissioning] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | string | null>(initialEditingId ?? null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; count: number } | null>(null);
 
-  const { data: connections = [], isLoading } = useQuery<Connection[]>({
+  const { data: connectionsData, isLoading } = useQuery<Connection[]>({
     queryKey: ["/api/connections"],
   });
+  const connections = connectionsData ?? [];
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],

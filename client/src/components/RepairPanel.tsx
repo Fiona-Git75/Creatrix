@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Loader2, RefreshCw, Wrench, Copy, Check, Download, Settings } from "lucide-react";
+import { Home, Loader2, RefreshCw, Wrench, Copy, Check, Download, Settings, UserCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface CoherenceItem {
@@ -22,6 +22,7 @@ export interface RepairPanelProps {
   repairCountdown: number;
   onRecheck: () => void;
   onOpenSettings?: () => void;
+  onReassignResident?: (residentName: string) => void;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -98,7 +99,7 @@ function DownloadReportButton({ buildReport }: { buildReport: () => string }) {
 
 const DOMAIN_ORDER = ["Identity", "Persistence", "Inference", "Knowledge", "Media"] as const;
 
-export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, onRecheck, onOpenSettings }: RepairPanelProps) {
+export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, onRecheck, onOpenSettings, onReassignResident }: RepairPanelProps) {
   const degradedItems = coherence.items.filter(i => i.actual !== "coherent");
   const isRed = coherence.overallStatus === "RED";
   const statusColor = isRed ? "text-red-500 dark:text-red-400" : "text-amber-500 dark:text-amber-400";
@@ -198,6 +199,18 @@ export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, o
                         </p>
                         <CopyButton text={item.action} />
                       </div>
+                      {onReassignResident && item.domain === "Inference" && item.actual === "absent" && item.component.endsWith(" connection") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onReassignResident(item.component.replace(/ connection$/, ""))}
+                          className="mt-1.5 gap-1.5 text-xs"
+                          data-testid={`button-reassign-${item.component.replace(/ connection$/, "").toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          <UserCog className="h-3 w-3" />
+                          Reassign resident
+                        </Button>
+                      )}
                     </div>
                   )}
                   {item.firstLook && (

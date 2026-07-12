@@ -7,6 +7,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { GreenSummaryPanel } from "@/components/GreenSummaryPanel";
 import { RepairPanel } from "@/components/RepairPanel";
 import { ConnectionsDialog } from "@/components/ConnectionsDialog";
+import { ResidentsPanel } from "@/components/ResidentsPanel";
 
 interface CoherenceReport {
   coherent: boolean;
@@ -33,6 +34,8 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [residentsOpen, setResidentsOpen] = useState(false);
+  const [residentsEditingId, setResidentsEditingId] = useState<number | undefined>(undefined);
 
   const commissionMutation = useMutation({
     mutationFn: async () => {
@@ -78,6 +81,17 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
     enabled: authStatus?.bootstrapped === true,
     refetchInterval: 30_000,
   });
+
+  const { data: connections = [] } = useQuery<Array<{ id: number; residentName?: string | null }>>({
+    queryKey: ["/api/connections"],
+    enabled: authStatus?.bootstrapped === true,
+  });
+
+  const handleReassignResident = (residentName: string) => {
+    const conn = connections.find(c => c.residentName === residentName);
+    setResidentsEditingId(conn?.id);
+    setResidentsOpen(true);
+  };
 
   const inRepairView = authStatus?.bootstrapped && coherence && coherence.overallStatus !== "GREEN";
 
@@ -189,8 +203,14 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
         repairCountdown={repairCountdown}
         onRecheck={() => queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] })}
         onOpenSettings={() => setSettingsOpen(true)}
+        onReassignResident={handleReassignResident}
       />
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ResidentsPanel
+        open={residentsOpen}
+        onOpenChange={(o) => { setResidentsOpen(o); if (!o) setResidentsEditingId(undefined); }}
+        initialEditingId={residentsEditingId}
+      />
     </>
   );
 }
