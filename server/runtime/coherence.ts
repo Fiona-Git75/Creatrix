@@ -250,6 +250,46 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
     }
   }
 
+  // ── Inference: Resident model assignments ────────────────────────────────────
+  // Resident connections added after commissioning are not recorded in the
+  // bootstrap manifest, so the manifest-based check above misses them. We load
+  // all live connections here and verify each resident connection's defaultModel
+  // is actually installed in the provider it points to.
+  if (providerStatus) {
+    let liveConnections: Awaited<ReturnType<typeof storage.getConnections>> | null = null;
+    try {
+      liveConnections = await storage.getConnections();
+    } catch {
+      // Persistence errors are already surfaced by the Database/Schema items
+      // above; skip the resident-model check silently here.
+    }
+
+    if (liveConnections) {
+      for (const conn of liveConnections) {
+        if (!conn.residentName) continue; // Only check resident (persona) connections
+
+        const prov = providerStatus.providers.find(p => p.connectionId === conn.id);
+        if (!prov || prov.status === "offline") continue; // Provider unreachable — already flagged elsewhere
+
+        const modelPresent = prov.models.some(m => m.id === conn.defaultModel);
+        if (!modelPresent) {
+          const label = providerLabel(conn.provider);
+          items.push({
+            domain: "Inference",
+            component: `${conn.residentName} model`,
+            expected: conn.defaultModel,
+            actual: "degraded",
+            message: `${conn.residentName}'s model "${conn.defaultModel}" is not installed in ${label}.`,
+            action: conn.provider === "ollama"
+              ? `Run \`ollama pull ${conn.defaultModel}\` to install it.`
+              : `Install model "${conn.defaultModel}" in your provider (${label}).`,
+            firstLook: firstLookFor(conn.provider, "model"),
+          });
+        }
+      }
+    }
+  }
+
   // ── Knowledge: SearXNG ─────────────────────────────────────────────────────
   // Authoritative state comes from the service runtime — SearXNG owns its probe
   // logic, failure interpretation, and firstLook hint. Coherence just reads it.
