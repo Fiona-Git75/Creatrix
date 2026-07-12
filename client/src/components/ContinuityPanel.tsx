@@ -516,12 +516,14 @@ export function ContinuityPanel({
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Configure {dialogResidentLabel}</DialogTitle>
-              <DialogDescription>
-                Set this resident's model, orientation brief, and add continuity notes.
-              </DialogDescription>
+              {selectedDialogConn?.residentRole && (
+                <p className="text-sm text-muted-foreground">
+                  Role: {selectedDialogConn.residentRole}
+                </p>
+              )}
             </DialogHeader>
 
-            <div className="space-y-4 py-1">
+            <div className="space-y-5 py-1">
 
               {/* Resident selector */}
               {residentConnections.length > 1 && (
@@ -550,25 +552,46 @@ export function ContinuityPanel({
 
               {/* Model selector */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Model</Label>
-                {dialogProviderModels.length > 0 ? (
-                  <Select
-                    value={addResidentModel}
-                    onValueChange={setAddResidentModel}
-                  >
-                    <SelectTrigger data-testid="select-dialog-model">
-                      <SelectValue placeholder="Select a model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dialogProviderModels.map(m => (
-                        <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
-                          {m.name ?? m.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex items-center gap-2">
+                <Label className="text-xs font-medium">Resident Model</Label>
+                {dialogProviderModels.length > 0 ? (() => {
+                  const selectedModel = dialogProviderModels.find(m => m.id === addResidentModel);
+                  return (
+                    <Select
+                      value={addResidentModel}
+                      onValueChange={setAddResidentModel}
+                    >
+                      <SelectTrigger data-testid="select-dialog-model" className="h-auto py-2">
+                        {addResidentModel ? (
+                          <span className="flex flex-col items-start text-left gap-0.5 min-w-0">
+                            <span className="text-sm leading-snug truncate">
+                              {selectedModel?.name ?? addResidentModel}
+                            </span>
+                            {selectedModel?.name && selectedModel.name !== selectedModel.id && (
+                              <span className="text-xs font-mono text-muted-foreground leading-snug truncate">
+                                {selectedModel.id}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">Select a model</span>
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {dialogProviderModels.map(m => (
+                          <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
+                            <span className="flex flex-col gap-0.5 py-0.5">
+                              <span className="text-sm leading-snug">{m.name ?? m.id}</span>
+                              {m.name && m.name !== m.id && (
+                                <span className="text-xs font-mono text-muted-foreground leading-snug">{m.id}</span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  );
+                })() : (
+                  <div className="space-y-1">
                     <input
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={addResidentModel}
@@ -576,16 +599,16 @@ export function ContinuityPanel({
                       placeholder="e.g. llama3.2, gpt-4o"
                       data-testid="input-dialog-model"
                     />
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">provider offline</span>
+                    <p className="text-xs text-muted-foreground">Provider is offline — enter a model ID manually.</p>
                   </div>
                 )}
               </div>
 
-              {/* Orientation / role brief */}
+              {/* Orientation */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Orientation brief</Label>
+                <Label className="text-xs font-medium">Orientation</Label>
                 <p className="text-xs text-muted-foreground">
-                  Tell this resident their purpose — what they do, what they specialise in, how they work with you.
+                  Tell this resident how they approach work, what they specialise in, and how they collaborate with you.
                   This is sent at the start of every conversation.
                 </p>
                 <Textarea
@@ -597,12 +620,12 @@ export function ContinuityPanel({
                 />
               </div>
 
-              {/* Continuity note (optional) */}
+              {/* Continuity Notes */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">
-                  Continuity note
-                  <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-                </Label>
+                <Label className="text-xs font-medium">Continuity Notes</Label>
+                <p className="text-xs text-muted-foreground">
+                  Persistent observations about this resident. These accumulate over time and help maintain continuity across conversations.
+                </p>
                 <Textarea
                   placeholder={`e.g. ${dialogResidentLabel} prefers to review architecture before implementation.`}
                   value={newContent}
