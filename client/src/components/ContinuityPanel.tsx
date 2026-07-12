@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Layers, Plus, Trash2, Loader2, Globe, User, ChevronDown, ChevronRight } from "lucide-react";
+import { useQuery, useMutation, useQueries } from "@tanstack/react-query";
+import { Layers, Plus, Trash2, Loader2, Globe, User, Users, ChevronDown, ChevronRight, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,10 +36,14 @@ export function ContinuityPanel({
   const [newContent, setNewContent] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<AddTarget>("global");
+  const [addTargetConnectionId, setAddTargetConnectionId] = useState<string | null>(null);
+  const [editingOrientationId, setEditingOrientationId] = useState<string | null>(null);
+  const [orientationDraft, setOrientationDraft] = useState("");
   const { toast } = useToast();
 
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
   const residentLabel = activeConnection?.residentName ?? "This Resident";
+  const residentConnections = connections.filter(c => !!c.residentName);
 
   const invalidate = () =>
     queryClient.invalidateQueries({
@@ -64,6 +68,17 @@ export function ContinuityPanel({
     enabled: open && !!connectionId,
   });
 
+  const residentCountResults = useQueries({
+    queries: residentConnections.map(conn => ({
+      queryKey: ["/api/memory", { scope: "resident", connectionId: conn.id }],
+      queryFn: async (): Promise<MemoryEntry[]> => {
+        const res = await fetch(`/api/memory?scope=resident&connectionId=${conn.id}`);
+        return res.json();
+      },
+      enabled: open,
+    })),
+  });
+
   const createMutation = useMutation({
     mutationFn: (payload: { scope: string; content: string; connectionId?: string }) =>
       apiRequest("POST", "/api/memory", payload),
@@ -85,16 +100,29 @@ export function ContinuityPanel({
     onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
   });
 
+  const orientationMutation = useMutation({
+    mutationFn: ({ id, residentDescription }: { id: string; residentDescription: string }) =>
+      apiRequest("PATCH", `/api/connections/${id}`, { residentDescription: residentDescription || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
+      setEditingOrientationId(null);
+      toast({ title: "Orientation saved" });
+    },
+    onError: () => toast({ title: "Failed to save orientation", variant: "destructive" }),
+  });
+
   const handleSave = () => {
+    const targetConnId = addTarget === "resident" ? (addTargetConnectionId ?? connectionId) : null;
     const payload =
-      addTarget === "resident" && connectionId
-        ? { scope: "resident", content: newContent.trim(), connectionId }
+      addTarget === "resident" && targetConnId
+        ? { scope: "resident", content: newContent.trim(), connectionId: targetConnId }
         : { scope: "global", content: newContent.trim() };
     createMutation.mutate(payload);
   };
 
-  const openAddDialog = (target: AddTarget) => {
+  const openAddDialog = (target: AddTarget, connId?: string | null) => {
     setAddTarget(target);
+    setAddTargetConnectionId(connId ?? connectionId);
     setNewContent("");
     setAddDialogOpen(true);
   };
@@ -148,6 +176,12 @@ export function ContinuityPanel({
 
   const [globalCollapsed, setGlobalCollapsed] = useState(false);
   const [residentCollapsed, setResidentCollapsed] = useState(false);
+  const [rosterCollapsed, setRosterCollapsed] = useState(false);
+
+  const addDialogLabel =
+    addTarget === "resident"
+      ? (connections.find(c => c.id === addTargetConnectionId)?.residentName ?? residentLabel)
+      : "Environment";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -164,6 +198,134 @@ export function ContinuityPanel({
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="space-y-5 pr-3">
+
+            {/* Residents roster */}
+            {residentConnections.length > 0 && (
+              <div>
+                <button
+                  className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors mb-2"
+                  onClick={() => setRosterCollapsed(v => !v)}
+                  data-testid="button-toggle-roster-section"
+                >
+                  {rosterCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  <Users className="h-3.5 w-3.5" />
+                  Residents
+                </button>
+                {!rosterCollapsed && (
+                  <div className="space-y-2" data-testid="roster-list">
+                    {residentConnections.map((conn, i) => {
+                      const entries: MemoryEntry[] = residentCountResults[i]?.data ?? [];
+                      const count = residentCountResults[i]?.isLoading ? null : entries.length;
+                      const isActive = conn.id === connectionId;
+                      const isEditingOrientation = editingOrientationId === conn.id;
+                      return (
+                        <div
+                          key={conn.id}
+                          className={`px-3 py-2.5 rounded-md border ${isActive ? "bg-muted/50 border-border/60" : "bg-muted/20 border-border/30"}`}
+                          data-testid={`roster-resident-${conn.id}`}
+                        >
+                          {/* Header row: emoji + name + model */}
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            {conn.residentEmoji && (
+                              <span className="text-sm leading-none">{conn.residentEmoji}</span>
+                            )}
+                            <span className="text-xs font-medium">{conn.residentName}</span>
+                            <span className="text-xs text-muted-foreground font-mono ml-auto truncate max-w-[140px]" title={conn.defaultModel}>
+                              {conn.defaultModel}
+                            </span>
+                          </div>
+
+                          {/* Role / study */}
+                          {conn.residentRole && (
+                            <p className="text-xs text-muted-foreground pl-5">Study: {conn.residentRole}</p>
+                          )}
+
+                          {/* Orientation */}
+                          <div className="pl-5 mt-1.5">
+                            {isEditingOrientation ? (
+                              <div className="space-y-1.5">
+                                <textarea
+                                  className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                  rows={5}
+                                  placeholder="Describe this resident's role and focus. E.g. Your job is to learn everything about Creatrix — its file structure, logs, and documentation. You specialise in technical troubleshooting."
+                                  value={orientationDraft}
+                                  onChange={(e) => setOrientationDraft(e.target.value)}
+                                  autoFocus
+                                  data-testid={`textarea-orientation-${conn.id}`}
+                                />
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs gap-1"
+                                    onClick={() => orientationMutation.mutate({ id: conn.id, residentDescription: orientationDraft })}
+                                    disabled={orientationMutation.isPending}
+                                    data-testid={`button-save-orientation-${conn.id}`}
+                                  >
+                                    {orientationMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                    Save
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs gap-1"
+                                    onClick={() => setEditingOrientationId(null)}
+                                    data-testid={`button-cancel-orientation-${conn.id}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-1 group">
+                                <div className="flex-1 min-w-0">
+                                  {conn.residentDescription ? (
+                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{conn.residentDescription}</p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground italic">No orientation yet.</p>
+                                  )}
+                                </div>
+                                <button
+                                  className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mt-0.5"
+                                  onClick={() => {
+                                    setOrientationDraft(conn.residentDescription ?? "");
+                                    setEditingOrientationId(conn.id);
+                                  }}
+                                  data-testid={`button-edit-orientation-${conn.id}`}
+                                  title="Edit orientation"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Continuity count + add note */}
+                          <div className="flex items-center justify-between pl-5 mt-1.5">
+                            <p className="text-xs text-muted-foreground">
+                              {count === null
+                                ? "…"
+                                : count === 0
+                                  ? "No continuity notes"
+                                  : `Continuity: ${count} note${count === 1 ? "" : "s"}`}
+                            </p>
+                            <button
+                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              onClick={() => openAddDialog("resident", conn.id)}
+                              data-testid={`button-add-roster-note-${conn.id}`}
+                            >
+                              + note
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Global continuity */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -226,22 +388,6 @@ export function ContinuityPanel({
                     <p className="text-xs text-muted-foreground mb-2">
                       How this resident operates — working style, specialties, conventions with you.
                     </p>
-                    {activeConnection && (
-                      <div className="flex items-center gap-2 mb-3 px-2.5 py-2 rounded-md bg-muted/40 border border-border/40" data-testid="resident-identity-strip">
-                        {activeConnection.residentEmoji && (
-                          <span className="text-base leading-none shrink-0">{activeConnection.residentEmoji}</span>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{activeConnection.residentName ?? activeConnection.name}</p>
-                          {activeConnection.residentRole && (
-                            <p className="text-xs text-muted-foreground truncate">{activeConnection.residentRole}</p>
-                          )}
-                        </div>
-                        <span className="text-xs text-muted-foreground font-mono shrink-0 max-w-[140px] truncate" title={activeConnection.defaultModel}>
-                          {activeConnection.defaultModel}
-                        </span>
-                      </div>
-                    )}
                     <EntryList entries={residentEntries} loading={residentLoading} testPrefix="resident" />
                   </>
                 )}
@@ -257,12 +403,12 @@ export function ContinuityPanel({
           <DialogHeader>
             <DialogTitle>
               {addTarget === "resident"
-                ? `Add to ${residentLabel}`
+                ? `Add to ${addDialogLabel}`
                 : "Add to Environment"}
             </DialogTitle>
             <DialogDescription>
               {addTarget === "resident"
-                ? `How does ${residentLabel} work with you? Specialties, conventions, preferred approach.`
+                ? `How does ${addDialogLabel} work with you? Specialties, conventions, preferred approach.`
                 : "What should every resident know? Collaboration preferences, project culture, stable context."}
             </DialogDescription>
           </DialogHeader>
@@ -270,7 +416,7 @@ export function ContinuityPanel({
           <Textarea
             placeholder={
               addTarget === "resident"
-                ? `e.g. ${residentLabel} prefers to review architecture before implementation.`
+                ? `e.g. ${addDialogLabel} prefers to review architecture before implementation.`
                 : "e.g. Prefer exploratory dialogue before decisions. Canonical files are authoritative."
             }
             value={newContent}

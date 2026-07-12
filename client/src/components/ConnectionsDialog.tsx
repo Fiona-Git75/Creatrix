@@ -371,13 +371,13 @@ function SortableConnectionCard({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor={`edit-resident-desc-${connection.id}`}>Description</Label>
+                  <Label htmlFor={`edit-resident-desc-${connection.id}`}>Orientation</Label>
                   <textarea
                     id={`edit-resident-desc-${connection.id}`}
                     value={editForm.residentDescription}
                     onChange={(e) => setEditForm({ ...editForm, residentDescription: e.target.value })}
-                    placeholder="How this resident operates, their character, what they care about…"
-                    rows={3}
+                    placeholder="Describe this resident's role, focus area, and how they should work with you. E.g. Your job is to learn everything about Creatrix as an app — its file structure, logs, and documentation. You specialise in technical troubleshooting and project thinking."
+                    rows={5}
                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                     data-testid={`input-edit-resident-desc-${connection.id}`}
                   />
@@ -911,13 +911,13 @@ function ConnectionsTab() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="residentDescription">Description</Label>
+                    <Label htmlFor="residentDescription">Orientation</Label>
                     <textarea
                       id="residentDescription"
                       value={newConnection.residentDescription}
                       onChange={(e) => setNewConnection({ ...newConnection, residentDescription: e.target.value })}
-                      placeholder="How this resident operates, their character, what they care about…"
-                      rows={3}
+                      placeholder="Describe this resident's role, focus area, and how they should work with you. E.g. Your job is to learn everything about Creatrix as an app — its file structure, logs, and documentation. You specialise in technical troubleshooting and project thinking."
+                      rows={5}
                       className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                       data-testid="input-connection-resident-desc"
                     />

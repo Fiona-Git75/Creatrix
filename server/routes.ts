@@ -923,13 +923,15 @@ export async function registerRoutes(
           systemParts.push(`\n## ${label}\nHow this resident operates with this collaborator:\n${residentText}`);
         }
         // Inject resident identity when set
-        if (connection.residentName || connection.residentRole) {
+        if (connection.residentName || connection.residentRole || connection.residentDescription) {
           const nameLine = connection.residentName ? `You are **${connection.residentName}**.` : "";
-          const roleLine = connection.residentRole ? `Your role: ${connection.residentRole}.` : "";
-          const descLine = connection.residentDescription ? connection.residentDescription : "";
-          const identityParts = [nameLine, roleLine, descLine].filter(Boolean).join(" ");
+          const roleLine = connection.residentRole ? `Your specialisation: ${connection.residentRole}.` : "";
+          const identityParts = [nameLine, roleLine].filter(Boolean).join(" ");
           if (identityParts) {
             systemParts.push(`\n## Resident Identity\n${identityParts}`);
+          }
+          if (connection.residentDescription) {
+            systemParts.push(`\n## Orientation\n${connection.residentDescription}`);
           }
         }
       }
