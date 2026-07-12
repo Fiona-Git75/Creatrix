@@ -247,6 +247,32 @@ describe("measureCoherence — resident model check", () => {
     expect(item).toBeUndefined();
   });
 
+  it("clears the AMBER item when the model is pulled (round-trip AMBER → GREEN)", async () => {
+    // ── First poll: model not yet installed ────────────────────────────────────
+    mockGetConnections.mockResolvedValue([RESIDENT_CONNECTION]);
+    mockGetProvidersStatus.mockResolvedValue(
+      makeProvidersStatus([PROVIDER_ONLINE_WITHOUT_MODEL]),
+    );
+
+    const amberReport = await measureCoherence(BOOTSTRAPPED_MANIFEST);
+
+    expect(amberReport.overallStatus).toBe("AMBER");
+    const amberItem = amberReport.items.find(i => i.component === "Aria model");
+    expect(amberItem).toBeDefined();
+    expect(amberItem!.actual).toBe("degraded");
+
+    // ── Second poll: user ran `ollama pull llama3.2:3b`, model now present ─────
+    mockGetProvidersStatus.mockResolvedValue(
+      makeProvidersStatus([PROVIDER_ONLINE_WITH_MODEL]),
+    );
+
+    const greenReport = await measureCoherence(BOOTSTRAPPED_MANIFEST);
+
+    expect(greenReport.overallStatus).toBe("GREEN");
+    const greenItem = greenReport.items.find(i => i.component === "Aria model");
+    expect(greenItem).toBeUndefined(); // AMBER item is gone after pull
+  });
+
   it("flags multiple resident connections independently", async () => {
     const secondResident = {
       ...RESIDENT_CONNECTION,
