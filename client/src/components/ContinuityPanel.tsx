@@ -4,6 +4,14 @@ import { Layers, Plus, Trash2, Loader2, Globe, User, Users, ChevronDown, Chevron
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +45,8 @@ export function ContinuityPanel({
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<AddTarget>("global");
   const [addTargetConnectionId, setAddTargetConnectionId] = useState<string | null>(null);
+  const [addResidentModel, setAddResidentModel] = useState<string>("");
+  const [addOrientationDraft, setAddOrientationDraft] = useState("");
   const [editingOrientationId, setEditingOrientationId] = useState<string | null>(null);
   const [orientationDraft, setOrientationDraft] = useState("");
   const { toast } = useToast();
@@ -44,6 +54,14 @@ export function ContinuityPanel({
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
   const residentLabel = activeConnection?.residentName ?? "This Resident";
   const residentConnections = connections.filter(c => !!c.residentName);
+
+  const { data: providerStatus } = useQuery<{
+    providers: { connectionId: string; name: string; status: "online" | "offline"; models: { id: string; name?: string }[] }[];
+  }>({
+    queryKey: ["/api/providers/status"],
+    staleTime: 30_000,
+    enabled: open,
+  });
 
   const invalidate = () =>
     queryClient.invalidateQueries({
@@ -85,10 +103,21 @@ export function ContinuityPanel({
     onSuccess: () => {
       invalidate();
       setNewContent("");
-      setAddDialogOpen(false);
-      toast({ title: "Saved" });
+      toast({ title: "Note saved" });
     },
-    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+    onError: () => toast({ title: "Failed to save note", variant: "destructive" }),
+  });
+
+  const configureResidentMutation = useMutation({
+    mutationFn: ({ id, defaultModel, residentDescription }: { id: string; defaultModel?: string; residentDescription?: string }) =>
+      apiRequest("PATCH", `/api/connections/${id}`, {
+        ...(defaultModel !== undefined ? { defaultModel } : {}),
+        ...(residentDescription !== undefined ? { residentDescription: residentDescription || undefined } : {}),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
+    },
+    onError: () => toast({ title: "Failed to update resident", variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -111,20 +140,62 @@ export function ContinuityPanel({
     onError: () => toast({ title: "Failed to save orientation", variant: "destructive" }),
   });
 
-  const handleSave = () => {
-    const targetConnId = addTarget === "resident" ? (addTargetConnectionId ?? connectionId) : null;
-    const payload =
-      addTarget === "resident" && targetConnId
-        ? { scope: "resident", content: newContent.trim(), connectionId: targetConnId }
-        : { scope: "global", content: newContent.trim() };
-    createMutation.mutate(payload);
+  const handleResidentDialogSave = async () => {
+    const targetConnId = addTargetConnectionId ?? connectionId;
+    if (!targetConnId) return;
+
+    const targetConn = connections.find(c => c.id === targetConnId);
+    const modelChanged = addResidentModel && addResidentModel !== targetConn?.defaultModel;
+    const orientationChanged = addOrientationDraft !== (targetConn?.residentDescription ?? "");
+    const hasNote = newContent.trim().length > 0;
+
+    const patches: { defaultModel?: string; residentDescription?: string } = {};
+    if (modelChanged) patches.defaultModel = addResidentModel;
+    if (orientationChanged) patches.residentDescription = addOrientationDraft;
+
+    const tasks: Promise<unknown>[] = [];
+    if (Object.keys(patches).length > 0) {
+      tasks.push(configureResidentMutation.mutateAsync({ id: targetConnId, ...patches }));
+    }
+    if (hasNote) {
+      tasks.push(createMutation.mutateAsync({ scope: "resident", content: newContent.trim(), connectionId: targetConnId }));
+    }
+
+    if (tasks.length === 0) {
+      setAddDialogOpen(false);
+      return;
+    }
+
+    await Promise.all(tasks);
+    setAddDialogOpen(false);
+    toast({ title: "Resident updated" });
+  };
+
+  const handleGlobalSave = () => {
+    createMutation.mutate({ scope: "global", content: newContent.trim() });
+    setAddDialogOpen(false);
   };
 
   const openAddDialog = (target: AddTarget, connId?: string | null) => {
     setAddTarget(target);
-    setAddTargetConnectionId(connId ?? connectionId);
+    const resolvedConnId = connId ?? connectionId;
+    setAddTargetConnectionId(resolvedConnId);
     setNewContent("");
+
+    if (target === "resident") {
+      const conn = connections.find(c => c.id === resolvedConnId);
+      setAddResidentModel(conn?.defaultModel ?? "");
+      setAddOrientationDraft(conn?.residentDescription ?? "");
+    }
+
     setAddDialogOpen(true);
+  };
+
+  const handleAddTargetResidentChange = (newConnId: string) => {
+    setAddTargetConnectionId(newConnId);
+    const conn = connections.find(c => c.id === newConnId);
+    setAddResidentModel(conn?.defaultModel ?? "");
+    setAddOrientationDraft(conn?.residentDescription ?? "");
   };
 
   const formatDate = (d: string) =>
@@ -178,10 +249,17 @@ export function ContinuityPanel({
   const [residentCollapsed, setResidentCollapsed] = useState(false);
   const [rosterCollapsed, setRosterCollapsed] = useState(false);
 
+  const selectedDialogConn = connections.find(c => c.id === addTargetConnectionId);
+  const dialogResidentLabel = selectedDialogConn?.residentName ?? "This Resident";
+  const dialogProviderModels =
+    providerStatus?.providers.find(p => p.connectionId === addTargetConnectionId)?.models ?? [];
+
   const addDialogLabel =
     addTarget === "resident"
       ? (connections.find(c => c.id === addTargetConnectionId)?.residentName ?? residentLabel)
       : "Environment";
+
+  const isSaving = configureResidentMutation.isPending || createMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -301,7 +379,7 @@ export function ContinuityPanel({
                             )}
                           </div>
 
-                          {/* Continuity count + add note */}
+                          {/* Continuity count + configure */}
                           <div className="flex items-center justify-between pl-5 mt-1.5">
                             <p className="text-xs text-muted-foreground">
                               {count === null
@@ -315,7 +393,7 @@ export function ContinuityPanel({
                               onClick={() => openAddDialog("resident", conn.id)}
                               data-testid={`button-add-roster-note-${conn.id}`}
                             >
-                              + note
+                              + configure
                             </button>
                           </div>
                         </div>
@@ -397,48 +475,160 @@ export function ContinuityPanel({
         </div>
       </DialogContent>
 
-      {/* Add entry dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {addTarget === "resident"
-                ? `Add to ${addDialogLabel}`
-                : "Add to Environment"}
-            </DialogTitle>
-            <DialogDescription>
-              {addTarget === "resident"
-                ? `How does ${addDialogLabel} work with you? Specialties, conventions, preferred approach.`
-                : "What should every resident know? Collaboration preferences, project culture, stable context."}
-            </DialogDescription>
-          </DialogHeader>
+      {/* Add entry dialog — global */}
+      {addTarget === "global" && (
+        <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add to Environment</DialogTitle>
+              <DialogDescription>
+                What should every resident know? Collaboration preferences, project culture, stable context.
+              </DialogDescription>
+            </DialogHeader>
 
-          <Textarea
-            placeholder={
-              addTarget === "resident"
-                ? `e.g. ${addDialogLabel} prefers to review architecture before implementation.`
-                : "e.g. Prefer exploratory dialogue before decisions. Canonical files are authoritative."
-            }
-            value={newContent}
-            onChange={(e) => setNewContent(e.target.value)}
-            rows={4}
-            data-testid="textarea-continuity-content"
-          />
+            <Textarea
+              placeholder="e.g. Prefer exploratory dialogue before decisions. Canonical files are authoritative."
+              value={newContent}
+              onChange={(e) => setNewContent(e.target.value)}
+              rows={4}
+              data-testid="textarea-continuity-content"
+            />
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!newContent.trim() || createMutation.isPending}
-              data-testid="button-save-continuity"
-            >
-              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleGlobalSave}
+                disabled={!newContent.trim() || createMutation.isPending}
+                data-testid="button-save-continuity"
+              >
+                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Configure resident dialog */}
+      {addTarget === "resident" && (
+        <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Configure {dialogResidentLabel}</DialogTitle>
+              <DialogDescription>
+                Set this resident's model, orientation brief, and add continuity notes.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-1">
+
+              {/* Resident selector */}
+              {residentConnections.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Resident</Label>
+                  <Select
+                    value={addTargetConnectionId ?? ""}
+                    onValueChange={handleAddTargetResidentChange}
+                  >
+                    <SelectTrigger data-testid="select-dialog-resident">
+                      <SelectValue placeholder="Select a resident" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {residentConnections.map(conn => (
+                        <SelectItem key={conn.id} value={conn.id} data-testid={`option-resident-${conn.id}`}>
+                          <span className="flex items-center gap-2">
+                            {conn.residentEmoji && <span>{conn.residentEmoji}</span>}
+                            <span>{conn.residentName}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Model selector */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Model</Label>
+                {dialogProviderModels.length > 0 ? (
+                  <Select
+                    value={addResidentModel}
+                    onValueChange={setAddResidentModel}
+                  >
+                    <SelectTrigger data-testid="select-dialog-model">
+                      <SelectValue placeholder="Select a model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dialogProviderModels.map(m => (
+                        <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
+                          {m.name ?? m.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      value={addResidentModel}
+                      onChange={e => setAddResidentModel(e.target.value)}
+                      placeholder="e.g. llama3.2, gpt-4o"
+                      data-testid="input-dialog-model"
+                    />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">provider offline</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Orientation / role brief */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Orientation brief</Label>
+                <p className="text-xs text-muted-foreground">
+                  Tell this resident their purpose — what they do, what they specialise in, how they work with you.
+                  This is sent at the start of every conversation.
+                </p>
+                <Textarea
+                  placeholder={`e.g. ${dialogResidentLabel}, your job is to learn everything about this project — its file structure, logs, and documentation. You specialise in technical troubleshooting and project thinking.`}
+                  value={addOrientationDraft}
+                  onChange={(e) => setAddOrientationDraft(e.target.value)}
+                  rows={5}
+                  data-testid="textarea-dialog-orientation"
+                />
+              </div>
+
+              {/* Continuity note (optional) */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">
+                  Continuity note
+                  <span className="text-muted-foreground font-normal ml-1">(optional)</span>
+                </Label>
+                <Textarea
+                  placeholder={`e.g. ${dialogResidentLabel} prefers to review architecture before implementation.`}
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  rows={3}
+                  data-testid="textarea-continuity-content"
+                />
+              </div>
+
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleResidentDialogSave}
+                disabled={isSaving}
+                data-testid="button-save-continuity"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 }
