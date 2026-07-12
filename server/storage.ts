@@ -22,7 +22,7 @@ import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient, type Client } from "@libsql/client";
-import { eq, and, like, or, desc, sql } from "drizzle-orm";
+import { eq, and, like, or, desc, sql, isNull, isNotNull } from "drizzle-orm";
 
 export interface IStorage {
   // Lifecycle
@@ -45,7 +45,7 @@ export interface IStorage {
   countConversationsByConnection(connectionId: string): Promise<number>;
 
   // Projects
-  getProjects(): Promise<Project[]>;
+  getProjects(archived?: boolean): Promise<Project[]>;
   getProject(id: string): Promise<Project | undefined>;
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined>;
@@ -53,10 +53,10 @@ export interface IStorage {
   reorderProjects(orderedIds: string[]): Promise<void>;
   
   // Conversations
-  getConversations(projectId?: string): Promise<Conversation[]>;
+  getConversations(projectId?: string, archived?: boolean): Promise<Conversation[]>;
   getConversation(id: string): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation): Promise<Conversation>;
-  updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined>;
+  updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId' | 'archivedAt'>>): Promise<Conversation | undefined>;
   deleteConversation(id: string): Promise<boolean>;
   addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined>;
 
@@ -77,7 +77,7 @@ export interface IStorage {
   }>;
 
   // ─── Phase 2: Library ──────────────────────────────────────────────────────
-  getLibraryFolders(parentId?: string | null): Promise<LibraryFolder[]>;
+  getLibraryFolders(parentId?: string | null, archived?: boolean): Promise<LibraryFolder[]>;
   getLibraryFolder(id: string): Promise<LibraryFolder | undefined>;
   createLibraryFolder(folder: InsertLibraryFolder): Promise<LibraryFolder>;
   updateLibraryFolder(id: string, updates: Partial<InsertLibraryFolder>): Promise<LibraryFolder | undefined>;
@@ -226,8 +226,10 @@ export class MemStorage implements IStorage {
   }
 
   // Projects
-  async getProjects(): Promise<Project[]> {
-    return Array.from(this.projects.values()).sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+  async getProjects(archived = false): Promise<Project[]> {
+    return Array.from(this.projects.values())
+      .filter(p => archived ? Boolean(p.archivedAt) : !p.archivedAt)
+      .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
   }
   async getProject(id: string): Promise<Project | undefined> { return this.projects.get(id); }
   async createProject(insertProject: InsertProject): Promise<Project> {
@@ -258,8 +260,9 @@ export class MemStorage implements IStorage {
   }
 
   // Conversations
-  async getConversations(projectId?: string): Promise<Conversation[]> {
-    let convs = Array.from(this.conversations.values());
+  async getConversations(projectId?: string, archived = false): Promise<Conversation[]> {
+    let convs = Array.from(this.conversations.values())
+      .filter(c => archived ? Boolean(c.archivedAt) : !c.archivedAt);
     if (projectId !== undefined) convs = convs.filter(c => c.projectId === projectId);
     return convs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
@@ -271,7 +274,7 @@ export class MemStorage implements IStorage {
     this.conversations.set(id, conversation);
     return conversation;
   }
-  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined> {
+  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId' | 'archivedAt'>>): Promise<Conversation | undefined> {
     const conversation = this.conversations.get(id);
     if (!conversation) return undefined;
     const updated: Conversation = { ...conversation, ...updates, updatedAt: new Date().toISOString() };
@@ -371,8 +374,9 @@ export class MemStorage implements IStorage {
 
   // ─── Phase 2: Library ──────────────────────────────────────────────────────
 
-  async getLibraryFolders(parentId?: string | null): Promise<LibraryFolder[]> {
-    const folders = Array.from(this._libraryFolders.values());
+  async getLibraryFolders(parentId?: string | null, archived = false): Promise<LibraryFolder[]> {
+    const folders = Array.from(this._libraryFolders.values())
+      .filter(f => archived ? Boolean(f.archivedAt) : !f.archivedAt);
     if (parentId === undefined) return folders;
     return folders.filter(f => (parentId === null ? f.parentId == null : f.parentId === parentId));
   }
@@ -953,15 +957,18 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getProjects(): Promise<Project[]> {
-    const result = await this.db.select().from(projects).orderBy(projects.orderIndex);
-    return result.map(p => ({ ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, notes: p.notes ?? undefined, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined }));
+  async getProjects(archived = false): Promise<Project[]> {
+    const archiveFilter = archived ? isNotNull(projects.archivedAt) : isNull(projects.archivedAt);
+    const result = await this.db.select().from(projects).where(archiveFilter).orderBy(projects.orderIndex);
+    return result.map(p => this._mapProject(p));
+  }
+  private _mapProject(p: typeof projects.$inferSelect): Project {
+    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, notes: p.notes ?? undefined, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined, archivedAt: p.archivedAt ?? undefined };
   }
   async getProject(id: string): Promise<Project | undefined> {
     const result = await this.db.select().from(projects).where(eq(projects.id, id));
     if (!result[0]) return undefined;
-    const p = result[0];
-    return { ...p, description: p.description ?? undefined, connectionId: p.connectionId ?? undefined, systemPrompt: p.systemPrompt ?? undefined, currentTask: p.currentTask ?? undefined, folderPath: p.folderPath ?? undefined, orderIndex: p.orderIndex ?? 0, notes: p.notes ?? undefined, goals: p.goals ?? undefined, architecturalNotes: p.architecturalNotes ?? undefined, workState: p.workState ?? undefined, recentChanges: p.recentChanges ?? undefined, activeIssues: p.activeIssues ?? undefined, contextFiles: p.contextFiles ?? undefined };
+    return this._mapProject(result[0]);
   }
   async createProject(insertProject: InsertProject): Promise<Project> {
     const id = randomUUID();
@@ -997,17 +1004,20 @@ export class DatabaseStorage implements IStorage {
     return Number(result[0]?.count ?? 0);
   }
 
-  async getConversations(projectId?: string): Promise<Conversation[]> {
+  private _mapConversation(c: typeof conversations.$inferSelect): Conversation {
+    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, guestConnectionId: (c as any).guestConnectionId ?? undefined, archivedAt: c.archivedAt ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) };
+  }
+  async getConversations(projectId?: string, archived = false): Promise<Conversation[]> {
+    const archiveFilter = archived ? isNotNull(conversations.archivedAt) : isNull(conversations.archivedAt);
     const result = projectId !== undefined
-      ? await this.db.select().from(conversations).where(eq(conversations.projectId, projectId)).orderBy(desc(conversations.updatedAt))
-      : await this.db.select().from(conversations).orderBy(desc(conversations.updatedAt));
-    return result.map(c => ({ ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, guestConnectionId: (c as any).guestConnectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) }));
+      ? await this.db.select().from(conversations).where(and(eq(conversations.projectId, projectId), archiveFilter)).orderBy(desc(conversations.updatedAt))
+      : await this.db.select().from(conversations).where(archiveFilter).orderBy(desc(conversations.updatedAt));
+    return result.map(c => this._mapConversation(c));
   }
   async getConversation(id: string): Promise<Conversation | undefined> {
     const result = await this.db.select().from(conversations).where(eq(conversations.id, id));
     if (!result[0]) return undefined;
-    const c = result[0];
-    return { ...c, projectId: c.projectId ?? undefined, connectionId: c.connectionId ?? undefined, guestConnectionId: (c as any).guestConnectionId ?? undefined, messages: this._parseJson<Message[]>(c.messages as string, []) };
+    return this._mapConversation(result[0]);
   }
   async createConversation(insertConversation: InsertConversation): Promise<Conversation> {
     const id = randomUUID();
@@ -1015,13 +1025,14 @@ export class DatabaseStorage implements IStorage {
     await this.db.insert(conversations).values({ ...insertConversation, id, messages: JSON.stringify([]), createdAt: now, updatedAt: now, projectId: insertConversation.projectId ?? null, connectionId: insertConversation.connectionId ?? null });
     return { ...insertConversation, id, messages: [], createdAt: now, updatedAt: now };
   }
-  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId'>>): Promise<Conversation | undefined> {
+  async updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId' | 'archivedAt'>>): Promise<Conversation | undefined> {
     const existing = await this.getConversation(id);
     if (!existing) return undefined;
     const now = new Date().toISOString();
     const dbUpdates: Record<string, any> = { ...updates, updatedAt: now };
     if (updates.messages !== undefined) dbUpdates.messages = JSON.stringify(updates.messages);
     if ('guestConnectionId' in updates) dbUpdates.guest_connection_id = updates.guestConnectionId ?? null;
+    if ('archivedAt' in updates) dbUpdates.archived_at = updates.archivedAt ?? null;
     await this.db.update(conversations).set(dbUpdates).where(eq(conversations.id, id));
     return { ...existing, ...updates, updatedAt: now };
   }
@@ -1183,17 +1194,20 @@ export class DatabaseStorage implements IStorage {
 
   // ─── Phase 2: Library ──────────────────────────────────────────────────────
 
-  async getLibraryFolders(parentId?: string | null): Promise<LibraryFolder[]> {
-    const result = await this.db.select().from(libraryFolders).orderBy(libraryFolders.name);
-    const all = result.map(f => ({ ...f, parentId: f.parentId ?? undefined, description: f.description ?? undefined }));
+  private _mapLibraryFolder(f: typeof libraryFolders.$inferSelect): LibraryFolder {
+    return { ...f, parentId: f.parentId ?? undefined, description: f.description ?? undefined, archivedAt: f.archivedAt ?? undefined };
+  }
+  async getLibraryFolders(parentId?: string | null, archived = false): Promise<LibraryFolder[]> {
+    const archiveFilter = archived ? isNotNull(libraryFolders.archivedAt) : isNull(libraryFolders.archivedAt);
+    const result = await this.db.select().from(libraryFolders).where(archiveFilter).orderBy(libraryFolders.name);
+    const all = result.map(f => this._mapLibraryFolder(f));
     if (parentId === undefined) return all;
     return all.filter(f => (parentId === null ? f.parentId == null : f.parentId === parentId));
   }
   async getLibraryFolder(id: string): Promise<LibraryFolder | undefined> {
     const result = await this.db.select().from(libraryFolders).where(eq(libraryFolders.id, id));
     if (!result[0]) return undefined;
-    const f = result[0];
-    return { ...f, parentId: f.parentId ?? undefined, description: f.description ?? undefined };
+    return this._mapLibraryFolder(result[0]);
   }
   async createLibraryFolder(insertFolder: InsertLibraryFolder): Promise<LibraryFolder> {
     const id = randomUUID();
@@ -1260,7 +1274,7 @@ export class DatabaseStorage implements IStorage {
     return result.map(i => this._mapLibraryItem(i));
   }
   private _mapLibraryItem(i: typeof libraryItems.$inferSelect): LibraryItem {
-    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, notes: i.notes ?? undefined, tags: this._parseJson<string[]>(i.tags as string | null, null as any) ?? undefined, accessedAt: i.accessedAt ?? undefined };
+    return { ...i, source: i.source as LibraryItem["source"], folderId: i.folderId ?? undefined, filePath: i.filePath ?? undefined, mimeType: i.mimeType ?? undefined, content: i.content ?? undefined, summary: i.summary ?? undefined, notes: i.notes ?? undefined, tags: this._parseJson<string[]>(i.tags as string | null, null as any) ?? undefined, accessedAt: i.accessedAt ?? undefined, archivedAt: i.archivedAt ?? undefined };
   }
 
   // ─── Phase 2: Journal ──────────────────────────────────────────────────────

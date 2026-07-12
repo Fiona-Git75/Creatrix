@@ -540,9 +540,10 @@ export async function registerRoutes(
   });
 
   // === Projects ===
-  app.get("/api/projects", async (_req: Request, res: Response) => {
+  app.get("/api/projects", async (req: Request, res: Response) => {
     try {
-      const projects = await storage.getProjects();
+      const archived = req.query.archived === "true";
+      const projects = await storage.getProjects(archived);
       res.json(projects);
     } catch (error) {
       console.error("Error fetching projects:", error);
@@ -668,7 +669,8 @@ export async function registerRoutes(
   app.get("/api/conversations", async (req: Request, res: Response) => {
     try {
       const projectId = req.query.projectId as string | undefined;
-      const conversations = await storage.getConversations(projectId);
+      const archived = req.query.archived === "true";
+      const conversations = await storage.getConversations(projectId, archived);
       res.json(conversations);
     } catch (error) {
       console.error("Error fetching conversations:", error);
@@ -1820,7 +1822,8 @@ export async function registerRoutes(
   app.get("/api/library/folders", async (req: Request, res: Response) => {
     try {
       const parentId = req.query.parentId as string | undefined;
-      const folders = await storage.getLibraryFolders(parentId === "root" ? null : parentId);
+      const archived = req.query.archived === "true";
+      const folders = await storage.getLibraryFolders(parentId === "root" ? null : parentId, archived);
       res.json(folders);
     } catch (error) {
       console.error("Error fetching library folders:", error);

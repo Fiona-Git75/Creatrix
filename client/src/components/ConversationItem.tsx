@@ -1,4 +1,4 @@
-import { MessageSquare, Trash2 } from "lucide-react";
+import { MessageSquare, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -7,6 +7,7 @@ export interface Conversation {
   title: string;
   projectId?: string;
   connectionId?: string;
+  archivedAt?: string | null;
 }
 
 interface ConversationItemProps {
@@ -15,6 +16,8 @@ interface ConversationItemProps {
   projectName?: string;
   onClick: () => void;
   onDelete: () => void;
+  onArchive?: () => void;
+  onRestore?: () => void;
 }
 
 export function ConversationItem({
@@ -23,7 +26,10 @@ export function ConversationItem({
   projectName,
   onClick,
   onDelete,
+  onArchive,
+  onRestore,
 }: ConversationItemProps) {
+  const isArchived = Boolean(conversation.archivedAt);
   return (
     <div
       className={cn(
@@ -39,13 +45,33 @@ export function ConversationItem({
       <div className="flex items-center gap-2">
         <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate text-sm">{conversation.title}</span>
+        {isArchived && onRestore ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => { e.stopPropagation(); onRestore(); }}
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            data-testid={`button-restore-${conversation.id}`}
+            aria-label={`Restore ${conversation.title}`}
+          >
+            <ArchiveRestore className="h-3 w-3" />
+          </Button>
+        ) : onArchive ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => { e.stopPropagation(); onArchive(); }}
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            data-testid={`button-archive-${conversation.id}`}
+            aria-label={`Archive ${conversation.title}`}
+          >
+            <Archive className="h-3 w-3" />
+          </Button>
+        ) : null}
         <Button
           size="icon"
           variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
           className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
           data-testid={`button-delete-${conversation.id}`}
           aria-label={`Delete ${conversation.title}`}

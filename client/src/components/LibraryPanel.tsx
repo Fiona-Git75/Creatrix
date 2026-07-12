@@ -4,7 +4,7 @@ import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
   ChevronRight, ChevronDown, Clock, Globe, Loader2,
   HardDrive, FilePlus, ArrowLeft, Download, BookOpen, ExternalLink,
-  ScanLine, Image, BookMarked, Anchor, Pencil, Check, X,
+  ScanLine, Image, BookMarked, Anchor, Pencil, Check, X, Archive, ArchiveRestore,
 } from "lucide-react";
 import { SiNotion } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -332,7 +332,7 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
   );
 }
 
-function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: (id: string) => void }) {
+function FolderSection({ folder, onDelete, onArchive }: { folder: LibraryFolder; onDelete: (id: string) => void; onArchive?: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(folder.name);
@@ -422,6 +422,18 @@ function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: 
             >
               <Pencil className="h-3 w-3" />
             </Button>
+            {onArchive && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-5 w-5"
+                title="Archive collection"
+                onClick={(e) => { e.stopPropagation(); onArchive(folder.id); }}
+                data-testid={`button-archive-folder-${folder.id}`}
+              >
+                <Archive className="h-3 w-3" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -728,9 +740,20 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
   const [newFolderId, setNewFolderId] = useState<string>("");
   const { toast } = useToast();
 
+  const [archivedFoldersOpen, setArchivedFoldersOpen] = useState(false);
+
   const { data: folders = [], isLoading: loadingFolders } = useQuery<LibraryFolder[]>({
     queryKey: ["/api/library/folders"],
     enabled: open,
+  });
+
+  const { data: archivedFolders = [] } = useQuery<LibraryFolder[]>({
+    queryKey: ["/api/library/folders", { archived: true }],
+    queryFn: async () => {
+      const res = await fetch("/api/library/folders?archived=true");
+      return res.json();
+    },
+    enabled: open && archivedFoldersOpen,
   });
 
   const { data: recentItems = [], isLoading: loadingRecent } = useQuery<LibraryItem[]>({
@@ -792,6 +815,24 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
       toast({ title: "Collection removed" });
     },
     onError: () => toast({ title: "Error", description: "Failed to remove collection.", variant: "destructive" }),
+  });
+
+  const archiveFolderMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/library/folders/${id}`, { archivedAt: new Date().toISOString() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/folders"] });
+      toast({ title: "Collection archived" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to archive collection.", variant: "destructive" }),
+  });
+
+  const restoreFolderMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/library/folders/${id}`, { archivedAt: null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/folders"] });
+      toast({ title: "Collection restored" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to restore collection.", variant: "destructive" }),
   });
 
   const scanFolderMutation = useMutation({
@@ -945,10 +986,51 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                         key={folder.id}
                         folder={folder}
                         onDelete={(id) => deleteFolderMutation.mutate(id)}
+                        onArchive={(id) => archiveFolderMutation.mutate(id)}
                       />
                     ))}
                   </div>
                 )}
+                {/* Archived collections */}
+                <div className="mt-3 pr-2">
+                  <button
+                    onClick={() => setArchivedFoldersOpen(o => !o)}
+                    className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-accent/40"
+                    data-testid="button-toggle-archived-folders"
+                  >
+                    <Archive className="h-3 w-3" />
+                    <span>Archived collections</span>
+                    <ChevronDown className={`h-3 w-3 ml-auto transition-transform duration-150 ${archivedFoldersOpen ? "" : "-rotate-90"}`} />
+                  </button>
+                  {archivedFoldersOpen && (
+                    <div className="mt-1 space-y-1">
+                      {archivedFolders.length === 0 ? (
+                        <p className="text-xs text-muted-foreground px-2 py-1">No archived collections</p>
+                      ) : (
+                        archivedFolders.map(folder => (
+                          <div
+                            key={folder.id}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 transition-colors group"
+                            data-testid={`folder-archived-${folder.id}`}
+                          >
+                            <FolderOpen className="h-3.5 w-3.5 text-amber-500/50 shrink-0" />
+                            <span className="text-sm flex-1 truncate opacity-60">{folder.name}</span>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                              title="Restore collection"
+                              onClick={() => restoreFolderMutation.mutate(folder.id)}
+                              data-testid={`button-restore-folder-${folder.id}`}
+                            >
+                              <ArchiveRestore className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </ScrollArea>
             </TabsContent>
 

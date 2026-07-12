@@ -46,6 +46,7 @@ export const projects = sqliteTable("projects", {
   recentChanges: text("recent_changes"),
   activeIssues: text("active_issues"),
   contextFiles: text("context_files"),
+  archivedAt: text("archived_at"),
 });
 
 // Conversations table
@@ -59,6 +60,7 @@ export const conversations = sqliteTable("conversations", {
   messages: text("messages").notNull().default("[]"),  // JSON-encoded Message[]
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  archivedAt: text("archived_at"),
 });
 
 // Memory entries table
@@ -97,6 +99,7 @@ export const libraryFolders = sqliteTable("library_folders", {
   parentId: text("parent_id"),
   description: text("description"),
   createdAt: text("created_at").notNull(),
+  archivedAt: text("archived_at"),
 });
 
 // Library items — an inspectable record of every document the resident knows about
@@ -113,6 +116,7 @@ export const libraryItems = sqliteTable("library_items", {
   tags: text("tags"),  // JSON-encoded string[]
   createdAt: text("created_at").notNull(),
   accessedAt: text("accessed_at"),
+  archivedAt: text("archived_at"),
 });
 
 // ─── Phase 2: Resident Journal ───────────────────────────────────────────────
@@ -189,6 +193,7 @@ export const projectSchema = z.object({
   recentChanges: z.string().optional(),
   activeIssues: z.string().optional(),
   contextFiles: z.string().optional(),
+  archivedAt: z.string().nullable().optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 export const insertProjectSchema = projectSchema.omit({ id: true, createdAt: true });
@@ -230,6 +235,7 @@ export const conversationSchema = z.object({
   messages: z.array(messageSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
+  archivedAt: z.string().nullable().optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 export const insertConversationSchema = conversationSchema.omit({
@@ -305,6 +311,7 @@ export const libraryFolderSchema = z.object({
   parentId: z.string().optional(),
   description: z.string().optional(),
   createdAt: z.string(),
+  archivedAt: z.string().nullable().optional(),
 });
 export type LibraryFolder = z.infer<typeof libraryFolderSchema>;
 export const insertLibraryFolderSchema = libraryFolderSchema.omit({ id: true, createdAt: true });
@@ -326,6 +333,7 @@ export const libraryItemSchema = z.object({
   tags: z.array(z.string()).optional(),
   createdAt: z.string(),
   accessedAt: z.string().optional(),
+  archivedAt: z.string().nullable().optional(),
 });
 export type LibraryItem = z.infer<typeof libraryItemSchema>;
 export const insertLibraryItemSchema = libraryItemSchema.omit({ id: true, createdAt: true });
