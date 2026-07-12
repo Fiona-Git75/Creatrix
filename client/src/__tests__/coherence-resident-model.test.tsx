@@ -211,6 +211,42 @@ describe("measureCoherence — resident model check", () => {
     expect(residentModelItem).toBeUndefined();
   });
 
+  it("returns RED when a resident connection is absent from providerStatus", async () => {
+    mockGetConnections.mockResolvedValue([RESIDENT_CONNECTION]);
+    // providerStatus has no entry for this resident's connectionId
+    mockGetProvidersStatus.mockResolvedValue(makeProvidersStatus([]));
+
+    const report = await measureCoherence(BOOTSTRAPPED_MANIFEST);
+
+    expect(report.overallStatus).toBe("RED");
+  });
+
+  it("includes an absent coherence item when the resident's provider connection is missing", async () => {
+    mockGetConnections.mockResolvedValue([RESIDENT_CONNECTION]);
+    mockGetProvidersStatus.mockResolvedValue(makeProvidersStatus([]));
+
+    const report = await measureCoherence(BOOTSTRAPPED_MANIFEST);
+
+    const item = report.items.find(i => i.component === "Aria connection");
+    expect(item).toBeDefined();
+    expect(item!.actual).toBe("absent");
+    expect(item!.domain).toBe("Inference");
+    expect(item!.message).toContain("Aria");
+    expect(item!.action).toContain("Settings → Connections");
+  });
+
+  it("does not emit an absent-connection item for a resident whose connection is present and online", async () => {
+    mockGetConnections.mockResolvedValue([RESIDENT_CONNECTION]);
+    mockGetProvidersStatus.mockResolvedValue(
+      makeProvidersStatus([PROVIDER_ONLINE_WITH_MODEL]),
+    );
+
+    const report = await measureCoherence(BOOTSTRAPPED_MANIFEST);
+
+    const item = report.items.find(i => i.component === "Aria connection");
+    expect(item).toBeUndefined();
+  });
+
   it("flags multiple resident connections independently", async () => {
     const secondResident = {
       ...RESIDENT_CONNECTION,

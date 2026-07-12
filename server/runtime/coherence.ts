@@ -269,7 +269,24 @@ export async function measureCoherence(manifest: RuntimeManifest): Promise<Coher
         if (!conn.residentName) continue; // Only check resident (persona) connections
 
         const prov = providerStatus.providers.find(p => p.connectionId === conn.id);
-        if (!prov || prov.status === "offline") continue; // Provider unreachable — already flagged elsewhere
+
+        // Provider connection absent from scan — either deleted or never scanned.
+        // Resident connections are not in the bootstrap manifest, so this is NOT
+        // "already flagged elsewhere"; we must surface it here.
+        if (!prov) {
+          items.push({
+            domain: "Inference",
+            component: `${conn.residentName} connection`,
+            expected: "provider connection present",
+            actual: "absent",
+            message: `${conn.residentName}'s provider connection is missing — it may have been deleted from Settings → Connections.`,
+            action: "Re-add the connection in Settings → Connections and assign it to this resident.",
+            firstLook: "Settings → Connections",
+          });
+          continue;
+        }
+
+        if (prov.status === "offline") continue; // Provider unreachable — already flagged elsewhere
 
         const modelPresent = prov.models.some(m => m.id === conn.defaultModel);
         if (!modelPresent) {
