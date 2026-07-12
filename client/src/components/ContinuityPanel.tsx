@@ -178,7 +178,15 @@ export function ContinuityPanel({
 
   const openAddDialog = (target: AddTarget, connId?: string | null) => {
     setAddTarget(target);
-    const resolvedConnId = connId ?? connectionId;
+    let resolvedConnId = connId ?? connectionId;
+
+    // When opening for a resident, ensure we have an actual resident connection.
+    // If the resolved ID doesn't point to one, fall back to the first resident connection.
+    if (target === "resident") {
+      const isResidentConn = residentConnections.some(c => c.id === resolvedConnId);
+      if (!isResidentConn) resolvedConnId = residentConnections[0]?.id ?? resolvedConnId;
+    }
+
     setAddTargetConnectionId(resolvedConnId);
     setNewContent("");
 
@@ -553,44 +561,36 @@ export function ContinuityPanel({
               {/* Model selector */}
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Resident Model</Label>
-                {dialogProviderModels.length > 0 ? (() => {
-                  const selectedModel = dialogProviderModels.find(m => m.id === addResidentModel);
-                  return (
-                    <Select
-                      value={addResidentModel}
-                      onValueChange={setAddResidentModel}
-                    >
-                      <SelectTrigger data-testid="select-dialog-model" className="h-auto py-2">
-                        {addResidentModel ? (
-                          <span className="flex flex-col items-start text-left gap-0.5 min-w-0">
-                            <span className="text-sm leading-snug truncate">
-                              {selectedModel?.name ?? addResidentModel}
-                            </span>
-                            {selectedModel?.name && selectedModel.name !== selectedModel.id && (
-                              <span className="text-xs font-mono text-muted-foreground leading-snug truncate">
-                                {selectedModel.id}
-                              </span>
-                            )}
+                {dialogProviderModels.length > 0 ? (
+                  <Select
+                    value={addResidentModel}
+                    onValueChange={setAddResidentModel}
+                  >
+                    <SelectTrigger data-testid="select-dialog-model" className="h-auto py-2">
+                      {addResidentModel ? (
+                        <span className="flex flex-col items-start text-left gap-0.5 min-w-0">
+                          {/* Primary: the Creatrix-facing connection name (e.g. "OLMo Research") */}
+                          <span className="text-sm leading-snug truncate">
+                            {selectedDialogConn?.name ?? addResidentModel}
                           </span>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">Select a model</span>
-                        )}
-                      </SelectTrigger>
-                      <SelectContent>
-                        {dialogProviderModels.map(m => (
-                          <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
-                            <span className="flex flex-col gap-0.5 py-0.5">
-                              <span className="text-sm leading-snug">{m.name ?? m.id}</span>
-                              {m.name && m.name !== m.id && (
-                                <span className="text-xs font-mono text-muted-foreground leading-snug">{m.id}</span>
-                              )}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  );
-                })() : (
+                          {/* Secondary: the actual backend engine ID */}
+                          <span className="text-xs font-mono text-muted-foreground leading-snug truncate">
+                            {addResidentModel}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">Select a model</span>
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dialogProviderModels.map(m => (
+                        <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
+                          <span className="font-mono text-sm">{m.id}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
                   <div className="space-y-1">
                     <input
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
