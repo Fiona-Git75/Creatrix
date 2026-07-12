@@ -2,6 +2,7 @@
 // Set NOTION_TOKEN in your .env (local) or Replit Secrets (Replit).
 // Get a token at https://www.notion.so/my-integrations (internal integration).
 import type { CapabilityDefinition } from "./index";
+import { syslog } from "../syslog";
 
 const NOTION_API = "https://api.notion.com";
 const NOTION_VERSION = "2022-06-28";
@@ -43,7 +44,12 @@ export async function probeNotionConnected(): Promise<boolean> {
     return _notionProbeCache.connected;
   }
 
+  const prev = _notionProbeCache?.connected;
+
   if (!process.env.NOTION_TOKEN) {
+    if (prev !== false) {
+      syslog("warn", "tool", "Notion tools unavailable — NOTION_TOKEN is not set", "Add it to your .env file or Replit Secrets");
+    }
     _notionProbeCache = { connected: false, at: Date.now() };
     return false;
   }
@@ -59,9 +65,17 @@ export async function probeNotionConnected(): Promise<boolean> {
       ),
     ]);
     const connected = (res as Response).status < 500;
+    if (connected && prev === false) {
+      syslog("info", "tool", "Notion tools restored — connection probe succeeded");
+    } else if (!connected && prev !== false) {
+      syslog("warn", "tool", "Notion tools unavailable — API returned an error", "Check your NOTION_TOKEN and integration permissions");
+    }
     _notionProbeCache = { connected, at: Date.now() };
     return connected;
-  } catch {
+  } catch (err: any) {
+    if (prev !== false) {
+      syslog("warn", "tool", "Notion tools unavailable — probe timed out or network error", err?.message ?? "unknown error");
+    }
     _notionProbeCache = { connected: false, at: Date.now() };
     return false;
   }
