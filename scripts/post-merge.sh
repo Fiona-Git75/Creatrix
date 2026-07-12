@@ -16,6 +16,13 @@ if [ -n "$GIT_CONFIG_GLOBAL" ]; then
     exit 1
   fi
   unset _git_name
+  _git_email="$(git config --global user.email 2>/dev/null)"
+  if [ -z "$_git_email" ]; then
+    echo "ERROR: git user.email is empty after identity setup." \
+         "Commits would have a blank email. Aborting." >&2
+    exit 1
+  fi
+  unset _git_email
 fi
 
 npm install
