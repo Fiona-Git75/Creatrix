@@ -40,6 +40,10 @@ args = "test"
 task = "workflow.run"
 args = "tsc-gate-check"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Push to GitHub"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -73,6 +77,17 @@ args = "bash scripts/check-tsc-gate.sh"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "Push to GitHub"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/push-to-github.sh"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 integrations = ["javascript_openai:1.0.0", "javascript_mem_db:1.0.0", "notion:1.0.0"]
