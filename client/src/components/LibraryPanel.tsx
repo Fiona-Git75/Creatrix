@@ -4,7 +4,7 @@ import {
   Library, FolderOpen, FileText, Search, Plus, Trash2,
   ChevronRight, ChevronDown, Clock, Globe, Loader2,
   HardDrive, FilePlus, ArrowLeft, Download, BookOpen, ExternalLink,
-  ScanLine, Image, BookMarked, Anchor,
+  ScanLine, Image, BookMarked, Anchor, Pencil, Check, X,
 } from "lucide-react";
 import { SiNotion } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -334,6 +334,9 @@ function ItemCard({ item, onDelete }: { item: LibraryItem; onDelete: (id: string
 
 function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(folder.name);
+  const { toast } = useToast();
 
   const { data: items = [] } = useQuery<LibraryItem[]>({
     queryKey: ["/api/library/items", { folderId: folder.id }],
@@ -344,24 +347,93 @@ function FolderSection({ folder, onDelete }: { folder: LibraryFolder; onDelete: 
     enabled: expanded,
   });
 
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => apiRequest("PATCH", `/api/library/folders/${folder.id}`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/folders"] });
+      setIsRenaming(false);
+      toast({ title: "Collection renamed" });
+    },
+    onError: () => toast({ title: "Could not rename collection", variant: "destructive" }),
+  });
+
+  const commitRename = () => {
+    const trimmed = renameDraft.trim();
+    if (!trimmed || trimmed === folder.name) { setIsRenaming(false); return; }
+    renameMutation.mutate(trimmed);
+  };
+
   return (
     <div data-testid={`folder-library-${folder.id}`}>
       <div
         className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 cursor-pointer transition-colors group"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => !isRenaming && setExpanded(!expanded)}
       >
-        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-        <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
-        <span className="text-sm flex-1">{folder.name}</span>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="opacity-0 group-hover:opacity-100 h-5 w-5 shrink-0"
-          onClick={(e) => { e.stopPropagation(); onDelete(folder.id); }}
-          data-testid={`button-delete-folder-${folder.id}`}
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+        <FolderOpen className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        {isRenaming ? (
+          <input
+            className="flex-1 text-sm bg-transparent border-b border-input focus:outline-none focus:border-ring"
+            value={renameDraft}
+            autoFocus
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") { setRenameDraft(folder.name); setIsRenaming(false); }
+            }}
+            onBlur={commitRename}
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`input-rename-folder-${folder.id}`}
+          />
+        ) : (
+          <span className="text-sm flex-1 truncate">{folder.name}</span>
+        )}
+        {isRenaming ? (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5"
+              onClick={(e) => { e.stopPropagation(); commitRename(); }}
+              disabled={renameMutation.isPending}
+              data-testid={`button-confirm-rename-folder-${folder.id}`}
+            >
+              {renameMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5"
+              onClick={(e) => { e.stopPropagation(); setRenameDraft(folder.name); setIsRenaming(false); }}
+              data-testid={`button-cancel-rename-folder-${folder.id}`}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5"
+              title="Rename collection"
+              onClick={(e) => { e.stopPropagation(); setRenameDraft(folder.name); setIsRenaming(true); }}
+              data-testid={`button-rename-folder-${folder.id}`}
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5 hover:text-destructive"
+              title="Delete collection"
+              onClick={(e) => { e.stopPropagation(); onDelete(folder.id); }}
+              data-testid={`button-delete-folder-${folder.id}`}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
       </div>
       {expanded && (
         <div className="ml-6 mt-1 space-y-1">

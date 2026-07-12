@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,30 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
   const [addingFile, setAddingFile] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(50);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = Math.max(20, Math.min(80, ((ev.clientX - rect.left) / rect.width) * 100));
+      setLeftWidth(pct);
+    };
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
 
   const [fields, setFields] = useState({
     description: "",
@@ -167,12 +191,11 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
         </Button>
       </div>
 
-      {/* Body — scrollable */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col md:flex-row gap-0 h-full">
+      {/* Body — two resizable panes */}
+      <div ref={containerRef} className="flex-1 flex flex-row overflow-hidden min-h-0">
 
           {/* LEFT — Context */}
-          <div className="flex-1 flex flex-col gap-4 p-4 border-b md:border-b-0 md:border-r border-border/60">
+          <div className="flex flex-col gap-4 p-4 overflow-y-auto border-r border-border/60" style={{ width: `${leftWidth}%` }}>
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground pb-1 border-b border-border/40">
               Context
             </div>
@@ -312,8 +335,15 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
             </div>
           </div>
 
+          {/* Drag handle */}
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-border/40 hover:bg-primary/50 active:bg-primary transition-colors"
+            onMouseDown={handleDividerMouseDown}
+            data-testid="divider-project-panel"
+          />
+
           {/* RIGHT — Working Space */}
-          <div className="flex-1 flex flex-col gap-4 p-4">
+          <div className="flex flex-col gap-4 p-4 overflow-y-auto" style={{ width: `${100 - leftWidth}%` }}>
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground pb-1 border-b border-border/40">
               Working Space
             </div>
@@ -348,7 +378,6 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               rows={6}
             />
           </div>
-        </div>
       </div>
 
       {/* Settings — collapsible strip at bottom */}

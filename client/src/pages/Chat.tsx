@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -417,65 +418,97 @@ function ChatContent({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setSearchDialogOpen(true)}
-              data-testid="button-search"
-              aria-label="Search"
-            >
-              <Search className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setJournalPanelOpen(true)}
-              data-testid="button-journal"
-              aria-label="Journal"
-            >
-              <BookOpenCheck className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setLibraryPanelOpen(true)}
-              data-testid="button-library"
-              aria-label="Library"
-            >
-              <Library className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setMemoryPanelOpen(true)}
-              data-testid="button-continuity"
-              aria-label="Continuity"
-            >
-              <Brain className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setSystemLogOpen(true)}
-              data-testid="button-system-log"
-              aria-label="System Log"
-            >
-              <Activity className="h-4 w-4" />
-            </Button>
-            {hasMessages && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={onClearChat}
-                data-testid="button-clear-chat"
-                aria-label="Clear conversation"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-            )}
-            <ThemeToggle />
-          </div>
+          <TooltipProvider delayDuration={400}>
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setSearchDialogOpen(true)}
+                    data-testid="button-search"
+                    aria-label="Search"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Search</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setJournalPanelOpen(true)}
+                    data-testid="button-journal"
+                    aria-label="Journal"
+                  >
+                    <BookOpenCheck className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Journal</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setLibraryPanelOpen(true)}
+                    data-testid="button-library"
+                    aria-label="Library"
+                  >
+                    <Library className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Library</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setMemoryPanelOpen(true)}
+                    data-testid="button-continuity"
+                    aria-label="Continuity"
+                  >
+                    <Brain className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Continuity</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setSystemLogOpen(true)}
+                    data-testid="button-system-log"
+                    aria-label="System Log"
+                  >
+                    <Activity className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">System Log</TooltipContent>
+              </Tooltip>
+              {hasMessages && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={onClearChat}
+                      data-testid="button-clear-chat"
+                      aria-label="Clear conversation"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Clear conversation</TooltipContent>
+                </Tooltip>
+              )}
+              <ThemeToggle />
+            </div>
+          </TooltipProvider>
         </header>
 
         <ContinuityPanel
