@@ -1756,6 +1756,69 @@ describe("build.ts BUNDLE_OUT value sanity check", () => {
     expect(errors[0]).toMatch(/"esm"/);
     expect(errors[0]).toMatch(/"dist\/index\.cjs"/);
   });
+
+  it("cjs round-trip: format 'cjs' + BUNDLE_OUT ending '.cjs' produces no consistency errors — if this fails, the cjs branch of checkFormatExtensionConsistency is broken", () => {
+    const syntheticSrc = [
+      `const BUNDLE_OUT = "dist/index.cjs";`,
+      `async function buildAll() {`,
+      `  await esbuild.build({`,
+      `    format: "cjs",`,
+      `    outfile: BUNDLE_OUT,`,
+      `  });`,
+      `}`,
+    ].join("\n");
+
+    const value = extractBundleOutValue(syntheticSrc);
+    const format = extractEsbuildFormat(syntheticSrc);
+
+    expect(value).toBe("dist/index.cjs");
+    expect(format).toBe("cjs");
+
+    const errors = checkFormatExtensionConsistency(format!, value!);
+
+    expect(
+      errors,
+      `\ncheckFormatExtensionConsistency("cjs", "dist/index.cjs") returned errors:\n` +
+        errors.map((e) => `  ${e}`).join("\n") + "\n\n" +
+        `The cjs branch must accept a ".cjs" extension — this pairing is valid.\n` +
+        `If you see this failure after editing checkFormatExtensionConsistency,\n` +
+        `verify the cjs branch still allows ".cjs" as a valid extension.\n`,
+    ).toHaveLength(0);
+  });
+
+  it("cjs mismatch: format 'cjs' + BUNDLE_OUT ending '.mjs' produces a consistency error — the cjs branch must reject a '.mjs' extension to prevent a silent module-type conflict", () => {
+    const syntheticSrc = [
+      `const BUNDLE_OUT = "dist/index.mjs";`,
+      `async function buildAll() {`,
+      `  await esbuild.build({`,
+      `    format: "cjs",`,
+      `    outfile: BUNDLE_OUT,`,
+      `  });`,
+      `}`,
+    ].join("\n");
+
+    const value = extractBundleOutValue(syntheticSrc);
+    const format = extractEsbuildFormat(syntheticSrc);
+
+    expect(value).toBe("dist/index.mjs");
+    expect(format).toBe("cjs");
+
+    const errors = checkFormatExtensionConsistency(format!, value!);
+
+    expect(
+      errors.length,
+      `\ncheckFormatExtensionConsistency("cjs", "dist/index.mjs") returned no errors,\n` +
+        `but the cjs branch must reject a ".mjs" extension.\n\n` +
+        `A mismatched cjs+.mjs pairing causes a silent module-type conflict at\n` +
+        `runtime: Node.js will attempt to load a CommonJS bundle as an ES module\n` +
+        `and fail at startup.  If the cjs branch was removed or its condition was\n` +
+        `changed, restore it in checkFormatExtensionConsistency so this mismatch\n` +
+        `is caught.\n`,
+    ).toBeGreaterThan(0);
+
+    expect(errors[0]).toMatch(/"cjs"/);
+    expect(errors[0]).toMatch(/"dist\/index\.mjs"/);
+  });
 });
 
 // ── live constants sanity check ───────────────────────────────────────────────
