@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import { GreenSummaryPanel } from "@/components/GreenSummaryPanel";
 import { RepairPanel } from "@/components/RepairPanel";
+import { ConnectionsDialog } from "@/components/ConnectionsDialog";
 
 interface CoherenceReport {
   coherent: boolean;
@@ -31,6 +32,7 @@ export interface SetupPostBootstrapProps {
 export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const commissionMutation = useMutation({
     mutationFn: async () => {
@@ -180,11 +182,15 @@ export function SetupPostBootstrap({ authStatus }: SetupPostBootstrapProps) {
   }
 
   return (
-    <RepairPanel
-      coherence={{ ...coherence, overallStatus: coherence.overallStatus as "AMBER" | "RED" }}
-      coherenceIsFetching={coherenceIsFetching}
-      repairCountdown={repairCountdown}
-      onRecheck={() => queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] })}
-    />
+    <>
+      <RepairPanel
+        coherence={{ ...coherence, overallStatus: coherence.overallStatus as "AMBER" | "RED" }}
+        coherenceIsFetching={coherenceIsFetching}
+        repairCountdown={repairCountdown}
+        onRecheck={() => queryClient.invalidateQueries({ queryKey: ["/api/system/coherence"] })}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+    </>
   );
 }

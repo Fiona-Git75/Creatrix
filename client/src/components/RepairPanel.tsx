@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Loader2, RefreshCw, Wrench, Copy, Check, Download } from "lucide-react";
+import { Home, Loader2, RefreshCw, Wrench, Copy, Check, Download, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface CoherenceItem {
@@ -21,6 +21,7 @@ export interface RepairPanelProps {
   coherenceIsFetching: boolean;
   repairCountdown: number;
   onRecheck: () => void;
+  onOpenSettings?: () => void;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -97,7 +98,7 @@ function DownloadReportButton({ buildReport }: { buildReport: () => string }) {
 
 const DOMAIN_ORDER = ["Identity", "Persistence", "Inference", "Knowledge", "Media"] as const;
 
-export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, onRecheck }: RepairPanelProps) {
+export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, onRecheck, onOpenSettings }: RepairPanelProps) {
   const degradedItems = coherence.items.filter(i => i.actual !== "coherent");
   const isRed = coherence.overallStatus === "RED";
   const statusColor = isRed ? "text-red-500 dark:text-red-400" : "text-amber-500 dark:text-amber-400";
@@ -135,19 +136,33 @@ export function RepairPanel({ coherence, coherenceIsFetching, repairCountdown, o
               Environment status
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={coherenceIsFetching}
-            onClick={onRecheck}
-            className="gap-1.5 text-xs"
-            data-testid="button-recheck-now"
-          >
-            {coherenceIsFetching
-              ? <Loader2 className="h-3 w-3 animate-spin" />
-              : <RefreshCw className="h-3 w-3" />}
-            Re-check now
-          </Button>
+          <div className="flex items-center gap-2">
+            {onOpenSettings && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenSettings}
+                className="gap-1.5 text-xs"
+                data-testid="button-repair-open-settings"
+              >
+                <Settings className="h-3 w-3" />
+                Settings
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={coherenceIsFetching}
+              onClick={onRecheck}
+              className="gap-1.5 text-xs"
+              data-testid="button-recheck-now"
+            >
+              {coherenceIsFetching
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCw className="h-3 w-3" />}
+              Re-check now
+            </Button>
+          </div>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Getting your environment ready
