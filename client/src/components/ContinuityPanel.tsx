@@ -226,6 +226,22 @@ export function ContinuityPanel({
                     <p className="text-xs text-muted-foreground mb-2">
                       How this resident operates — working style, specialties, conventions with you.
                     </p>
+                    {activeConnection && (
+                      <div className="flex items-center gap-2 mb-3 px-2.5 py-2 rounded-md bg-muted/40 border border-border/40" data-testid="resident-identity-strip">
+                        {activeConnection.residentEmoji && (
+                          <span className="text-base leading-none shrink-0">{activeConnection.residentEmoji}</span>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">{activeConnection.residentName ?? activeConnection.name}</p>
+                          {activeConnection.residentRole && (
+                            <p className="text-xs text-muted-foreground truncate">{activeConnection.residentRole}</p>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground font-mono shrink-0 max-w-[140px] truncate" title={activeConnection.defaultModel}>
+                          {activeConnection.defaultModel}
+                        </span>
+                      </div>
+                    )}
                     <EntryList entries={residentEntries} loading={residentLoading} testPrefix="resident" />
                   </>
                 )}
