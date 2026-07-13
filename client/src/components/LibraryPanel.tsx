@@ -888,7 +888,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
             Library
           </DialogTitle>
           <DialogDescription>
-            An inspectable record of documents, notes, and files the resident knows about.
+            A collection of useful references and starting points for the work you do.
           </DialogDescription>
         </DialogHeader>
 
