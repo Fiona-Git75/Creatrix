@@ -130,6 +130,35 @@ export function ContinuityPanel({
     onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
   });
 
+  const cloneResidentMutation = useMutation({
+    mutationFn: async () => {
+      const source = connections.find(c => c.id === connectionId) ?? connections[0];
+      if (!source) throw new Error("No connection to clone");
+      const res = await apiRequest("POST", "/api/connections", {
+        name: source.name,
+        provider: source.provider,
+        endpoint: source.endpoint,
+        apiKey: source.apiKey ?? "",
+        defaultModel: source.defaultModel ?? "",
+        isDefault: false,
+      });
+      return res.json() as Promise<Connection>;
+    },
+    onSuccess: (newConn: Connection) => {
+      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
+      setAddTarget("resident");
+      setAddTargetConnectionId(newConn.id);
+      setNewContent("");
+      setAdvancedOpen(false);
+      setAddResidentName("");
+      setAddResidentRole("");
+      setAddResidentModel(newConn.defaultModel ?? "");
+      setAddOrientationDraft("");
+      setAddDialogOpen(true);
+    },
+    onError: () => toast({ title: "Failed to create resident slot", variant: "destructive" }),
+  });
+
   const orientationMutation = useMutation({
     mutationFn: ({ id, residentDescription }: { id: string; residentDescription: string }) =>
       apiRequest("PATCH", `/api/connections/${id}`, { residentDescription: residentDescription || undefined }),
@@ -299,15 +328,28 @@ export function ContinuityPanel({
             {/* Residents roster */}
             {residentConnections.length > 0 && (
               <div>
-                <button
-                  className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors mb-2"
-                  onClick={() => setRosterCollapsed(v => !v)}
-                  data-testid="button-toggle-roster-section"
-                >
-                  {rosterCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  <Users className="h-3.5 w-3.5" />
-                  Residents
-                </button>
+                <div className="flex items-center justify-between mb-2">
+                  <button
+                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+                    onClick={() => setRosterCollapsed(v => !v)}
+                    data-testid="button-toggle-roster-section"
+                  >
+                    {rosterCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    <Users className="h-3.5 w-3.5" />
+                    Residents
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs gap-1"
+                    onClick={() => cloneResidentMutation.mutate()}
+                    disabled={cloneResidentMutation.isPending || connections.length === 0}
+                    data-testid="button-new-resident"
+                  >
+                    {cloneResidentMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    New
+                  </Button>
+                </div>
                 {!rosterCollapsed && (
                   <div className="space-y-2" data-testid="roster-list">
                     {residentConnections.map((conn, i) => {
