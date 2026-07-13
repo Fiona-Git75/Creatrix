@@ -34,7 +34,6 @@ interface AppSidebarProps {
   onOpenDocs: () => void;
   onOpenMoments?: () => void;
   onOpenSystemLog?: () => void;
-  onOpenResidents?: () => void;
 }
 
 export function AppSidebar({
@@ -50,7 +49,6 @@ export function AppSidebar({
   onOpenDocs,
   onOpenMoments,
   onOpenSystemLog,
-  onOpenResidents,
 }: AppSidebarProps) {
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -416,15 +414,6 @@ export function AppSidebar({
           >
             <FileText className="h-4 w-4" />
             Documents
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2"
-            onClick={onOpenResidents}
-            data-testid="button-open-residents"
-          >
-            <Users className="h-4 w-4" />
-            Residents
           </Button>
           <Button
             variant="ghost"

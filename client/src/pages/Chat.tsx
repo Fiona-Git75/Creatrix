@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ConnectionsDialog } from "@/components/ConnectionsDialog";
-import { ResidentsPanel } from "@/components/ResidentsPanel";
+
 import { ChatMessage, type Message } from "@/components/ChatMessage";
 import { ChatInput, type AttachedImage } from "@/components/ChatInput";
 import { EmptyState } from "@/components/EmptyState";
@@ -186,7 +186,7 @@ function ChatContent({
   const [journalPanelOpen, setJournalPanelOpen] = useState(false);
   const [systemLogOpen, setSystemLogOpen] = useState(false);
   const [momentsOpen, setMomentsOpen] = useState(false);
-  const [residentsOpen, setResidentsOpen] = useState(false);
+
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [docPanelWidth, setDocPanelWidth] = useState(480);
   const [focusMode, setFocusMode] = useState(false);
@@ -275,7 +275,6 @@ function ChatContent({
         onOpenDocs={() => onDocChange(null)}
         onOpenMoments={() => setMomentsOpen(true)}
         onOpenSystemLog={() => setSystemLogOpen(true)}
-        onOpenResidents={() => setResidentsOpen(true)}
       />
 
       <div className="flex flex-row flex-1 min-w-0">
@@ -527,7 +526,7 @@ function ChatContent({
           onOpenChange={setMomentsOpen}
           onSelectConversation={onSelectConversation}
         />
-        <ResidentsPanel open={residentsOpen} onOpenChange={setResidentsOpen} />
+
         <SearchDialog
           open={searchDialogOpen}
           onOpenChange={setSearchDialogOpen}
