@@ -1719,6 +1719,67 @@ export async function registerRoutes(
     }
   });
 
+  // === Workspace Documents ===
+  app.get("/api/workspace-docs", async (req: Request, res: Response) => {
+    try {
+      const projectId = req.query.projectId as string | undefined;
+      const docs = await storage.getWorkspaceDocs(projectId ?? null);
+      res.json(docs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to fetch workspace docs" });
+    }
+  });
+
+  app.post("/api/workspace-docs", async (req: Request, res: Response) => {
+    try {
+      const { title, content, projectId } = req.body;
+      if (!title?.trim()) return res.status(400).json({ error: "title required" });
+      const doc = await storage.createWorkspaceDoc({
+        title: title.trim(),
+        content: content ?? "",
+        projectId: projectId ?? undefined,
+      });
+      res.json(doc);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to create workspace doc" });
+    }
+  });
+
+  app.delete("/api/workspace-docs/:id", async (req: Request, res: Response) => {
+    try {
+      const ok = await storage.deleteWorkspaceDoc(req.params.id);
+      ok ? res.json({ ok: true }) : res.status(404).json({ error: "Not found" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to delete workspace doc" });
+    }
+  });
+
+  // === Filesystem Write ===
+  app.post("/api/filesystem/write", async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      const rootFolder = settings.rootFolder;
+      if (!rootFolder) return res.status(400).json({ error: "No root folder configured in settings" });
+
+      const { filename, content } = req.body;
+      if (!filename?.trim()) return res.status(400).json({ error: "filename required" });
+
+      const targetDir = path.join(rootFolder, "My Documents");
+      await fs.mkdir(targetDir, { recursive: true });
+      const targetPath = path.join(targetDir, filename.trim());
+
+      const root = path.resolve(rootFolder);
+      const resolved = path.resolve(targetPath);
+      if (!resolved.startsWith(root)) return res.status(403).json({ error: "Access denied" });
+
+      await fs.writeFile(resolved, content ?? "", "utf-8");
+      res.json({ path: path.relative(root, resolved) });
+    } catch (error: any) {
+      console.error("Error writing file:", error);
+      res.status(500).json({ error: error.message || "Failed to write file" });
+    }
+  });
+
   // === Library Preview (serve image files by path) ===
   app.get("/api/library/preview", async (req: Request, res: Response) => {
     try {

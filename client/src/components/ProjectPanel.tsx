@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen } from "lucide-react";
+import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Project } from "@shared/schema";
+import type { Project, WorkspaceDoc } from "@shared/schema";
 
 interface ProjectPanelProps {
   projectId: string;
@@ -60,6 +60,17 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
     queryKey: ["/api/projects", projectId],
     queryFn: () => fetch(`/api/projects/${projectId}`).then(r => r.json()),
     enabled: !!projectId,
+  });
+
+  const { data: workspaceDocs = [] } = useQuery<WorkspaceDoc[]>({
+    queryKey: ["/api/workspace-docs", projectId],
+    queryFn: () => fetch(`/api/workspace-docs?projectId=${projectId}`).then(r => r.json()),
+    enabled: !!projectId,
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/workspace-docs/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/workspace-docs", projectId] }),
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -377,6 +388,33 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
               onBlur={() => handleBlur("currentTask")}
               rows={6}
             />
+
+            {/* Documents saved to this project */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground pb-1 border-b border-border/40 mb-2">
+                Documents
+              </div>
+              {workspaceDocs.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No documents yet — save a message from chat using the <Save className="inline h-3 w-3" /> button.</p>
+              ) : (
+                <div className="space-y-1">
+                  {workspaceDocs.map(doc => (
+                    <div key={doc.id} className="flex items-center gap-1.5 group py-0.5">
+                      <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs truncate flex-1" title={doc.title}>{doc.title}</span>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
+                        onClick={() => deleteDocMutation.mutate(doc.id)}
+                        data-testid={`button-delete-doc-${doc.id}`}
+                        title="Remove document"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2 } from "lucide-react";
+import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2, Save } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,11 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
   const [flagNote, setFlagNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [flagged, setFlagged] = useState(false);
+  const [isDocOpen, setIsDocOpen] = useState(false);
+  const [docTitle, setDocTitle] = useState("");
+  const [docTarget, setDocTarget] = useState<"project" | "file">("project");
+  const [docPending, setDocPending] = useState(false);
+  const [docSaved, setDocSaved] = useState(false);
   const isUser = message.role === "user";
   const residentConnection = !isUser && message.connectionId
     ? connections.find(c => c.id === message.connectionId) ?? null
@@ -80,6 +85,31 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
     setPivot(trimmed);
     setFlagNote("");
     setIsFlagging(true);
+  };
+
+  const openDocPanel = () => {
+    setDocTitle("");
+    setDocTarget(projectId ? "project" : "file");
+    setIsDocOpen(true);
+    setIsFlagging(false);
+  };
+
+  const saveDoc = async () => {
+    if (!docTitle.trim()) return;
+    setDocPending(true);
+    try {
+      if (docTarget === "project" && projectId) {
+        await apiRequest("POST", "/api/workspace-docs", { title: docTitle.trim(), content: message.content, projectId });
+        queryClient.invalidateQueries({ queryKey: ["/api/workspace-docs", projectId] });
+      } else {
+        await apiRequest("POST", "/api/filesystem/write", { filename: `${docTitle.trim()}.md`, content: message.content });
+      }
+      setDocSaved(true);
+      setIsDocOpen(false);
+      setTimeout(() => setDocSaved(false), 3000);
+    } finally {
+      setDocPending(false);
+    }
   };
 
   const saveFlag = async () => {
@@ -200,6 +230,69 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
                   <Bookmark className={cn("h-4 w-4", flagged && "fill-current text-amber-500")} />
                 </Button>
               )}
+              {!isUser && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={openDocPanel}
+                  className="h-8 w-8"
+                  data-testid={`button-save-doc-${message.id}`}
+                  aria-label="Save as document"
+                >
+                  <Save className={cn("h-4 w-4", docSaved && "text-green-500")} />
+                </Button>
+              )}
+            </div>
+          )}
+
+          {isDocOpen && (
+            <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-background p-3 text-sm shadow-sm">
+              <Label className="text-xs font-medium">Document title</Label>
+              <Input
+                value={docTitle}
+                onChange={e => setDocTitle(e.target.value)}
+                placeholder="e.g. Research notes on Anavere"
+                className="text-sm h-8"
+                data-testid={`input-doc-title-${message.id}`}
+                onKeyDown={e => e.key === "Enter" && saveDoc()}
+                autoFocus
+              />
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={docTarget === "project"}
+                    onChange={() => setDocTarget("project")}
+                    disabled={!projectId}
+                    data-testid={`radio-save-project-${message.id}`}
+                  />
+                  Save to project
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={docTarget === "file"}
+                    onChange={() => setDocTarget("file")}
+                    data-testid={`radio-save-file-${message.id}`}
+                  />
+                  Save to My Documents
+                </label>
+              </div>
+              {docTarget === "file" && (
+                <p className="text-[11px] text-muted-foreground">Saves as <code className="font-mono">{docTitle.trim() || "filename"}.md</code> inside your configured root folder → My Documents</p>
+              )}
+              <div className="flex gap-2 justify-end">
+                <Button size="sm" variant="ghost" onClick={() => setIsDocOpen(false)} data-testid={`button-doc-cancel-${message.id}`}>Cancel</Button>
+                <Button
+                  size="sm"
+                  onClick={saveDoc}
+                  disabled={!docTitle.trim() || docPending}
+                  data-testid={`button-doc-save-${message.id}`}
+                >
+                  {docPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+                  Save
+                </Button>
+              </div>
             </div>
           )}
 
