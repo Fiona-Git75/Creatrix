@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueries } from "@tanstack/react-query";
-import { Layers, Plus, Trash2, Loader2, Globe, User, Users, ChevronDown, ChevronRight, Pencil, Check, X } from "lucide-react";
+import { Layers, Plus, Trash2, Loader2, Globe, User, Users, ChevronDown, ChevronRight, Pencil, Check, X, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,7 @@ export function ContinuityPanel({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [editingOrientationId, setEditingOrientationId] = useState<string | null>(null);
   const [orientationDraft, setOrientationDraft] = useState("");
+  const [pendingDecommission, setPendingDecommission] = useState<string | null>(null);
   const { toast } = useToast();
 
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
@@ -181,6 +182,16 @@ export function ContinuityPanel({
       toast({ title: "Orientation saved" });
     },
     onError: () => toast({ title: "Failed to save orientation", variant: "destructive" }),
+  });
+
+  const decommissionMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/connections/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
+      setPendingDecommission(null);
+      toast({ title: "Resident decommissioned" });
+    },
+    onError: () => toast({ title: "Failed to decommission resident", variant: "destructive" }),
   });
 
   const handleResidentDialogSave = async () => {
@@ -363,7 +374,7 @@ export function ContinuityPanel({
                           className={`px-3 py-2.5 rounded-md border ${isActive ? "bg-muted/50 border-border/60" : "bg-muted/20 border-border/30"}`}
                           data-testid={`roster-resident-${conn.id}`}
                         >
-                          {/* Header row: emoji + name + edit icon */}
+                          {/* Header row: emoji + name + ⋯ menu */}
                           <div className="flex items-center gap-1.5 mb-0.5">
                             {conn.residentEmoji && (
                               <span className="text-sm leading-none">{conn.residentEmoji}</span>
@@ -372,14 +383,35 @@ export function ContinuityPanel({
                             <span className="text-xs text-muted-foreground font-mono ml-auto truncate max-w-[140px]" title={conn.defaultModel}>
                               {conn.defaultModel}
                             </span>
-                            <button
-                              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                              onClick={() => openAddDialog("resident", conn.id)}
-                              data-testid={`button-edit-resident-${conn.id}`}
-                              title="Edit resident"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                                  data-testid={`button-resident-menu-${conn.id}`}
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  className="text-xs gap-2"
+                                  onSelect={() => openAddDialog("resident", conn.id)}
+                                  data-testid={`button-edit-resident-${conn.id}`}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-xs gap-2 text-destructive focus:text-destructive"
+                                  onSelect={() => setPendingDecommission(conn.id)}
+                                  data-testid={`button-decommission-${conn.id}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Decommission
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
 
                           {/* Role */}
@@ -465,6 +497,36 @@ export function ContinuityPanel({
                               + Note
                             </button>
                           </div>
+
+                          {/* Decommission confirmation strip */}
+                          {pendingDecommission === conn.id && (
+                            <div className="mt-2 pt-2 border-t border-destructive/20 flex items-center justify-between gap-2">
+                              <p className="text-xs text-destructive">
+                                Remove {conn.residentName} from the roster?
+                              </p>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => decommissionMutation.mutate(conn.id)}
+                                  disabled={decommissionMutation.isPending}
+                                  data-testid={`button-confirm-decommission-${conn.id}`}
+                                >
+                                  {decommissionMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => setPendingDecommission(null)}
+                                  data-testid={`button-cancel-decommission-${conn.id}`}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
