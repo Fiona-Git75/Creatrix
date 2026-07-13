@@ -97,7 +97,7 @@ export function ToolStatusChip({ onOpenSettings }: ToolStatusChipProps) {
       : "bg-green-500/15 text-green-600 dark:text-green-400";
 
   const summary = data
-    ? `${activeCount} active · ${inactiveCount} available`
+    ? `${activeCount}/${activeCount + inactiveCount} active`
     : "Loading…";
 
   // Merge all tools into a lookup for quick status checks
