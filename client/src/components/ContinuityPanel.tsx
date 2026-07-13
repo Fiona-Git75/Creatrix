@@ -65,7 +65,8 @@ export function ContinuityPanel({
 
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
   const residentLabel = activeConnection?.residentName ?? "This Resident";
-  const residentConnections = connections;
+  const residentConnections = connections.filter(c => !!c.residentName);
+  const commissionedModelIds = new Set(residentConnections.map(c => c.defaultModel).filter(Boolean));
 
   const { data: providerStatus } = useQuery<{
     providers: { connectionId: string; name: string; status: "online" | "offline"; models: { id: string; name?: string }[] }[];
@@ -338,61 +339,17 @@ export function ContinuityPanel({
           <div className="space-y-5 pr-3">
 
             {/* Residents roster */}
-            {residentConnections.length > 0 && (
+            {connections.length > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <button
-                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
-                    onClick={() => setRosterCollapsed(v => !v)}
-                    data-testid="button-toggle-roster-section"
-                  >
-                    {rosterCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    <Users className="h-3.5 w-3.5" />
-                    Residents
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-2 text-xs gap-1"
-                        disabled={cloneResidentMutation.isPending}
-                        data-testid="button-commission-resident"
-                      >
-                        {cloneResidentMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                        Commission
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                      {providerStatus?.providers.filter(p => p.status === "online" && p.models.length > 0).length === 0 ? (
-                        <DropdownMenuItem disabled>
-                          No providers online
-                        </DropdownMenuItem>
-                      ) : (
-                        providerStatus?.providers
-                          .filter(p => p.status === "online" && p.models.length > 0)
-                          .map((provider, pi) => (
-                            <div key={provider.connectionId}>
-                              {pi > 0 && <DropdownMenuSeparator />}
-                              <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                                {provider.name}
-                              </DropdownMenuLabel>
-                              {provider.models.map(m => (
-                                <DropdownMenuItem
-                                  key={m.id}
-                                  className="font-mono text-xs"
-                                  onSelect={() => cloneResidentMutation.mutate({ sourceConnectionId: provider.connectionId, model: m.id })}
-                                  data-testid={`commission-model-${m.id}`}
-                                >
-                                  {m.id}
-                                </DropdownMenuItem>
-                              ))}
-                            </div>
-                          ))
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                <button
+                  className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors mb-2"
+                  onClick={() => setRosterCollapsed(v => !v)}
+                  data-testid="button-toggle-roster-section"
+                >
+                  {rosterCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  <Users className="h-3.5 w-3.5" />
+                  Residents
+                </button>
                 {!rosterCollapsed && (
                   <div className="space-y-2" data-testid="roster-list">
                     {residentConnections.map((conn, i) => {
@@ -406,22 +363,26 @@ export function ContinuityPanel({
                           className={`px-3 py-2.5 rounded-md border ${isActive ? "bg-muted/50 border-border/60" : "bg-muted/20 border-border/30"}`}
                           data-testid={`roster-resident-${conn.id}`}
                         >
-                          {/* Header row: emoji + name + model */}
+                          {/* Header row: emoji + name + edit icon */}
                           <div className="flex items-center gap-1.5 mb-0.5">
                             {conn.residentEmoji && (
                               <span className="text-sm leading-none">{conn.residentEmoji}</span>
                             )}
-                            {conn.residentName ? (
-                              <span className="text-xs font-medium">{conn.residentName}</span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground italic">{conn.name} — not yet configured</span>
-                            )}
+                            <span className="text-xs font-medium">{conn.residentName}</span>
                             <span className="text-xs text-muted-foreground font-mono ml-auto truncate max-w-[140px]" title={conn.defaultModel}>
                               {conn.defaultModel}
                             </span>
+                            <button
+                              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                              onClick={() => openAddDialog("resident", conn.id)}
+                              data-testid={`button-edit-resident-${conn.id}`}
+                              title="Edit resident"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
                           </div>
 
-                          {/* Role / study */}
+                          {/* Role */}
                           {conn.residentRole && (
                             <p className="text-xs text-muted-foreground pl-5">Study: {conn.residentRole}</p>
                           )}
@@ -433,7 +394,7 @@ export function ContinuityPanel({
                                 <textarea
                                   className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                                   rows={5}
-                                  placeholder="Describe this resident's role and focus. E.g. Your job is to learn everything about Creatrix — its file structure, logs, and documentation. You specialise in technical troubleshooting."
+                                  placeholder="Describe this resident's role and focus."
                                   value={orientationDraft}
                                   onChange={(e) => setOrientationDraft(e.target.value)}
                                   autoFocus
@@ -487,7 +448,7 @@ export function ContinuityPanel({
                             )}
                           </div>
 
-                          {/* Continuity count + configure */}
+                          {/* Continuity count + note */}
                           <div className="flex items-center justify-between pl-5 mt-1.5">
                             <p className="text-xs text-muted-foreground">
                               {count === null
@@ -501,12 +462,59 @@ export function ContinuityPanel({
                               onClick={() => openAddDialog("resident", conn.id)}
                               data-testid={`button-add-roster-note-${conn.id}`}
                             >
-                              + configure
+                              + Note
                             </button>
                           </div>
                         </div>
                       );
                     })}
+
+                    {/* Commission Resident — models waiting outside */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-border/50 text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={cloneResidentMutation.isPending}
+                          data-testid="button-commission-resident"
+                        >
+                          {cloneResidentMutation.isPending
+                            ? <><Loader2 className="h-3 w-3 animate-spin" /> Commissioning…</>
+                            : <>[ Commission Resident ▾ ]</>}
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="center" className="max-h-72 overflow-y-auto">
+                        {(() => {
+                          const availableProviders = providerStatus?.providers
+                            .filter(p => p.status === "online")
+                            .map(p => ({ ...p, models: p.models.filter(m => !commissionedModelIds.has(m.id)) }))
+                            .filter(p => p.models.length > 0) ?? [];
+                          return availableProviders.length === 0 ? (
+                            <DropdownMenuItem disabled>
+                              {providerStatus ? "All models already commissioned" : "No providers online"}
+                            </DropdownMenuItem>
+                          ) : (
+                            availableProviders.map((provider, pi) => (
+                              <div key={provider.connectionId}>
+                                {pi > 0 && <DropdownMenuSeparator />}
+                                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                                  {provider.name}
+                                </DropdownMenuLabel>
+                                {provider.models.map(m => (
+                                  <DropdownMenuItem
+                                    key={m.id}
+                                    className="font-mono text-xs"
+                                    onSelect={() => cloneResidentMutation.mutate({ sourceConnectionId: provider.connectionId, model: m.id })}
+                                    data-testid={`commission-model-${m.id}`}
+                                  >
+                                    {m.id}
+                                  </DropdownMenuItem>
+                                ))}
+                              </div>
+                            ))
+                          );
+                        })()}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 )}
               </div>
