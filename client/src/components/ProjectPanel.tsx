@@ -35,7 +35,7 @@ function FieldArea({ label, value, placeholder, testId, onChange, onBlur, rows =
         onBlur={onBlur}
         placeholder={placeholder}
         rows={rows}
-        className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
+        className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-y min-h-[4rem] focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
         data-testid={testId}
       />
     </div>
@@ -465,7 +465,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
                 onBlur={() => handleBlur("systemPrompt")}
                 placeholder="How should the AI behave in this project?"
                 rows={3}
-                className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
+                className="w-full text-xs bg-muted/30 border border-border/50 rounded-md p-2 resize-y min-h-[4rem] focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 leading-relaxed"
                 data-testid="textarea-project-system-prompt"
               />
             </div>
