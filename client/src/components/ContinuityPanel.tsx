@@ -14,6 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -131,15 +139,15 @@ export function ContinuityPanel({
   });
 
   const cloneResidentMutation = useMutation({
-    mutationFn: async () => {
-      const source = connections.find(c => c.id === connectionId) ?? connections[0];
+    mutationFn: async ({ sourceConnectionId, model }: { sourceConnectionId: string; model: string }) => {
+      const source = connections.find(c => c.id === sourceConnectionId) ?? connections[0];
       if (!source) throw new Error("No connection to clone");
       const res = await apiRequest("POST", "/api/connections", {
         name: source.name,
         provider: source.provider,
         endpoint: source.endpoint,
         apiKey: source.apiKey ?? "",
-        defaultModel: source.defaultModel ?? "",
+        defaultModel: model,
         isDefault: false,
       });
       return res.json() as Promise<Connection>;
@@ -342,17 +350,48 @@ export function ContinuityPanel({
                     <Users className="h-3.5 w-3.5" />
                     Residents
                   </button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-xs gap-1"
-                    onClick={() => cloneResidentMutation.mutate()}
-                    disabled={cloneResidentMutation.isPending || connections.length === 0}
-                    data-testid="button-new-resident"
-                  >
-                    {cloneResidentMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                    New
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs gap-1"
+                        disabled={cloneResidentMutation.isPending}
+                        data-testid="button-commission-resident"
+                      >
+                        {cloneResidentMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                        Commission
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+                      {providerStatus?.providers.filter(p => p.status === "online" && p.models.length > 0).length === 0 ? (
+                        <DropdownMenuItem disabled>
+                          No providers online
+                        </DropdownMenuItem>
+                      ) : (
+                        providerStatus?.providers
+                          .filter(p => p.status === "online" && p.models.length > 0)
+                          .map((provider, pi) => (
+                            <div key={provider.connectionId}>
+                              {pi > 0 && <DropdownMenuSeparator />}
+                              <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                                {provider.name}
+                              </DropdownMenuLabel>
+                              {provider.models.map(m => (
+                                <DropdownMenuItem
+                                  key={m.id}
+                                  className="font-mono text-xs"
+                                  onSelect={() => cloneResidentMutation.mutate({ sourceConnectionId: provider.connectionId, model: m.id })}
+                                  data-testid={`commission-model-${m.id}`}
+                                >
+                                  {m.id}
+                                </DropdownMenuItem>
+                              ))}
+                            </div>
+                          ))
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
                 {!rosterCollapsed && (
                   <div className="space-y-2" data-testid="roster-list">
