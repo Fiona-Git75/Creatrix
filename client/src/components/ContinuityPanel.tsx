@@ -144,8 +144,12 @@ export function ContinuityPanel({
       });
       return res.json() as Promise<Connection>;
     },
-    onSuccess: (newConn: Connection) => {
-      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
+    onSuccess: async (newConn: Connection) => {
+      // Wait for the connections list to include the new record BEFORE opening
+      // the dialog — if the Select renders before the refetch completes its value
+      // won't match any option and Radix snaps to the first entry (Olmo), causing
+      // the save to overwrite the wrong connection.
+      await queryClient.refetchQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
       setAddTarget("resident");
       setAddTargetConnectionId(newConn.id);
       setNewContent("");
