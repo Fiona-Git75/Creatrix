@@ -1761,10 +1761,12 @@ export async function registerRoutes(
       const rootFolder = settings.rootFolder;
       if (!rootFolder) return res.status(400).json({ error: "No root folder configured in settings" });
 
-      const { filename, content } = req.body;
+      const { filename, content, folderPath } = req.body;
       if (!filename?.trim()) return res.status(400).json({ error: "filename required" });
 
-      const targetDir = path.join(rootFolder, "My Documents");
+      const targetDir = folderPath
+        ? path.join(rootFolder, folderPath)
+        : path.join(rootFolder, "My Documents");
       await fs.mkdir(targetDir, { recursive: true });
       const targetPath = path.join(targetDir, filename.trim());
 

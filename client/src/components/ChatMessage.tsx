@@ -1,4 +1,4 @@
-import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2, Save } from "lucide-react";
+import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2, Save, Folder, ChevronRight, Home } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,9 +66,11 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
   const [flagged, setFlagged] = useState(false);
   const [isDocOpen, setIsDocOpen] = useState(false);
   const [docTitle, setDocTitle] = useState("");
-  const [docTarget, setDocTarget] = useState<"project" | "file">("project");
   const [docPending, setDocPending] = useState(false);
   const [docSaved, setDocSaved] = useState(false);
+  const [browsePath, setBrowsePath] = useState(".");
+  const [browseItems, setBrowseItems] = useState<{name:string;type:string;path:string}[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
   const isUser = message.role === "user";
   const residentConnection = !isUser && message.connectionId
     ? connections.find(c => c.id === message.connectionId) ?? null
@@ -87,23 +89,39 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
     setIsFlagging(true);
   };
 
+  const fetchBrowse = async (p: string) => {
+    setBrowseLoading(true);
+    try {
+      const res = await fetch(`/api/filesystem/browse?path=${encodeURIComponent(p === "." ? "" : p)}`);
+      const data = await res.json();
+      if (data.items) {
+        setBrowseItems(data.items);
+        setBrowsePath(data.path || ".");
+      }
+    } finally {
+      setBrowseLoading(false);
+    }
+  };
+
   const openDocPanel = () => {
     setDocTitle("");
-    setDocTarget(projectId ? "project" : "file");
+    setBrowsePath(".");
+    setBrowseItems([]);
     setIsDocOpen(true);
     setIsFlagging(false);
+    fetchBrowse(".");
   };
 
   const saveDoc = async () => {
     if (!docTitle.trim()) return;
     setDocPending(true);
     try {
-      if (docTarget === "project" && projectId) {
-        await apiRequest("POST", "/api/workspace-docs", { title: docTitle.trim(), content: message.content, projectId });
-        queryClient.invalidateQueries({ queryKey: ["/api/workspace-docs", projectId] });
-      } else {
-        await apiRequest("POST", "/api/filesystem/write", { filename: `${docTitle.trim()}.md`, content: message.content });
-      }
+      const folder = browsePath === "." ? "" : browsePath;
+      await apiRequest("POST", "/api/filesystem/write", {
+        filename: `${docTitle.trim()}.md`,
+        content: message.content,
+        ...(folder ? { folderPath: folder } : {}),
+      });
       setDocSaved(true);
       setIsDocOpen(false);
       setTimeout(() => setDocSaved(false), 3000);
@@ -247,7 +265,7 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
 
           {isDocOpen && (
             <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-background p-3 text-sm shadow-sm">
-              <Label className="text-xs font-medium">Document title</Label>
+              <Label className="text-xs font-medium">Filename</Label>
               <Input
                 value={docTitle}
                 onChange={e => setDocTitle(e.target.value)}
@@ -257,30 +275,64 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
                 onKeyDown={e => e.key === "Enter" && saveDoc()}
                 autoFocus
               />
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input
-                    type="radio"
-                    checked={docTarget === "project"}
-                    onChange={() => setDocTarget("project")}
-                    disabled={!projectId}
-                    data-testid={`radio-save-project-${message.id}`}
-                  />
-                  Save to project
-                </label>
-                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input
-                    type="radio"
-                    checked={docTarget === "file"}
-                    onChange={() => setDocTarget("file")}
-                    data-testid={`radio-save-file-${message.id}`}
-                  />
-                  Save to My Documents
-                </label>
+
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-1 flex-wrap text-[11px] text-muted-foreground">
+                <button
+                  className="hover:text-foreground flex items-center gap-0.5"
+                  onClick={() => fetchBrowse(".")}
+                  data-testid={`button-browse-root-${message.id}`}
+                >
+                  <Home className="h-3 w-3" />
+                </button>
+                {browsePath !== "." && browsePath.split("/").map((seg, i, arr) => {
+                  const partial = arr.slice(0, i + 1).join("/");
+                  return (
+                    <span key={partial} className="flex items-center gap-1">
+                      <ChevronRight className="h-3 w-3 opacity-40" />
+                      <button
+                        className="hover:text-foreground max-w-[120px] truncate"
+                        onClick={() => fetchBrowse(partial)}
+                        data-testid={`button-browse-crumb-${i}-${message.id}`}
+                      >{seg}</button>
+                    </span>
+                  );
+                })}
               </div>
-              {docTarget === "file" && (
-                <p className="text-[11px] text-muted-foreground">Saves as <code className="font-mono">{docTitle.trim() || "filename"}.md</code> inside your configured root folder → My Documents</p>
-              )}
+
+              {/* Folder list */}
+              <div
+                className="rounded border border-border/40 bg-muted/20 overflow-y-auto"
+                style={{ maxHeight: "140px" }}
+                data-testid={`browse-list-${message.id}`}
+              >
+                {browseLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : browseItems.filter(i => i.type === "folder").length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic px-2 py-3">No subfolders here — file will save in current location</p>
+                ) : (
+                  browseItems.filter(i => i.type === "folder").map(item => (
+                    <button
+                      key={item.path}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors text-left"
+                      onClick={() => fetchBrowse(item.path)}
+                      data-testid={`button-browse-folder-${item.name}-${message.id}`}
+                    >
+                      <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate">{item.name}</span>
+                      <ChevronRight className="h-3 w-3 text-muted-foreground ml-auto shrink-0" />
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Saves as <code className="font-mono">{docTitle.trim() || "filename"}.md</code>
+                {browsePath !== "." ? ` → ${browsePath}/` : " in root folder"}
+              </p>
+
               <div className="flex gap-2 justify-end">
                 <Button size="sm" variant="ghost" onClick={() => setIsDocOpen(false)} data-testid={`button-doc-cancel-${message.id}`}>Cancel</Button>
                 <Button
@@ -290,7 +342,7 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
                   data-testid={`button-doc-save-${message.id}`}
                 >
                   {docPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
-                  Save
+                  Save here
                 </Button>
               </div>
             </div>
