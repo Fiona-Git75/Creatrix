@@ -57,7 +57,7 @@ export function ContinuityPanel({
 
   const activeConnection = connections.find(c => c.id === connectionId) ?? null;
   const residentLabel = activeConnection?.residentName ?? "This Resident";
-  const residentConnections = connections.filter(c => !!c.residentName);
+  const residentConnections = connections;
 
   const { data: providerStatus } = useQuery<{
     providers: { connectionId: string; name: string; status: "online" | "offline"; models: { id: string; name?: string }[] }[];
@@ -326,7 +326,11 @@ export function ContinuityPanel({
                             {conn.residentEmoji && (
                               <span className="text-sm leading-none">{conn.residentEmoji}</span>
                             )}
-                            <span className="text-xs font-medium">{conn.residentName}</span>
+                            {conn.residentName ? (
+                              <span className="text-xs font-medium">{conn.residentName}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">{conn.name} — not yet configured</span>
+                            )}
                             <span className="text-xs text-muted-foreground font-mono ml-auto truncate max-w-[140px]" title={conn.defaultModel}>
                               {conn.defaultModel}
                             </span>
