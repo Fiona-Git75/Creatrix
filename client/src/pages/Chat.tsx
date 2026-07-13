@@ -282,12 +282,12 @@ function ChatContent({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
-                {connections.length === 0 ? (
+                {connections.filter(c => !!c.residentName).length === 0 ? (
                   <DropdownMenuItem disabled>
-                    <span className="text-xs text-muted-foreground">No connections configured — add one in Settings</span>
+                    <span className="text-xs text-muted-foreground">No residents commissioned — use Settings → Connections</span>
                   </DropdownMenuItem>
                 ) : (
-                  connections.map((conn, i) => (
+                  connections.filter(c => !!c.residentName).map((conn, i) => (
                     <div key={conn.id}>
                       {i > 0 && <DropdownMenuSeparator />}
                       <ConnectionGroup
@@ -302,7 +302,7 @@ function ChatContent({
             </DropdownMenu>
 
             {/* Council mode: guest resident selector */}
-            {connections.length > 1 && (
+            {connections.filter(c => !!c.residentName).length > 1 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -338,7 +338,7 @@ function ChatContent({
                   <DropdownMenuLabel className="text-xs text-muted-foreground">Council — guest resident</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {connections
-                    .filter(c => c.id !== selectedConnectionId)
+                    .filter(c => !!c.residentName && c.id !== selectedConnectionId)
                     .map(c => (
                       <DropdownMenuItem
                         key={c.id}

@@ -566,16 +566,6 @@ export function ContinuityPanel({
                     <User className="h-3.5 w-3.5" />
                     {residentLabel}
                   </button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-xs gap-1"
-                    onClick={() => openAddDialog("resident")}
-                    data-testid="button-add-resident-continuity"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Add
-                  </Button>
                 </div>
                 {!residentCollapsed && (
                   <>
