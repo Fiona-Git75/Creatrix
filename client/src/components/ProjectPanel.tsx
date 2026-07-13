@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen } from "lucide-react";
+import { X, FolderOpen, ChevronDown, ChevronUp, Plus, FileText, Trash2, Anchor, BookOpen, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Project } from "@shared/schema";
@@ -63,6 +63,7 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
   });
 
 
+  const [editingHeader, setEditingHeader] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
   const [addingFile, setAddingFile] = useState(false);
@@ -174,13 +175,54 @@ export function ProjectPanel({ projectId, onClose }: ProjectPanelProps) {
     <div className="flex flex-col h-full bg-background border-l border-border overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="font-semibold text-sm truncate">{project.name}</span>
-          {project.folderPath && (
-            <span className="text-[10px] text-muted-foreground truncate hidden sm:block">{project.folderPath}</span>
-          )}
-        </div>
+        {editingHeader ? (
+          <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+            <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="flex flex-col gap-1 flex-1 min-w-0">
+              <input
+                className="text-sm font-semibold bg-transparent border-b border-primary outline-none w-full"
+                value={fields.name}
+                onChange={e => handleChange("name", e.target.value)}
+                onBlur={() => { handleBlur("name"); setEditingHeader(false); }}
+                onKeyDown={e => { if (e.key === "Enter") { handleBlur("name"); setEditingHeader(false); } if (e.key === "Escape") setEditingHeader(false); }}
+                data-testid="input-project-name"
+                autoFocus
+              />
+              <input
+                className="text-[10px] text-muted-foreground bg-transparent border-b border-border outline-none w-full"
+                value={fields.folderPath}
+                onChange={e => handleChange("folderPath", e.target.value)}
+                onBlur={() => handleBlur("folderPath")}
+                onKeyDown={e => { if (e.key === "Enter") { handleBlur("folderPath"); setEditingHeader(false); } if (e.key === "Escape") setEditingHeader(false); }}
+                placeholder="Folder path (optional)"
+                data-testid="input-project-folder-path"
+              />
+            </div>
+            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-green-500" onClick={() => { handleBlur("name"); handleBlur("folderPath"); setEditingHeader(false); }} data-testid="button-project-name-confirm">
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 min-w-0 group flex-1">
+            <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <span className="font-semibold text-sm truncate block">{project.name}</span>
+              {project.folderPath && (
+                <span className="text-[10px] text-muted-foreground truncate block">{project.folderPath}</span>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+              onClick={() => setEditingHeader(true)}
+              data-testid="button-project-name-edit"
+              aria-label="Edit project name"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
