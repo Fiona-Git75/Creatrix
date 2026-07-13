@@ -177,13 +177,20 @@ export function ContinuityPanel({
 
   const openAddDialog = (target: AddTarget, connId?: string | null) => {
     setAddTarget(target);
-    let resolvedConnId = connId ?? connectionId;
+    let resolvedConnId: string | null | undefined;
 
-    // When opening for a resident, ensure we have an actual resident connection.
-    // If the resolved ID doesn't point to one, fall back to the first resident connection.
-    if (target === "resident") {
-      const isResidentConn = residentConnections.some(c => c.id === resolvedConnId);
-      if (!isResidentConn) resolvedConnId = residentConnections[0]?.id ?? resolvedConnId;
+    if (connId != null) {
+      // Explicit target — use it directly, even if it has no residentName yet.
+      // (That's exactly the case when first configuring a new connection.)
+      resolvedConnId = connId;
+    } else {
+      // No explicit target — resolve from the active connection, then fall back
+      // to the first named resident if the active one isn't a resident connection.
+      resolvedConnId = connectionId;
+      if (target === "resident") {
+        const isResidentConn = residentConnections.some(c => c.id === resolvedConnId);
+        if (!isResidentConn) resolvedConnId = residentConnections[0]?.id ?? resolvedConnId;
+      }
     }
 
     setAddTargetConnectionId(resolvedConnId);
