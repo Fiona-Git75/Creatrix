@@ -46,12 +46,10 @@ interface ModelsResponse { status: string; message?: string; models: ModelEntry[
 function ConnectionGroup({
   conn,
   selectedConnectionId,
-  selectedModel,
   onSelectConnection,
 }: {
   conn: Connection;
   selectedConnectionId: string | null;
-  selectedModel: string;
   onSelectConnection: (connectionId: string, model: string) => void;
 }) {
   const { data, isLoading } = useQuery<ModelsResponse>({
@@ -62,54 +60,35 @@ function ConnectionGroup({
 
   const models = data?.models ?? [];
   const isOffline = data?.status === "offline" || data?.status === "error";
-  const isReady = data?.status === "ok" || data?.status === "empty";
+  const isSelected = selectedConnectionId === conn.id;
 
   const dotClass = isLoading
     ? "bg-yellow-400 animate-pulse"
-    : isReady
-    ? "bg-green-500"
     : isOffline
     ? "bg-red-400"
-    : "bg-muted-foreground/30";
+    : "bg-green-500";
 
-  const displayModels: ModelEntry[] = models;
+  const handleSelect = () => {
+    if (isOffline || isLoading) return;
+    const model = conn.defaultModel || models[0]?.id || "";
+    if (model) onSelectConnection(conn.id, model);
+  };
 
   return (
-    <>
-      <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-2 py-1.5">
+    <DropdownMenuItem
+      onClick={handleSelect}
+      disabled={isLoading || isOffline}
+      className="flex items-center justify-between gap-2 py-2"
+      data-testid={`option-connection-${conn.id}`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
         {conn.residentEmoji && <span className="text-sm leading-none">{conn.residentEmoji}</span>}
-        {conn.residentName || conn.name}
-      </DropdownMenuLabel>
-      {isLoading ? (
-        <DropdownMenuItem disabled className="pl-5">
-          <Loader2 className="h-3 w-3 animate-spin mr-2 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Checking…</span>
-        </DropdownMenuItem>
-      ) : isOffline ? (
-        <DropdownMenuItem disabled className="pl-5">
-          <span className="text-xs text-muted-foreground">Offline — check connection in Settings</span>
-        </DropdownMenuItem>
-      ) : displayModels.length === 0 ? (
-        <DropdownMenuItem disabled className="pl-5">
-          <span className="text-xs text-muted-foreground">No models found</span>
-        </DropdownMenuItem>
-      ) : (
-        displayModels.map(m => (
-          <DropdownMenuItem
-            key={m.id}
-            onClick={() => onSelectConnection(conn.id, m.id)}
-            className="pl-5 flex items-center justify-between gap-2"
-            data-testid={`model-option-${conn.id}-${m.id}`}
-          >
-            <span className="text-sm truncate">{m.name}</span>
-            {selectedConnectionId === conn.id && selectedModel === m.id && (
-              <Check className="h-3 w-3 shrink-0 text-primary" />
-            )}
-          </DropdownMenuItem>
-        ))
-      )}
-    </>
+        <span className="text-sm truncate">{conn.residentName || conn.name}</span>
+        {isOffline && <span className="text-xs text-muted-foreground">· offline</span>}
+      </div>
+      {isSelected && <Check className="h-3 w-3 shrink-0 text-primary" />}
+    </DropdownMenuItem>
   );
 }
 
@@ -294,7 +273,10 @@ function ChatContent({
                 >
                   <Cpu className="h-3 w-3" />
                   <span className="max-w-[160px] truncate">
-                    {selectedModel || "Select a model"}
+                    {(() => {
+                      const sel = connections.find(c => c.id === selectedConnectionId);
+                      return sel ? (sel.residentName || sel.name) : "Select resident";
+                    })()}
                   </span>
                   <ChevronDown className="h-3 w-3 opacity-60" />
                 </Button>
@@ -311,7 +293,6 @@ function ChatContent({
                       <ConnectionGroup
                         conn={conn}
                         selectedConnectionId={selectedConnectionId}
-                        selectedModel={selectedModel}
                         onSelectConnection={onSelectConnection}
                       />
                     </div>
