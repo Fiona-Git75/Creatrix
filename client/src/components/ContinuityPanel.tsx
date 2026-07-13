@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueries } from "@tanstack/react-query";
 import { Layers, Plus, Trash2, Loader2, Globe, User, Users, ChevronDown, ChevronRight, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -46,7 +47,10 @@ export function ContinuityPanel({
   const [addTarget, setAddTarget] = useState<AddTarget>("global");
   const [addTargetConnectionId, setAddTargetConnectionId] = useState<string | null>(null);
   const [addResidentModel, setAddResidentModel] = useState<string>("");
+  const [addResidentName, setAddResidentName] = useState<string>("");
+  const [addResidentRole, setAddResidentRole] = useState<string>("");
   const [addOrientationDraft, setAddOrientationDraft] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [editingOrientationId, setEditingOrientationId] = useState<string | null>(null);
   const [orientationDraft, setOrientationDraft] = useState("");
   const { toast } = useToast();
@@ -109,11 +113,8 @@ export function ContinuityPanel({
   });
 
   const configureResidentMutation = useMutation({
-    mutationFn: ({ id, defaultModel, residentDescription }: { id: string; defaultModel?: string; residentDescription?: string }) =>
-      apiRequest("PATCH", `/api/connections/${id}`, {
-        ...(defaultModel !== undefined ? { defaultModel } : {}),
-        ...(residentDescription !== undefined ? { residentDescription: residentDescription || undefined } : {}),
-      }),
+    mutationFn: ({ id, ...patch }: { id: string; defaultModel?: string; residentDescription?: string; residentName?: string; residentRole?: string }) =>
+      apiRequest("PATCH", `/api/connections/${id}`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/connections" });
     },
@@ -145,19 +146,17 @@ export function ContinuityPanel({
     if (!targetConnId) return;
 
     const targetConn = connections.find(c => c.id === targetConnId);
-    const modelChanged = addResidentModel && addResidentModel !== targetConn?.defaultModel;
-    const orientationChanged = addOrientationDraft !== (targetConn?.residentDescription ?? "");
-    const hasNote = newContent.trim().length > 0;
-
-    const patches: { defaultModel?: string; residentDescription?: string } = {};
-    if (modelChanged) patches.defaultModel = addResidentModel;
-    if (orientationChanged) patches.residentDescription = addOrientationDraft;
+    const patches: Record<string, string | undefined> = {};
+    if (addResidentName.trim() !== (targetConn?.residentName ?? "")) patches.residentName = addResidentName.trim() || undefined;
+    if (addResidentRole.trim() !== (targetConn?.residentRole ?? "")) patches.residentRole = addResidentRole.trim() || undefined;
+    if (addResidentModel && addResidentModel !== targetConn?.defaultModel) patches.defaultModel = addResidentModel;
+    if (addOrientationDraft !== (targetConn?.residentDescription ?? "")) patches.residentDescription = addOrientationDraft || undefined;
 
     const tasks: Promise<unknown>[] = [];
     if (Object.keys(patches).length > 0) {
       tasks.push(configureResidentMutation.mutateAsync({ id: targetConnId, ...patches }));
     }
-    if (hasNote) {
+    if (newContent.trim()) {
       tasks.push(createMutation.mutateAsync({ scope: "resident", content: newContent.trim(), connectionId: targetConnId }));
     }
 
@@ -189,9 +188,12 @@ export function ContinuityPanel({
 
     setAddTargetConnectionId(resolvedConnId);
     setNewContent("");
+    setAdvancedOpen(false);
 
     if (target === "resident") {
       const conn = connections.find(c => c.id === resolvedConnId);
+      setAddResidentName(conn?.residentName ?? "");
+      setAddResidentRole(conn?.residentRole ?? "");
       setAddResidentModel(conn?.defaultModel ?? "");
       setAddOrientationDraft(conn?.residentDescription ?? "");
     }
@@ -202,6 +204,8 @@ export function ContinuityPanel({
   const handleAddTargetResidentChange = (newConnId: string) => {
     setAddTargetConnectionId(newConnId);
     const conn = connections.find(c => c.id === newConnId);
+    setAddResidentName(conn?.residentName ?? "");
+    setAddResidentRole(conn?.residentRole ?? "");
     setAddResidentModel(conn?.defaultModel ?? "");
     setAddOrientationDraft(conn?.residentDescription ?? "");
   };
@@ -521,123 +525,163 @@ export function ContinuityPanel({
       {/* Configure resident dialog */}
       {addTarget === "resident" && (
         <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Configure {dialogResidentLabel}</DialogTitle>
-              {selectedDialogConn?.residentRole && (
-                <p className="text-sm text-muted-foreground">
-                  Role: {selectedDialogConn.residentRole}
-                </p>
+              <DialogTitle>Configure Resident</DialogTitle>
+              {residentConnections.length > 1 && (
+                <Select
+                  value={addTargetConnectionId ?? ""}
+                  onValueChange={handleAddTargetResidentChange}
+                >
+                  <SelectTrigger className="mt-1 h-8 text-xs" data-testid="select-dialog-resident">
+                    <SelectValue placeholder="Select a resident" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {residentConnections.map(conn => (
+                      <SelectItem key={conn.id} value={conn.id} data-testid={`option-resident-${conn.id}`}>
+                        <span className="flex items-center gap-2">
+                          {conn.residentEmoji && <span>{conn.residentEmoji}</span>}
+                          <span>{conn.residentName ?? conn.name}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </DialogHeader>
 
-            <div className="space-y-5 py-1">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="space-y-4 py-1 pr-1">
 
-              {/* Resident selector */}
-              {residentConnections.length > 1 && (
+                {/* Name */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Resident</Label>
-                  <Select
-                    value={addTargetConnectionId ?? ""}
-                    onValueChange={handleAddTargetResidentChange}
-                  >
-                    <SelectTrigger data-testid="select-dialog-resident">
-                      <SelectValue placeholder="Select a resident" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {residentConnections.map(conn => (
-                        <SelectItem key={conn.id} value={conn.id} data-testid={`option-resident-${conn.id}`}>
-                          <span className="flex items-center gap-2">
-                            {conn.residentEmoji && <span>{conn.residentEmoji}</span>}
-                            <span>{conn.residentName}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs font-medium">Name</Label>
+                  <Input
+                    placeholder="e.g. Olmo"
+                    value={addResidentName}
+                    onChange={e => setAddResidentName(e.target.value)}
+                    data-testid="input-dialog-resident-name"
+                  />
                 </div>
-              )}
 
-              {/* Model selector */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Resident Model</Label>
-                {dialogProviderModels.length > 0 ? (
-                  <Select
-                    value={addResidentModel}
-                    onValueChange={setAddResidentModel}
+                {/* Role */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Role</Label>
+                  <Input
+                    placeholder="e.g. Creatrix Coordinator and Primary Support"
+                    value={addResidentRole}
+                    onChange={e => setAddResidentRole(e.target.value)}
+                    data-testid="input-dialog-resident-role"
+                  />
+                </div>
+
+                {/* Runtime model */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Runtime Model</Label>
+                  {dialogProviderModels.length > 0 ? (
+                    <Select value={addResidentModel} onValueChange={setAddResidentModel}>
+                      <SelectTrigger data-testid="select-dialog-model">
+                        <SelectValue placeholder="Select a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {dialogProviderModels.map(m => (
+                          <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
+                            <span className="font-mono text-sm">{m.id}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-1">
+                      <Input
+                        value={addResidentModel}
+                        onChange={e => setAddResidentModel(e.target.value)}
+                        placeholder="e.g. llama3.2, gpt-4o"
+                        className="font-mono text-sm"
+                        data-testid="input-dialog-model"
+                      />
+                      <p className="text-xs text-muted-foreground">Provider offline — enter model ID manually.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Orientation */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Orientation</Label>
+                  <p className="text-xs text-muted-foreground">
+                    The initial relationship contract. Sent at the start of every conversation.
+                  </p>
+                  <Textarea
+                    placeholder={`e.g. You are ${addResidentName || "this resident"}, the primary collaborator within Creatrix. Your role is to…`}
+                    value={addOrientationDraft}
+                    onChange={(e) => setAddOrientationDraft(e.target.value)}
+                    rows={4}
+                    data-testid="textarea-dialog-orientation"
+                  />
+                </div>
+
+                {/* Continuity */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Continuity</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Accumulated wisdom. Add a new note below; existing notes are shown beneath.
+                  </p>
+                  <Textarea
+                    placeholder={`e.g. Prefers relational/systemic thinking. Prioritises continuity over novelty.`}
+                    value={newContent}
+                    onChange={(e) => setNewContent(e.target.value)}
+                    rows={2}
+                    data-testid="textarea-continuity-content"
+                  />
+                  {/* Existing notes for this resident */}
+                  {(() => {
+                    const idx = residentConnections.findIndex(c => c.id === addTargetConnectionId);
+                    const existing: MemoryEntry[] = idx >= 0 ? (residentCountResults[idx]?.data ?? []) : [];
+                    if (existing.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5 pt-1">
+                        {existing.map(entry => (
+                          <div key={entry.id} className="flex items-start gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+                            <p className="text-xs flex-1 whitespace-pre-wrap text-muted-foreground">{entry.content}</p>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 shrink-0 -mt-0.5"
+                              onClick={() => deleteMutation.mutate(entry.id)}
+                              data-testid={`button-delete-note-${entry.id}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Advanced (collapsible) */}
+                <div>
+                  <button
+                    onClick={() => setAdvancedOpen(v => !v)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="button-toggle-advanced"
                   >
-                    <SelectTrigger data-testid="select-dialog-model" className="h-auto py-2">
-                      {addResidentModel ? (
-                        <span className="flex flex-col items-start text-left gap-0.5 min-w-0">
-                          {/* Primary: the Creatrix-facing connection name (e.g. "OLMo Research") */}
-                          <span className="text-sm leading-snug truncate">
-                            {selectedDialogConn?.name ?? addResidentModel}
-                          </span>
-                          {/* Secondary: the actual backend engine ID */}
-                          <span className="text-xs font-mono text-muted-foreground leading-snug truncate">
-                            {addResidentModel}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">Select a model</span>
-                      )}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dialogProviderModels.map(m => (
-                        <SelectItem key={m.id} value={m.id} data-testid={`option-model-${m.id}`}>
-                          <span className="font-mono text-sm">{m.id}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="space-y-1">
-                    <input
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      value={addResidentModel}
-                      onChange={e => setAddResidentModel(e.target.value)}
-                      placeholder="e.g. llama3.2, gpt-4o"
-                      data-testid="input-dialog-model"
-                    />
-                    <p className="text-xs text-muted-foreground">Provider is offline — enter a model ID manually.</p>
-                  </div>
-                )}
-              </div>
+                    {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    Advanced
+                  </button>
+                  {advancedOpen && selectedDialogConn && (
+                    <div className="mt-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2 space-y-1 font-mono text-xs text-muted-foreground">
+                      <p><span className="text-foreground/60">Provider:</span> {selectedDialogConn.provider}</p>
+                      <p><span className="text-foreground/60">Endpoint:</span> {selectedDialogConn.endpoint}</p>
+                      <p><span className="text-foreground/60">Model ID:</span> {addResidentModel || selectedDialogConn.defaultModel}</p>
+                    </div>
+                  )}
+                </div>
 
-              {/* Orientation */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Orientation</Label>
-                <p className="text-xs text-muted-foreground">
-                  Tell this resident how they approach work, what they specialise in, and how they collaborate with you.
-                  This is sent at the start of every conversation.
-                </p>
-                <Textarea
-                  placeholder={`e.g. ${dialogResidentLabel}, your job is to learn everything about this project — its file structure, logs, and documentation. You specialise in technical troubleshooting and project thinking.`}
-                  value={addOrientationDraft}
-                  onChange={(e) => setAddOrientationDraft(e.target.value)}
-                  rows={5}
-                  data-testid="textarea-dialog-orientation"
-                />
               </div>
-
-              {/* Continuity Notes */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Continuity Notes</Label>
-                <p className="text-xs text-muted-foreground">
-                  Persistent observations about this resident. These accumulate over time and help maintain continuity across conversations.
-                </p>
-                <Textarea
-                  placeholder={`e.g. ${dialogResidentLabel} prefers to review architecture before implementation.`}
-                  value={newContent}
-                  onChange={(e) => setNewContent(e.target.value)}
-                  rows={3}
-                  data-testid="textarea-continuity-content"
-                />
-              </div>
-
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="pt-2">
               <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
                 Cancel
               </Button>
