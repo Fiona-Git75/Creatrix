@@ -474,6 +474,10 @@ export const capabilityNames = [
   "check_services",
   "list_conversations",
   "read_conversation",
+  "git_log",
+  "git_show",
+  "git_diff",
+  "git_status",
 ] as const;
 export type CapabilityName = typeof capabilityNames[number];
 

@@ -9,6 +9,7 @@ import { docsCapabilities } from "./docs";
 import { consultantCapability } from "./consultant";
 import { systemCapabilities } from "./system";
 import { conversationCapabilities } from "./conversations";
+import { gitCapabilities } from "./git";
 
 export interface CapabilityContext {
   rootFolder?: string;
@@ -47,7 +48,7 @@ function register(def: CapabilityDefinition) {
 }
 
 // Register all capabilities
-for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities, ...docsCapabilities, consultantCapability, ...systemCapabilities, ...conversationCapabilities]) {
+for (const cap of [...filesystemCapabilities, ...webCapabilities, ...libraryCapabilities, ...notionCapabilities, ...mediaCapabilities, ...terminalCapabilities, ...docsCapabilities, consultantCapability, ...systemCapabilities, ...conversationCapabilities, ...gitCapabilities]) {
   register(cap);
 }
 
