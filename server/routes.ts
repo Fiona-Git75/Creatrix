@@ -935,8 +935,43 @@ export async function registerRoutes(
       // when it reaches the edge of what it knows. Everything else builds on top.
       systemParts.push(CREATRIX_ORIENTATION);
 
+      // Temporal grounding — always the second thing the model reads.
+      // Brisbane timezone (UTC+10, no daylight saving) because that's where
+      // this person works. Prevents the model from misreading "today",
+      // "recent", or time-of-day references, and trying to close a day that
+      // hasn't started yet.
+      const nowBrisbane = new Date().toLocaleString("en-AU", {
+        timeZone: "Australia/Brisbane",
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+      // Session depth — fetched once here and reused for scaffold + council below.
+      // Gives the model a sense of how long this conversation has been running
+      // and how many messages it holds, so it can reason about context pressure.
+      const currentConvo = await storage.getConversation(currentConversationId);
+      const temporalParts: string[] = [`**Right now:** ${nowBrisbane} (Brisbane)`];
+      if (currentConvo && currentConvo.messages.length > 1) {
+        const msgCount = currentConvo.messages.length;
+        const startedAt = new Date(currentConvo.createdAt);
+        const elapsedMs = Date.now() - startedAt.getTime();
+        const elapsedHours = Math.floor(elapsedMs / (1000 * 60 * 60));
+        const elapsedMins = Math.floor((elapsedMs % (1000 * 60 * 60)) / (1000 * 60));
+        const duration = elapsedHours > 0 ? `${elapsedHours}h ${elapsedMins}m` : `${elapsedMins} minutes`;
+        temporalParts.push(
+          `This conversation started ${duration} ago and holds ${msgCount} messages.` +
+          ` Long sessions can push earlier context toward the edge of your attention — if something feels like it's slipping, name it.`
+        );
+      }
+      systemParts.push(`\n## Right now\n${temporalParts.join(" ")}`);
+
       // Day note — user's handoff/orientation note, set manually or dictated to the AI.
-      // Injected immediately after orientation so it colours everything that follows.
+      // Injected immediately after temporal grounding so it colours everything that follows.
       const chatSettings = await storage.getSettings();
       if (chatSettings?.dayNote?.trim()) {
         systemParts.push(`\n## Day Note\n${chatSettings.dayNote.trim()}`);
@@ -1046,7 +1081,7 @@ export async function registerRoutes(
         }
 
         // Session scaffold — live field map injected after relationship context
-        const convoForCouncil = await storage.getConversation(currentConversationId);
+        const convoForCouncil = currentConvo;
         if (convoForCouncil?.scaffold) {
           try {
             const sf = JSON.parse(convoForCouncil.scaffold);
