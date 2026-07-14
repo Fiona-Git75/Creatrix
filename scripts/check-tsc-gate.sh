@@ -15,6 +15,13 @@
 
 set -euo pipefail
 
+# Prevent two concurrent runs (e.g. workflow + validation) from racing on the
+# probe inject/restore cycle, which would cause the other's baseline check to
+# catch the injected error and report a false failure.
+LOCK_FILE="/tmp/tsc-gate-check.lock"
+exec 9>"$LOCK_FILE"
+flock -w 120 9 || { echo "[gate-check] FAIL: could not acquire lock within 120s" >&2; exit 1; }
+
 TARGET="client/src/__tests__/setup.ts"
 MARKER="// __TYPE_ERROR_PROBE__"
 ERROR_LINE="const _typeProbe: number = 'this is not a number'; ${MARKER}"
