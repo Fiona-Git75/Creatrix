@@ -11,3 +11,5 @@
 - [Service runtime architecture](service-runtime-arch.md) — each service owns its probe, failure interpretation, and firstLook hint; coherence.ts only reads state; HTTP 200 ≠ ready.
 - [SQLite migration](sqlite-migration.md) — PostgreSQL replaced by SQLite via @libsql/client + drizzle-orm/libsql; better-sqlite3 won't compile in Replit (no Python/node-gyp).
 - [Replit git identity](replit-git-identity.md) — GIT_CONFIG_GLOBAL points to /run/replit/user/<uid>/.config/git/config (ephemeral); must mkdir+write it each sandbox to avoid "could not lock config file" on commit.
+- [Session scaffold system](session-scaffold.md) — live field map (In the air/Landed/Connections/Holding tension) stored as JSON on conversations.scaffold; auto-generates every 15 messages; injected into system prompt; panel opened via Map icon.
+- [Temporal grounding pattern](temporal-grounding.md) — current date/time (Brisbane, UTC+10) + conversation depth (duration + message count) injected second in every system prompt, before day note; depth signal only shown when messages > 1.
