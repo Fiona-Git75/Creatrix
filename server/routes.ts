@@ -1302,6 +1302,23 @@ export async function registerRoutes(
         const runTool = async (toolName: CapabilityName, toolArgs: Record<string, unknown>) => {
           const cap = getCapability(toolName);
 
+          // Gate: if the tool is inactive (probe failed, not configured, etc.) return a structured
+          // "unavailable" error immediately — don't let it fall through to the handler which would
+          // either hang waiting for a timeout or produce a confusing raw error.
+          const inactiveCap = inactiveCaps.find(ic => ic.cap.name === toolName);
+          if (inactiveCap) {
+            res.write(`data: ${JSON.stringify({ type: "tool_call", capability: toolName, args: toolArgs })}\n\n`);
+            const unavailableMsg = [
+              `Tool unavailable: ${toolName}`,
+              `Reason: ${inactiveCap.reason}`,
+              `Suggested response: Acknowledge that this tool is currently unavailable. ` +
+              `Explain the situation naturally (e.g. "I tried to reach Notion but the connection is currently unavailable"). ` +
+              `If appropriate, offer to continue with whatever other resources you do have access to.`,
+            ].join("\n");
+            res.write(`data: ${JSON.stringify({ type: "tool_result", capability: toolName, status: "error", error: unavailableMsg })}\n\n`);
+            return { capability: toolName, args: toolArgs, status: "error" as const, error: unavailableMsg, result: null };
+          }
+
           if (cap?.requiresConfirmation) {
             // Gate: send confirm_required and wait for explicit user approval
             const confirmId = randomUUID();
