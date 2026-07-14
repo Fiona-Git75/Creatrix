@@ -19,6 +19,69 @@ import path from "path";
 
 const SERVER_START = Date.now();
 
+// ── Scaffold generation ─────────────────────────────────────────────────────
+// Produces a live field map of the conversation (In the air / Landed /
+// Connections / Holding tension) and persists it as JSON on the conversation
+// row. Triggered automatically after every 15th message; also callable
+// directly via POST /api/conversations/:id/scaffold.
+
+const SCAFFOLD_PROMPT = `You are reading a conversation as a field of thought, not a timeline.
+
+Study the conversation below and return ONLY a JSON object with exactly these four keys:
+- "inTheAir": array of strings — threads still active and unresolved, still being worked through
+- "landed": array of strings — what has actually been figured out, even if never stated explicitly
+- "connections": array of strings — relationships that formed between things that arrived separately
+- "holdingTension": array of strings — unresolved things still exerting pressure on the thinking
+
+Rules:
+- Be specific and concrete, not abstract summaries
+- 2–6 items per section (use fewer if the conversation is sparse on that dimension)
+- Each item maximum 2 sentences
+- Return ONLY the raw JSON object — no markdown, no code fences, no explanation`;
+
+async function generateScaffoldForConversation(
+  conversationId: string,
+  connection: import("@shared/schema").Connection,
+  model: string
+): Promise<void> {
+  try {
+    const conversation = await storage.getConversation(conversationId);
+    if (!conversation || conversation.messages.length < 1) return;
+
+    const provider = createProvider(connection);
+
+    const conversationText = conversation.messages
+      .map(m => `[${m.role === "user" ? "User" : "Assistant"}]: ${m.content}`)
+      .join("\n\n");
+
+    let fullText = "";
+    await provider.generateStream(
+      [
+        { role: "system" as const, content: SCAFFOLD_PROMPT },
+        { role: "user" as const, content: `Here is the conversation:\n\n${conversationText}` },
+      ],
+      model,
+      (chunk) => {
+        if (chunk.type === "content" && chunk.content) fullText += chunk.content;
+      }
+    );
+
+    const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    parsed.updatedAt = new Date().toISOString();
+
+    await storage.updateConversationScaffold(conversationId, JSON.stringify(parsed));
+  } catch {
+    // Never surface scaffold errors — this is background work
+  }
+}
+
+function shouldGenerateScaffold(messageCount: number): boolean {
+  return messageCount >= 15 && messageCount % 15 === 0;
+}
+
 function makeSource(
   toolName: CapabilityName,
   toolArgs: Record<string, unknown>,
@@ -732,6 +795,39 @@ export async function registerRoutes(
     }
   });
 
+  // === Scaffold endpoints ===
+  app.get("/api/conversations/:id/scaffold", async (req: Request, res: Response) => {
+    try {
+      const conversation = await storage.getConversation(req.params.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+      const scaffold = conversation.scaffold ? JSON.parse(conversation.scaffold) : null;
+      res.json({ scaffold });
+    } catch {
+      res.status(500).json({ error: "Failed to read scaffold" });
+    }
+  });
+
+  app.post("/api/conversations/:id/scaffold", async (req: Request, res: Response) => {
+    try {
+      const conversation = await storage.getConversation(req.params.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+
+      const { connectionId, model } = req.body as { connectionId?: string; model?: string };
+      const conn = connectionId
+        ? await storage.getConnection(connectionId)
+        : (await storage.getConnections())[0];
+      if (!conn) return res.status(400).json({ error: "No connection available" });
+
+      const selectedModel = model || conn.defaultModel || "";
+      res.json({ status: "generating" });
+      setImmediate(() => {
+        generateScaffoldForConversation(req.params.id, conn, selectedModel).catch(() => {});
+      });
+    } catch {
+      res.status(500).json({ error: "Failed to trigger scaffold generation" });
+    }
+  });
+
   // === Chat with streaming ===
   app.post("/api/chat", async (req: Request, res: Response) => {
     try {
@@ -949,8 +1045,23 @@ export async function registerRoutes(
           }
         }
 
-        // Council mode: if a second resident is in this conversation, tell each model who else is present
+        // Session scaffold — live field map injected after relationship context
         const convoForCouncil = await storage.getConversation(currentConversationId);
+        if (convoForCouncil?.scaffold) {
+          try {
+            const sf = JSON.parse(convoForCouncil.scaffold);
+            const sfParts: string[] = [];
+            if (sf.inTheAir?.length) sfParts.push(`**In the air:** ${(sf.inTheAir as string[]).join(" | ")}`);
+            if (sf.landed?.length) sfParts.push(`**Landed:** ${(sf.landed as string[]).join(" | ")}`);
+            if (sf.connections?.length) sfParts.push(`**Connections formed:** ${(sf.connections as string[]).join(" | ")}`);
+            if (sf.holdingTension?.length) sfParts.push(`**Holding tension:** ${(sf.holdingTension as string[]).join(" | ")}`);
+            if (sfParts.length > 0) {
+              systemParts.push(`\n## Session Scaffold\nA live field map of where this conversation currently stands:\n\n${sfParts.join("\n")}`);
+            }
+          } catch { /* malformed scaffold JSON — skip */ }
+        }
+
+        // Council mode: if a second resident is in this conversation, tell each model who else is present
         const guestConnId = convoForCouncil?.guestConnectionId;
         if (guestConnId) {
           const otherConnId = connection.id === primaryConnection.id ? guestConnId : primaryConnection.id;
@@ -1300,6 +1411,14 @@ export async function registerRoutes(
 
         res.write(`data: ${JSON.stringify({ type: "done", messageId: assistantMessageId })}\n\n`);
         res.end();
+
+        // Background scaffold generation — fire-and-forget, never blocks the response
+        const updatedConvo = await storage.getConversation(currentConversationId);
+        if (updatedConvo && shouldGenerateScaffold(updatedConvo.messages.length)) {
+          setImmediate(() => {
+            generateScaffoldForConversation(currentConversationId, connection, selectedModel).catch(() => {});
+          });
+        }
       } catch (streamError: any) {
         syslog("error", "chat", "Streaming error", streamError?.message);
         res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError.message || "Failed to get AI response") })}\n\n`);

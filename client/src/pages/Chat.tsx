@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2, Users, X } from "lucide-react";
+import { Menu, RotateCcw, Brain, Search, Library, BookOpenCheck, Activity, Cpu, ChevronDown, Check, Loader2, Users, X, Map as MapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -29,6 +29,7 @@ import { SearchDialog } from "@/components/SearchDialog";
 import { ToolCallCard, type ToolEvent } from "@/components/ToolCallCard";
 import { DocumentPanel } from "@/components/DocumentPanel";
 import { ProjectPanel } from "@/components/ProjectPanel";
+import { ScaffoldPanel } from "@/components/ScaffoldPanel";
 import { type Conversation } from "@/components/ConversationItem";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -167,6 +168,7 @@ function ChatContent({
   const [momentsOpen, setMomentsOpen] = useState(false);
 
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [scaffoldPanelOpen, setScaffoldPanelOpen] = useState(false);
   const [docPanelWidth, setDocPanelWidth] = useState(480);
   const [focusMode, setFocusMode] = useState(false);
   const [projectPanelWidth, setProjectPanelWidth] = useState(560);
@@ -442,6 +444,22 @@ function ChatContent({
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Library</TooltipContent>
               </Tooltip>
+              {activeConversation && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant={scaffoldPanelOpen ? "secondary" : "ghost"}
+                      onClick={() => setScaffoldPanelOpen(p => !p)}
+                      data-testid="button-scaffold"
+                      aria-label="Session scaffold"
+                    >
+                      <MapIcon className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Session scaffold</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -612,6 +630,12 @@ function ChatContent({
             />
           </div>
         </>
+      )}
+      {scaffoldPanelOpen && activeConversation && (
+        <ScaffoldPanel
+          conversationId={activeConversation.id}
+          onClose={() => setScaffoldPanelOpen(false)}
+        />
       )}
       </div>
     </>

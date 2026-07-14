@@ -61,6 +61,7 @@ export const conversations = sqliteTable("conversations", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   archivedAt: text("archived_at"),
+  scaffold: text("scaffold"),  // JSON: live field map of open threads, insights, connections
 });
 
 // Memory entries table
@@ -236,6 +237,7 @@ export const conversationSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable().optional(),
+  scaffold: z.string().nullable().optional(),  // JSON: live field map
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 export const insertConversationSchema = conversationSchema.omit({

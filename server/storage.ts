@@ -59,6 +59,7 @@ export interface IStorage {
   updateConversation(id: string, updates: Partial<Pick<Conversation, 'title' | 'messages' | 'model' | 'projectId' | 'guestConnectionId' | 'archivedAt'>>): Promise<Conversation | undefined>;
   deleteConversation(id: string): Promise<boolean>;
   addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined>;
+  updateConversationScaffold(id: string, scaffold: string): Promise<void>;
 
   // Memory
   getMemoryEntries(scope: string, scopeId?: string): Promise<MemoryEntry[]>;
@@ -282,6 +283,12 @@ export class MemStorage implements IStorage {
     return updated;
   }
   async deleteConversation(id: string): Promise<boolean> { return this.conversations.delete(id); }
+  async updateConversationScaffold(id: string, scaffold: string): Promise<void> {
+    const conversation = this.conversations.get(id);
+    if (conversation) {
+      this.conversations.set(id, { ...conversation, scaffold, updatedAt: new Date().toISOString() });
+    }
+  }
   async addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined> {
     const conversation = this.conversations.get(id);
     if (!conversation) return undefined;
@@ -1041,6 +1048,9 @@ export class DatabaseStorage implements IStorage {
     if (!existing) return false;
     await this.db.delete(conversations).where(eq(conversations.id, id));
     return true;
+  }
+  async updateConversationScaffold(id: string, scaffold: string): Promise<void> {
+    await this.db.update(conversations).set({ scaffold }).where(eq(conversations.id, id));
   }
   async addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined> {
     const existing = await this.getConversation(id);

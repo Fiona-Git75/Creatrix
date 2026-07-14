@@ -71,6 +71,13 @@
       "when": 1784000000000,
       "tag": "0009_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784100000000,
+      "tag": "0010_conversation_scaffold",
+      "breakpoints": true
     }
   ]
 }
