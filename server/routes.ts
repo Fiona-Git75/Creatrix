@@ -1300,7 +1300,7 @@ export async function registerRoutes(
       try {
         const provider = createProvider(connection);
         const TOOL_CALL_RE = /<tool_call>([\s\S]*?)<\/tool_call>/;
-        const MAX_TOOL_ITERATIONS = 5;
+        const MAX_TOOL_ITERATIONS = 12;
 
         // Shared tool invocation helper — same execution path for both native and text tool calls
         const runTool = async (toolName: CapabilityName, toolArgs: Record<string, unknown>) => {
@@ -1481,6 +1481,27 @@ export async function registerRoutes(
             fullContent = (fullContent + buffered).trim();
             break;
           }
+        }
+
+        // Fallback: if the loop exhausted all iterations without producing any user-facing text,
+        // the model was navigating (tool calls only) and never surfaced a response. Ask it to
+        // summarise what it found so the conversation doesn't go silent.
+        if (!fullContent.trim()) {
+          modelMessages.push({
+            role: "user",
+            content:
+              "You've reached the end of your tool call budget for this turn. " +
+              "Please summarise what you found so far, where you got to, and — if you didn't find what you were looking for — " +
+              "say so honestly and suggest what would help next. Speak directly to the user now.",
+          });
+          let summaryBuffered = "";
+          await provider.generateStream(modelMessages, selectedModel, (chunk) => {
+            if (chunk.type === "content" && chunk.content) {
+              summaryBuffered += chunk.content;
+              res.write(`data: ${JSON.stringify({ type: "content", content: chunk.content })}\n\n`);
+            }
+          });
+          fullContent = summaryBuffered.trim();
         }
 
         // Save complete assistant message (with provenance sources + council attribution)
