@@ -61,6 +61,30 @@ Each probe must distinguish:
 - WRONG_CONFIG: misconfigured → exact setting to change and where
 - READY: functionally ready for its ecological role
 
+## 4. Secure attachment — the environment is the secure base
+
+**The rule:** A model operating in an uncertain environment will try to hold everything, hedge, and lean on the user for grounding. A model in a reliable environment explores freely.
+
+**Why:** The three qualities of secure base: available (tools are reachable), responsive (results arrive honestly), non-punishing (no penalty for reaching, naming a gap is useful not shameful). All three must be explicitly stated — not just implied by the mechanics.
+
+**How to apply:**
+- The tool orientation block opens with the reliability contract, not just the tool list.
+- Failure messages carry plain-language diagnosis, not raw errors — the environment owns its own failures.
+- Tool result rendering (renderToolResult) translates JSON to plain language before the model reads it, reducing translation tax per tool call.
+- Intent anchoring re-injects the original user request at every tool result turn, so the model doesn't carry the thread alone across multi-step navigation.
+
+## 5. The librarian principle — access over memory
+
+**The rule:** The model does not need to hold the filesystem (or any large corpus) in working memory. It needs to know the library exists and how to navigate it. The filesystem is the long-term memory; the context window is working memory for the current turn.
+
+**Why:** Embedding approaches pre-index everything and give the model a map. Tool approaches give the model legs — it can walk to wherever it needs to go, get the result, use it, and let it go. The librarian doesn't memorise the books; they remember the cataloguing system.
+
+**How to apply:**
+- find_path and search_filesystem are the navigational primitives — reach for them first, don't ask the user to specify full paths.
+- list_directory is for when you're already at a location; find_path is for when you're looking.
+- Results come back in plain language so the model can reason over them immediately without a second translation step.
+- Once trust is established (the environment is consistent), spontaneous searching behaviour increases naturally.
+
 ## Known remaining friction points
 1. **Runtime tool failure diagnosis** — when web_search fails mid-conversation, the error should carry the probe's specific diagnosis, not a raw exception. The fix is known; the knowledge doesn't travel to the conversation yet.
 2. **Postgres probe granularity** — ECONNREFUSED vs auth failure vs missing database name all produce "unreachable." Should distinguish so the roll call can say exactly why.
