@@ -121,10 +121,121 @@ export async function readFileContent(filePath: string): Promise<{ content: stri
   );
 }
 
+// ── Filesystem search helpers ─────────────────────────────────────────────────
+
+interface WalkEntry { path: string; name: string; isDir: boolean; depth: number }
+
+const SKIP_NAMES = new Set(["$RECYCLE.BIN", "node_modules", ".git", ".Trash-1000", "System Volume Information"]);
+
+async function walkFilesystem(
+  dirPath: string,
+  depth: number,
+  maxDepth: number,
+  bucket: WalkEntry[],
+  maxEntries: number,
+): Promise<void> {
+  if (depth > maxDepth || bucket.length >= maxEntries) return;
+  let items: import("fs").Dirent[];
+  try { items = await fs.readdir(dirPath, { withFileTypes: true }); }
+  catch { return; }
+  for (const item of items) {
+    if (bucket.length >= maxEntries) break;
+    if (item.name.startsWith(".") || SKIP_NAMES.has(item.name)) continue;
+    const full = path.join(dirPath, item.name);
+    bucket.push({ path: full, name: item.name, isDir: item.isDirectory(), depth });
+    if (item.isDirectory() && depth < maxDepth) {
+      await walkFilesystem(full, depth + 1, maxDepth, bucket, maxEntries);
+    }
+  }
+}
+
+function fuzzyScore(query: string, entry: WalkEntry): number {
+  const q = query.toLowerCase().trim();
+  const n = entry.name.toLowerCase();
+  const p = entry.path.toLowerCase();
+  const terms = q.split(/\s+/).filter(Boolean);
+  let score = 0;
+  if (n === q) score += 20;
+  if (n.startsWith(q)) score += 10;
+  if (n.includes(q)) score += 8;
+  if (p.includes(q)) score += 4;
+  const nameHits = terms.filter(t => n.includes(t)).length;
+  score += nameHits * 3;
+  if (nameHits === terms.length && terms.length > 1) score += 5;
+  score += terms.filter(t => p.includes(t)).length;
+  score -= entry.depth * 0.2;
+  return score;
+}
+
+// ── Capabilities ──────────────────────────────────────────────────────────────
+
 export const filesystemCapabilities: CapabilityDefinition[] = [
   {
+    name: "find_path",
+    description:
+      "Fuzzy-search for a file or directory by name across the entire file library — no manual navigation needed. " +
+      "Returns up to 10 matches ranked by relevance, each with its full path and type. " +
+      "Use this instead of listing directories one by one whenever you need to locate something by name or partial name.",
+    requires: { rootFolder: true },
+    argsSchema: {
+      query: { type: "string", description: "Name or partial name to search for (fuzzy, case-insensitive)", required: true },
+      type: { type: "string", description: 'Filter results: "file", "directory", or "any" (default: "any")' },
+      from: { type: "string", description: "Start search from this path instead of the root folder (optional)" },
+    },
+    async handler(args, ctx) {
+      const root = args.from
+        ? sanitizePath(args.from as string, ctx)
+        : (ctx.rootFolder || process.cwd());
+      const filter = (args.type as string | undefined) ?? "any";
+      const bucket: WalkEntry[] = [];
+      await walkFilesystem(root, 0, 7, bucket, 8000);
+      const scored = bucket
+        .filter(e => filter === "any" || (filter === "directory" ? e.isDir : !e.isDir))
+        .map(e => ({ ...e, score: fuzzyScore(args.query as string, e) }))
+        .filter(e => e.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+      return {
+        query: args.query,
+        matches: scored.map(e => ({ path: e.path, name: e.name, type: e.isDir ? "directory" : "file" })),
+        total_scanned: bucket.length,
+      };
+    },
+  },
+
+  {
+    name: "search_filesystem",
+    description:
+      "Search for files and directories whose names or paths contain the given terms. " +
+      "Broader than find_path — returns up to 20 matches. Useful when you're not sure of the exact name. " +
+      "Results are ranked by how many search terms appear in the name and path.",
+    requires: { rootFolder: true },
+    argsSchema: {
+      query: { type: "string", description: "One or more search terms (space-separated, case-insensitive)", required: true },
+      from: { type: "string", description: "Limit search to this subtree (optional; defaults to root folder)" },
+    },
+    async handler(args, ctx) {
+      const root = args.from
+        ? sanitizePath(args.from as string, ctx)
+        : (ctx.rootFolder || process.cwd());
+      const bucket: WalkEntry[] = [];
+      await walkFilesystem(root, 0, 8, bucket, 12000);
+      const scored = bucket
+        .map(e => ({ ...e, score: fuzzyScore(args.query as string, e) }))
+        .filter(e => e.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20);
+      return {
+        query: args.query,
+        matches: scored.map(e => ({ path: e.path, name: e.name, type: e.isDir ? "directory" : "file" })),
+        total_scanned: bucket.length,
+      };
+    },
+  },
+
+  {
     name: "list_directory",
-    description: "List the contents of a directory. Returns each entry's name, type (\"file\" or \"directory\"), size in bytes, and last-modified timestamp. Use this to discover what files are available before reading them.",
+    description: "List the contents of a directory. Returns each entry's name, type (\"file\" or \"directory\"), size in bytes, and last-modified timestamp. Use this when you already know the exact path. If you're searching for something by name, use find_path instead — it searches the whole library in one call.",
     requires: { rootFolder: true },
     argsSchema: {
       path: {

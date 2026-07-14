@@ -445,6 +445,8 @@ export type InsertConsultant = z.infer<typeof insertConsultantSchema>;
 
 // Capability invocation (used in chat context to track what tools were called)
 export const capabilityNames = [
+  "find_path",
+  "search_filesystem",
   "list_directory",
   "read_file",
   "write_file",
