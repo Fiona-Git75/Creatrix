@@ -19,6 +19,86 @@ import path from "path";
 
 const SERVER_START = Date.now();
 
+// ── Tool result renderer ──────────────────────────────────────────────────────
+// Converts structured tool results into plain language before the model reads
+// them — reducing the cognitive tax of JSON parsing mid-reasoning.
+function renderToolResult(toolName: string, result: unknown): string {
+  if (result === null || result === undefined) return "(no result)";
+  try {
+    const r = result as Record<string, unknown>;
+
+    if (toolName === "find_path" || toolName === "search_filesystem") {
+      const matches = (r.matches as Array<{ name: string; type: string; path: string }>) ?? [];
+      const scanned = r.total_scanned as number | undefined;
+      if (matches.length === 0)
+        return `No matches found for "${r.query}".${scanned ? ` (searched ${scanned.toLocaleString()} entries)` : ""}`;
+      const lines = [`Found ${matches.length} match${matches.length === 1 ? "" : "es"} for "${r.query}":`];
+      for (const m of matches) lines.push(`• ${m.name} (${m.type}) — ${m.path}`);
+      if (scanned) lines.push(`Searched ${scanned.toLocaleString()} entries.`);
+      return lines.join("\n");
+    }
+
+    if (toolName === "list_directory") {
+      const items = (r.items as Array<{ name: string; type: string }>) ?? [];
+      const dirs = items.filter(i => i.type === "directory").map(i => i.name);
+      const files = items.filter(i => i.type !== "directory").map(i => i.name);
+      const lines = [`Contents of ${r.path} (${r.count} item${(r.count as number) === 1 ? "" : "s"}):`];
+      if (dirs.length) lines.push(`Folders: ${dirs.join(", ")}`);
+      if (files.length) lines.push(`Files: ${files.join(", ")}`);
+      return lines.join("\n");
+    }
+
+    if (toolName === "read_file") {
+      return `File: ${r.path} (${r.format}, ${r.lines} lines)\n---\n${r.content}`;
+    }
+
+    if (toolName === "notion_search") {
+      const results = (r.results as Array<{ title: string; type: string; url: string; id: string }>) ?? [];
+      if (results.length === 0) return `No Notion results found for "${r.query}".`;
+      const lines = [`Found ${results.length} Notion result${results.length === 1 ? "" : "s"} for "${r.query}":`];
+      for (const p of results) {
+        lines.push(`• ${p.title} (${p.type}) — ID: ${p.id}`);
+        if (p.url) lines.push(`  ${p.url}`);
+      }
+      return lines.join("\n");
+    }
+
+    if (toolName === "notion_get_page") {
+      return [
+        `Notion page: ${r.title}`,
+        `URL: ${r.url}`,
+        `Last edited: ${r.lastEdited}`,
+        "---",
+        r.content as string,
+        r.truncated ? "[Content truncated]" : "",
+      ].filter(Boolean).join("\n");
+    }
+
+    if (toolName === "web_search") {
+      const results = (r.results as Array<{ title: string; url: string; snippet?: string }>) ?? [];
+      if (results.length === 0) return `No web results for "${r.query}".`;
+      const lines = [`Web search results for "${r.query}":`];
+      for (const item of results.slice(0, 5)) {
+        lines.push(`• ${item.title} — ${item.url}`);
+        if (item.snippet) lines.push(`  ${item.snippet}`);
+      }
+      return lines.join("\n");
+    }
+
+    // Generic: flatten to readable key: value lines, skip nulls and deep nesting
+    const lines: string[] = [];
+    for (const [k, v] of Object.entries(r)) {
+      if (v === null || v === undefined) continue;
+      if (Array.isArray(v)) lines.push(`${k}: [${v.length} items]`);
+      else if (typeof v === "object") lines.push(`${k}: ${JSON.stringify(v)}`);
+      else lines.push(`${k}: ${v}`);
+    }
+    return lines.join("\n") || JSON.stringify(result, null, 2);
+  } catch {
+    return JSON.stringify(result, null, 2);
+  }
+}
+
 // ── Scaffold generation ─────────────────────────────────────────────────────
 // Produces a live field map of the conversation (In the air / Landed /
 // Connections / Holding tension) and persists it as JSON on the conversation
@@ -1388,6 +1468,13 @@ export async function registerRoutes(
           return invocation;
         };
 
+        // Capture the original user request for multi-step intent anchoring.
+        // Re-injected alongside every tool result so the model never loses the thread.
+        const _lastUser = [...modelMessages].reverse().find(m => m.role === "user");
+        const intentAnchor = _lastUser
+          ? `[Continuing: "${String(_lastUser.content).slice(0, 120).replace(/\n/g, " ")}"]`
+          : "";
+
         for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
           let buffered = "";
           let streamError: string | null = null;
@@ -1424,9 +1511,9 @@ export async function registerRoutes(
             for (const tc of nativeToolCalls) {
               const invocation = await runTool(tc.name as CapabilityName, tc.args);
               const resultText = invocation.status === "success"
-                ? JSON.stringify(invocation.result, null, 2)
+                ? renderToolResult(tc.name, invocation.result)
                 : `Error: ${invocation.error}`;
-              toolResultParts.push(`[${tc.name}] ${resultText}`);
+              toolResultParts.push(`[${tc.name}]\n${resultText}`);
             }
 
             // Push assistant turn (tool calls) + tool results back into message history
@@ -1436,7 +1523,8 @@ export async function registerRoutes(
             });
             modelMessages.push({
               role: "user",
-              content: toolResultParts.map(r => `<tool_result>${r}</tool_result>`).join("\n\n"),
+              content: (intentAnchor ? intentAnchor + "\n" : "") +
+                toolResultParts.map(r => `<tool_result>${r}</tool_result>`).join("\n\n"),
             });
             continue;
           }
@@ -1470,9 +1558,10 @@ export async function registerRoutes(
             const assistantTurn = preText ? `${preText}\n\n<tool_call>${match[1]}</tool_call>` : `<tool_call>${match[1]}</tool_call>`;
             modelMessages.push({ role: "assistant", content: assistantTurn });
 
-            const resultContent = invocation.status === "success"
-              ? `<tool_result>${JSON.stringify(invocation.result, null, 2)}</tool_result>`
+            const renderedResult = invocation.status === "success"
+              ? `<tool_result>\n${renderToolResult(toolName, invocation.result)}\n</tool_result>`
               : `<tool_error>Tool "${toolName}" failed: ${invocation.error}</tool_error>`;
+            const resultContent = (intentAnchor ? intentAnchor + "\n" : "") + renderedResult;
             modelMessages.push({ role: "user", content: resultContent });
 
           } else {
