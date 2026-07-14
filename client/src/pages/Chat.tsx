@@ -125,6 +125,7 @@ function ChatContent({
   openProjectId,
   onOpenProject,
   onCloseProject,
+  onCloseConversation,
 }: {
   conversations: ConversationData[];
   activeConversation: ConversationData | null;
@@ -157,6 +158,7 @@ function ChatContent({
   openProjectId: string | null;
   onOpenProject: (projectId: string) => void;
   onCloseProject: () => void;
+  onCloseConversation: () => void;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -502,6 +504,22 @@ function ChatContent({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Clear conversation</TooltipContent>
+                </Tooltip>
+              )}
+              {activeConversation && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={onCloseConversation}
+                      data-testid="button-close-conversation"
+                      aria-label="Close conversation"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Close conversation</TooltipContent>
                 </Tooltip>
               )}
               <ThemeToggle />
@@ -969,6 +987,7 @@ export default function Chat() {
           openProjectId={openProjectId}
           onOpenProject={setOpenProjectId}
           onCloseProject={() => setOpenProjectId(null)}
+          onCloseConversation={() => setActiveConversationId(null)}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
