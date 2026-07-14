@@ -1195,6 +1195,32 @@ export async function registerRoutes(
           : "(none — configure tools in Settings to enable them)";
 
         // Concrete example first — the model needs to see the exact protocol it will use
+        const hasNotion = availableCaps.some(c => c.name.startsWith("notion"));
+        const hasWebSearch = availableCaps.some(c => c.name === "web_search");
+        const exampleLines: string[] = [];
+        if (hasWebSearch) {
+          exampleLines.push(
+            "Example — searching the web:",
+            '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
+          );
+        }
+        if (hasNotion) {
+          if (exampleLines.length) exampleLines.push("");
+          exampleLines.push(
+            "Example — finding a Notion page by name:",
+            '<tool_call>{"name":"notion_search","args":{"query":"Anavere"}}</tool_call>',
+            "",
+            "Example — reading a Notion page once you have its ID:",
+            '<tool_call>{"name":"notion_get_page","args":{"pageId":"page-id-here"}}</tool_call>',
+          );
+        }
+        if (!exampleLines.length) {
+          exampleLines.push(
+            "Example — searching the web:",
+            '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
+          );
+        }
+
         const lines = [
           "## Tool Environment",
           "",
@@ -1205,8 +1231,7 @@ export async function registerRoutes(
           "",
           "The system executes the tool and returns the result. You then continue your response.",
           "",
-          "Example — searching the web:",
-          '<tool_call>{"name":"web_search","args":{"query":"your search here"}}</tool_call>',
+          ...exampleLines,
           "",
           "### Active tools (callable now):",
           activeDesc,
@@ -1228,7 +1253,11 @@ export async function registerRoutes(
           "",
           "Reach for a tool when your thinking calls for it — when you sense a gap, want to verify something, " +
           "or recognise that a question needs more than you currently hold. " +
-          "You do not need to be asked. Conversational exchanges that need no external knowledge need no tool."
+          "You do not need to be asked. Conversational exchanges that need no external knowledge need no tool.",
+          "",
+          "When the user asks you to look at, find, fetch, or read something — call the relevant tool immediately. " +
+          "Do not ask for a URL or ID that a search tool can find on its own. " +
+          "Search first, ask only if the results are ambiguous or the tool returns nothing."
         );
 
         systemParts.push(lines.join("\n"));
