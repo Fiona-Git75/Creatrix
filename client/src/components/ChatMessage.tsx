@@ -154,7 +154,7 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
   return (
     <div
       className={cn(
-        "group py-6 px-4",
+        "group py-4",
         isUser ? "flex justify-end" : ""
       )}
       data-testid={`message-${message.role}-${message.id}`}
@@ -162,7 +162,7 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
       <div
         className={cn(
           "flex gap-4",
-          isUser ? "flex-row-reverse max-w-[80%]" : "max-w-3xl mx-auto w-full"
+          isUser ? "flex-row-reverse max-w-[80%]" : "max-w-[90%]"
         )}
       >
         <Avatar className="h-8 w-8 shrink-0">

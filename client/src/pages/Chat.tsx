@@ -555,7 +555,7 @@ function ChatContent({
           {hasMessages ? (
             <>
               <ScrollArea className="flex-1">
-                <div className="py-4">
+                <div className="px-4 py-6 max-w-2xl mx-auto w-full">
                   {displayMessages.map((message, idx) => (
                     <ChatMessage
                       key={message.id}
@@ -571,7 +571,7 @@ function ChatContent({
 
                   {/* Tool call cards shown during active generation */}
                   {toolEvents.length > 0 && (
-                    <div className="px-4 py-1 max-w-3xl mx-auto">
+                    <div className="py-1">
                       {toolEvents.map(event => (
                         <ToolCallCard
                           key={event.id}
