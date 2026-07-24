@@ -999,10 +999,23 @@ export async function registerRoutes(
       // Build messages for model
       const updatedConversation = await storage.getConversation(currentConversationId);
       const rawMessages = updatedConversation!.messages;
+      // Images stay on the table for the full conversation — every stored image
+      // is carried through in its original message position so the model can
+      // reference earlier screenshots without needing them re-sent.
       const modelMessages: MultimodalMessage[] = rawMessages.map((m, idx) => {
         const isLastUserMessage = m.role === "user" && idx === rawMessages.length - 1;
+        // Last user message: use the freshly-received images (covers the new-message case)
         if (isLastUserMessage && imageBase64s.length > 0) {
           return { role: m.role, content: m.content, images: imageBase64s, imageMimeTypes };
+        }
+        // Historical messages: carry their stored images through if present
+        if (m.images && m.images.length > 0) {
+          return {
+            role: m.role,
+            content: m.content,
+            images: m.images.map(img => img.base64),
+            imageMimeTypes: m.images.map(img => img.mimeType),
+          };
         }
         return { role: m.role, content: m.content };
       });
