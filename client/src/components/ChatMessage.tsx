@@ -1,4 +1,4 @@
-import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2, Save, Folder, ChevronRight, Home } from "lucide-react";
+import { Bot, User, Copy, Check, FileText, Globe, PlayCircle, Search, BookOpen, Bookmark, Loader2, Save, Folder, ChevronRight, Home, Eye } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Source, MessageImage, Connection } from "@shared/schema";
+import type { Source, MessageImage, Connection, VisionObservation } from "@shared/schema";
 
 export interface Message {
   id: string;
@@ -16,6 +16,7 @@ export interface Message {
   sources?: Source[];
   images?: MessageImage[];
   connectionId?: string;  // Council mode: which resident produced this message
+  visionObservations?: VisionObservation[];  // Visual resident: Luna's observation, hidden-but-inspectable
 }
 
 interface ChatMessageProps {
@@ -210,6 +211,18 @@ export function ChatMessage({ message, isStreaming, messageIndex = 0, conversati
               <span className="inline-block w-2 h-4 ml-1 bg-current animate-pulse" />
             )}
           </div>
+
+          {isUser && !isStreaming && message.visionObservations && message.visionObservations.length > 0 && (
+            <details className="mt-1 text-right" data-testid={`vision-observation-${message.id}`}>
+              <summary className="inline-flex items-center gap-1 text-xs text-muted-foreground/50 cursor-pointer hover:text-muted-foreground/80 select-none list-none">
+                <Eye className="h-3 w-3" />
+                <span>{message.visionObservations[0].connectionName} observed</span>
+              </summary>
+              <div className="mt-1 p-2.5 rounded-md bg-muted/40 border border-border/30 text-xs text-muted-foreground whitespace-pre-wrap text-left max-w-sm ml-auto">
+                {message.visionObservations[0].observation}
+              </div>
+            </details>
+          )}
 
           {!isUser && !isStreaming && message.sources && message.sources.length > 0 && (
             <SourceCitations sources={message.sources} />

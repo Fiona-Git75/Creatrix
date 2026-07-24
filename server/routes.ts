@@ -1002,22 +1002,33 @@ export async function registerRoutes(
       // Images stay on the table for the full conversation — every stored image
       // is carried through in its original message position so the model can
       // reference earlier screenshots without needing them re-sent.
+      // Stored visionObservations (from the visual resident) are appended to
+      // historical message content so the primary model reads them as context
+      // for all turns, not just the turn where the image was first observed.
       const modelMessages: MultimodalMessage[] = rawMessages.map((m, idx) => {
         const isLastUserMessage = m.role === "user" && idx === rawMessages.length - 1;
+        // Append any stored vision observations to the message content so the
+        // primary model receives them as text context (persisted across turns).
+        let content = m.content;
+        if (m.role === "user" && m.visionObservations && m.visionObservations.length > 0) {
+          for (const obs of m.visionObservations) {
+            content += `\n\n[Visual observation — ${obs.connectionName}]\n${obs.observation}`;
+          }
+        }
         // Last user message: use the freshly-received images (covers the new-message case)
         if (isLastUserMessage && imageBase64s.length > 0) {
-          return { role: m.role, content: m.content, images: imageBase64s, imageMimeTypes };
+          return { role: m.role, content, images: imageBase64s, imageMimeTypes };
         }
         // Historical messages: carry their stored images through if present
         if (m.images && m.images.length > 0) {
           return {
             role: m.role,
-            content: m.content,
+            content,
             images: m.images.map(img => img.base64),
             imageMimeTypes: m.images.map(img => img.mimeType),
           };
         }
-        return { role: m.role, content: m.content };
+        return { role: m.role, content };
       });
 
       // Build system context — orientation first, then project, memories, RAG, tools
@@ -1394,6 +1405,84 @@ export async function registerRoutes(
 
       // Send conversation ID first
       res.write(`data: ${JSON.stringify({ type: "conversation_id", id: currentConversationId })}\n\n`);
+
+      // ── Luna visual resident pre-processing ──────────────────────────────────
+      // When images are present, check for a designated visual resident connection.
+      // If found, call it first to observe the images (question-aware), then inject
+      // the observation into the last user modelMessage as text context so the
+      // primary model can reason about what it cannot see directly.
+      // The observation is also persisted on the stored user message so future turns
+      // carry it without re-observing.
+      if (imageBase64s.length > 0) {
+        const allConnections = await storage.getConnections();
+        const visualResident = allConnections.find(c => c.isVisualResident && c.id !== connection.id);
+        if (visualResident) {
+          const lunaName = visualResident.residentName || visualResident.name;
+          res.write(`data: ${JSON.stringify({ type: "vision_observation_start", residentName: lunaName })}\n\n`);
+          try {
+            const lunaProvider = createProvider(visualResident);
+            const observerPrompt = [
+              `Observe this image for a collaborator who cannot see it.`,
+              ``,
+              `The user's message is: "${message.slice(0, 300).replace(/"/g, "'")}"`,
+              ``,
+              `Pay particular attention to visual information relevant to what they're asking. Describe what you see — do not answer their question.`,
+              ``,
+              `Report:`,
+              `- What is shown overall (interface, document, photo, diagram, etc.)`,
+              `- Visible text that matters`,
+              `- Spatial and layout relationships between elements`,
+              `- Anything uncertain or unreadable`,
+              ``,
+              `Be specific enough that a thoughtful collaborator can reason from your description. Keep your observation bounded — enough to work with, not a transcript of every pixel.`,
+            ].join("\n");
+            const lunaMessages: MultimodalMessage[] = [{
+              role: "user",
+              content: observerPrompt,
+              images: imageBase64s,
+              imageMimeTypes,
+            }];
+            let lunaObservation = "";
+            const lunaStart = Date.now();
+            await lunaProvider.generateStream(lunaMessages, visualResident.defaultModel, (chunk) => {
+              if (chunk.type === "content" && chunk.content) {
+                lunaObservation += chunk.content;
+              }
+            });
+            const lunaDurationMs = Date.now() - lunaStart;
+            if (lunaObservation.trim()) {
+              const observation = lunaObservation.trim();
+              // Inject observation into last user modelMessage as text context
+              const lastUserIdx = [...modelMessages].map((m, i) => ({ m, i })).filter(({ m }) => m.role === "user").pop()?.i;
+              if (lastUserIdx !== undefined) {
+                modelMessages[lastUserIdx] = {
+                  ...modelMessages[lastUserIdx],
+                  content: `${modelMessages[lastUserIdx].content}\n\n[Visual observation — ${lunaName}]\n${observation}`,
+                };
+              }
+              // Persist observation on the stored user message for future turns
+              if (userMessageId) {
+                const convSnap = await storage.getConversation(currentConversationId);
+                if (convSnap) {
+                  const updatedMsgs = convSnap.messages.map(m =>
+                    m.id === userMessageId
+                      ? { ...m, visionObservations: [{ connectionId: visualResident.id, connectionName: lunaName, observation }] }
+                      : m
+                  );
+                  await storage.updateConversation(currentConversationId, { messages: updatedMsgs });
+                }
+              }
+              res.write(`data: ${JSON.stringify({ type: "vision_observation_complete", residentName: lunaName, observation, durationMs: lunaDurationMs })}\n\n`);
+            } else {
+              res.write(`data: ${JSON.stringify({ type: "vision_observation_failed", residentName: lunaName, reason: "No observation returned" })}\n\n`);
+            }
+          } catch (lunaErr: unknown) {
+            const errMsg = lunaErr instanceof Error ? lunaErr.message : String(lunaErr);
+            syslog("warn", "chat", `Visual resident ${lunaName} failed to observe image: ${errMsg}`);
+            res.write(`data: ${JSON.stringify({ type: "vision_observation_failed", residentName: lunaName, reason: errMsg })}\n\n`);
+          }
+        }
+      }
 
       const assistantMessageId = randomUUID();
       let fullContent = "";

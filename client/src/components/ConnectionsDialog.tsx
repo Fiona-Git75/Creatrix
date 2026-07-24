@@ -185,6 +185,7 @@ type EditForm = {
   residentRole: string;
   residentDescription: string;
   residentEmoji: string;
+  isVisualResident: boolean;
 };
 
 interface SortableConnectionCardProps {
@@ -337,6 +338,19 @@ function SortableConnectionCard({
                 <p className="text-xs text-muted-foreground">
                   Give this connection a named identity — who they are, not just what they are.
                 </p>
+                <div className="flex items-center justify-between gap-3 py-2 px-3 rounded-md border border-border/50 bg-muted/20">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium">Visual resident</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Observes images on behalf of text-only primary models. Only one connection should have this on.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={editForm.isVisualResident}
+                    onCheckedChange={(checked) => setEditForm({ ...editForm, isVisualResident: checked })}
+                    data-testid={`switch-visual-resident-${connection.id}`}
+                  />
+                </div>
                 <div className="grid grid-cols-[56px_1fr] gap-2">
                   <div className="space-y-2">
                     <Label htmlFor={`edit-emoji-${connection.id}`}>Emoji</Label>
@@ -502,6 +516,7 @@ function ConnectionsTab() {
     residentRole: "",
     residentDescription: "",
     residentEmoji: "",
+    isVisualResident: false,
   });
   const [newConnection, setNewConnection] = useState({
     name: "",
@@ -515,6 +530,7 @@ function ConnectionsTab() {
     residentRole: "",
     residentDescription: "",
     residentEmoji: "",
+    isVisualResident: false,
   });
   const [localOrder, setLocalOrder] = useState<Connection[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; count: number } | null>(null);
@@ -587,6 +603,7 @@ function ConnectionsTab() {
     name?: string; provider?: ProviderType; endpoint?: string;
     apiKey?: string; defaultModel?: string; maxImageSizeMb?: number;
     residentName?: string; residentRole?: string; residentDescription?: string; residentEmoji?: string;
+    isVisualResident?: boolean;
   };
 
   const updateMutation = useMutation({
@@ -615,6 +632,7 @@ function ConnectionsTab() {
       residentRole: connection.residentRole ?? "",
       residentDescription: connection.residentDescription ?? "",
       residentEmoji: connection.residentEmoji ?? "",
+      isVisualResident: connection.isVisualResident ?? false,
     });
     setEditingId(connection.id);
     setIsAdding(false);
@@ -637,6 +655,7 @@ function ConnectionsTab() {
         residentRole: editForm.residentRole || undefined,
         residentDescription: editForm.residentDescription || undefined,
         residentEmoji: editForm.residentEmoji || undefined,
+        isVisualResident: editForm.isVisualResident,
       },
     });
   };
@@ -654,6 +673,7 @@ function ConnectionsTab() {
       residentRole: "",
       residentDescription: "",
       residentEmoji: "",
+      isVisualResident: false,
     });
   };
 
@@ -730,7 +750,7 @@ function ConnectionsTab() {
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
             onUse={(name, provider, endpoint, defaultModel) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined, residentName: "", residentRole: "", residentDescription: "", residentEmoji: "" });
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined, residentName: "", residentRole: "", residentDescription: "", residentEmoji: "", isVisualResident: false });
             }}
             onManual={() => setIsAdding(true)}
           />
@@ -877,6 +897,19 @@ function ConnectionsTab() {
                   <p className="text-xs text-muted-foreground">
                     Give this connection a named identity — who they are, not just what they are.
                   </p>
+                  <div className="flex items-center justify-between gap-3 py-2 px-3 rounded-md border border-border/50 bg-muted/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Visual resident</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Observes images on behalf of text-only primary models. Only one connection should have this on.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={newConnection.isVisualResident}
+                      onCheckedChange={(checked) => setNewConnection({ ...newConnection, isVisualResident: checked })}
+                      data-testid="switch-connection-visual-resident"
+                    />
+                  </div>
                   <div className="grid grid-cols-[56px_1fr] gap-2">
                     <div className="space-y-2">
                       <Label htmlFor="residentEmoji">Emoji</Label>

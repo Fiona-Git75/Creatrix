@@ -25,6 +25,8 @@ export const connections = sqliteTable("connections", {
   residentRole: text("resident_role"),
   residentDescription: text("resident_description"),
   residentEmoji: text("resident_emoji"),
+  // Visual resident: designated to observe images on behalf of text-only primary models
+  isVisualResident: integer("is_visual_resident", { mode: "boolean" }).default(false),
 });
 
 // Projects table
@@ -172,6 +174,8 @@ export const connectionSchema = z.object({
   residentRole: z.string().optional(),
   residentDescription: z.string().optional(),
   residentEmoji: z.string().optional(),
+  // Visual resident: designated to observe images on behalf of text-only primary models
+  isVisualResident: z.boolean().default(false).optional(),
 });
 export type Connection = z.infer<typeof connectionSchema>;
 export const insertConnectionSchema = connectionSchema.omit({ id: true });
@@ -213,6 +217,17 @@ export const messageImageSchema = z.object({
 });
 export type MessageImage = z.infer<typeof messageImageSchema>;
 
+// A visual observation produced by the visual resident (e.g. Luna/Moondream)
+// and stored on the user message that contained images. Hidden in the UI
+// but inspectable; injected into the primary model's context so it can
+// reason about images it cannot see directly.
+export const visionObservationSchema = z.object({
+  connectionId: z.string(),
+  connectionName: z.string(),
+  observation: z.string(),
+});
+export type VisionObservation = z.infer<typeof visionObservationSchema>;
+
 export const messageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "system"]),
@@ -222,6 +237,8 @@ export const messageSchema = z.object({
   images: z.array(messageImageSchema).optional(),
   // Council mode: which connection produced this assistant message
   connectionId: z.string().optional(),
+  // Visual resident: observation stored on user messages that contained images
+  visionObservations: z.array(visionObservationSchema).optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

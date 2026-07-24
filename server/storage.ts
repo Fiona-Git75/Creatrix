@@ -895,6 +895,7 @@ export class DatabaseStorage implements IStorage {
       residentRole: c.residentRole ?? undefined,
       residentDescription: c.residentDescription ?? undefined,
       residentEmoji: c.residentEmoji ?? undefined,
+      isVisualResident: c.isVisualResident ?? false,
     };
   }
   async getConnections(): Promise<Connection[]> {

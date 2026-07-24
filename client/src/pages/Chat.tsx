@@ -99,6 +99,7 @@ function ChatContent({
   isLoading,
   streamingContent,
   toolEvents,
+  visionObserving,
   selectedProjectId,
   connections,
   selectedConnectionId,
@@ -132,6 +133,7 @@ function ChatContent({
   isLoading: boolean;
   streamingContent: string;
   toolEvents: ToolEvent[];
+  visionObserving: { residentName: string } | null;
   selectedProjectId: string | null;
   connections: Connection[];
   selectedConnectionId: string | null;
@@ -589,6 +591,16 @@ function ChatContent({
                     </div>
                   )}
 
+                  {/* Visual resident observing indicator */}
+                  {visionObserving && (
+                    <div className="flex justify-start py-1" data-testid="vision-observing-indicator">
+                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/70 px-2 py-1">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-pulse" />
+                        {visionObserving.residentName} is observing…
+                      </span>
+                    </div>
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
@@ -668,6 +680,7 @@ export default function Chat() {
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingConnectionId, setStreamingConnectionId] = useState<string | null>(null);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [visionObserving, setVisionObserving] = useState<{ residentName: string } | null>(null);
   const [openDocId, setOpenDocId] = useState<string | null | undefined>(undefined);
   const [pinnedDocId, setPinnedDocId] = useState<string | null>(null);
   const [guestConnectionId, setGuestConnectionId] = useState<string | null>(null);
@@ -846,10 +859,17 @@ export default function Chat() {
           if ((data.capability === "write_doc" || data.capability === "edit_doc") && data.status === "success" && (data.result as any)?.id) {
             setOpenDocId((data.result as any).id);
           }
+        } else if (data.type === "vision_observation_start") {
+          setVisionObserving({ residentName: data.residentName });
+        } else if (data.type === "vision_observation_complete") {
+          setVisionObserving(null);
+        } else if (data.type === "vision_observation_failed") {
+          setVisionObserving(null);
         } else if (data.type === "done") {
           streamDoneReceived = true;
           setStreamingContent("");
           setToolEvents([]);
+          setVisionObserving(null);
           queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
           queryClient.invalidateQueries({ queryKey: ["/api/journal"] });
         } else if (data.type === "error") {
@@ -866,6 +886,7 @@ export default function Chat() {
     setIsLoading(true);
     setStreamingContent("");
     setToolEvents([]);
+    setVisionObserving(null);
 
     let keepPartialContent = false;
 
@@ -988,6 +1009,7 @@ export default function Chat() {
           onOpenProject={setOpenProjectId}
           onCloseProject={() => setOpenProjectId(null)}
           onCloseConversation={() => setActiveConversationId(null)}
+          visionObserving={visionObserving}
         />
       </div>
       <ConnectionsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
