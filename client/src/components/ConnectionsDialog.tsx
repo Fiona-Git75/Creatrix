@@ -479,6 +479,16 @@ function SortableConnectionCard({
                     </p>
                   );
                 })()}
+                {connection.provider === "ollama" && connection.numCtx != null && (
+                  <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-num-ctx-${connection.id}`}>
+                    Context:{" "}
+                    <span>
+                      {connection.numCtx >= 1024
+                        ? `${Math.round(connection.numCtx / 1024)}k tokens`
+                        : `${connection.numCtx} tokens`}
+                    </span>
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <ConnectionHealth connectionId={connection.id} />
