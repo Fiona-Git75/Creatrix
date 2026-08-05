@@ -61,7 +61,8 @@ export interface ModelProvider {
     messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
+    numCtx?: number
   ): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   listModelsWithStatus(): Promise<ModelsResponse>;
@@ -84,7 +85,8 @@ export class OpenAIProvider implements ModelProvider {
     messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
-    _tools?: ToolDefinition[]
+    _tools?: ToolDefinition[],
+    _numCtx?: number
   ): Promise<void> {
     // Convert MultimodalMessage[] to OpenAI content-array format when images present
     const openaiMessages = messages.map((msg) => {
@@ -216,12 +218,16 @@ export class OllamaProvider implements ModelProvider {
     messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
+    numCtx?: number
   ): Promise<void> {
     try {
       // Ollama natively supports an `images` field per message; pass it through as-is
       const body: Record<string, unknown> = { model, messages, stream: true };
       if (tools && tools.length > 0) body.tools = tools;
+      // Per-resident context window override: sets num_ctx in Ollama's options block.
+      // Without this Ollama defaults to 4096, which truncates larger-context models.
+      if (numCtx != null && numCtx > 0) body.options = { num_ctx: numCtx };
 
       const response = await fetch(`${this.endpoint}/api/chat`, {
         method: "POST",
@@ -401,7 +407,8 @@ export class LMStudioProvider implements ModelProvider {
     messages: Array<MultimodalMessage>,
     model: string,
     onChunk: (chunk: StreamChunk) => void,
-    tools?: ToolDefinition[]
+    tools?: ToolDefinition[],
+    _numCtx?: number
   ): Promise<void> {
     const openaiProvider = new OpenAIProvider({
       id: "temp",

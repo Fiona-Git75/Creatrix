@@ -181,6 +181,7 @@ type EditForm = {
   apiKey: string;
   defaultModel: string;
   maxImageSizeMb: string;
+  numCtx: string;
   residentName: string;
   residentRole: string;
   residentDescription: string;
@@ -326,6 +327,24 @@ function SortableConnectionCard({
                     Leave blank to use the provider default.
                   </p>
                 </div>
+                {editForm.provider === "ollama" && (
+                  <div className="space-y-2">
+                    <Label htmlFor={`edit-num-ctx-${connection.id}`}>Context window (tokens)</Label>
+                    <Input
+                      id={`edit-num-ctx-${connection.id}`}
+                      type="number"
+                      min="512"
+                      step="512"
+                      value={editForm.numCtx}
+                      onChange={(e) => setEditForm({ ...editForm, numCtx: e.target.value })}
+                      placeholder="Default: 4096"
+                      data-testid={`input-edit-num-ctx-${connection.id}`}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Sets <code>num_ctx</code> in Ollama's options block. Leave blank for the model default (4096). Use 32768 or higher for large-context models like OLMo 3.
+                    </p>
+                  </div>
+                )}
               </div>
             </details>
 
@@ -512,6 +531,7 @@ function ConnectionsTab() {
     apiKey: "",
     defaultModel: "",
     maxImageSizeMb: "",
+    numCtx: "",
     residentName: "",
     residentRole: "",
     residentDescription: "",
@@ -526,6 +546,7 @@ function ConnectionsTab() {
     defaultModel: "",
     isDefault: false,
     maxImageSizeMb: "" as string,
+    numCtx: "" as string,
     residentName: "",
     residentRole: "",
     residentDescription: "",
@@ -544,7 +565,7 @@ function ConnectionsTab() {
     setLocalOrder(connections);
   }, [connections]);
 
-  type ConnectionCreatePayload = Omit<typeof newConnection, "maxImageSizeMb"> & { maxImageSizeMb?: number };
+  type ConnectionCreatePayload = Omit<typeof newConnection, "maxImageSizeMb" | "numCtx"> & { maxImageSizeMb?: number; numCtx?: number };
 
   const createMutation = useMutation({
     mutationFn: async (data: ConnectionCreatePayload) =>
@@ -601,7 +622,7 @@ function ConnectionsTab() {
 
   type ConnectionPatchPayload = {
     name?: string; provider?: ProviderType; endpoint?: string;
-    apiKey?: string; defaultModel?: string; maxImageSizeMb?: number;
+    apiKey?: string; defaultModel?: string; maxImageSizeMb?: number; numCtx?: number;
     residentName?: string; residentRole?: string; residentDescription?: string; residentEmoji?: string;
     isVisualResident?: boolean;
   };
@@ -628,6 +649,7 @@ function ConnectionsTab() {
       apiKey: connection.apiKey ?? "",
       defaultModel: connection.defaultModel ?? "",
       maxImageSizeMb: connection.maxImageSizeMb != null ? String(connection.maxImageSizeMb) : "",
+      numCtx: connection.numCtx != null ? String(connection.numCtx) : "",
       residentName: connection.residentName ?? "",
       residentRole: connection.residentRole ?? "",
       residentDescription: connection.residentDescription ?? "",
@@ -642,6 +664,7 @@ function ConnectionsTab() {
     e.preventDefault();
     if (!editingId || !editForm.endpoint) return;
     const maxMb = editForm.maxImageSizeMb !== "" ? parseInt(editForm.maxImageSizeMb, 10) : undefined;
+    const numCtx = editForm.numCtx !== "" ? parseInt(editForm.numCtx, 10) : undefined;
     updateMutation.mutate({
       id: editingId,
       data: {
@@ -651,6 +674,7 @@ function ConnectionsTab() {
         apiKey: editForm.apiKey || undefined,
         defaultModel: editForm.defaultModel || undefined,
         maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
+        numCtx: numCtx && numCtx > 0 ? numCtx : undefined,
         residentName: editForm.residentName || undefined,
         residentRole: editForm.residentRole || undefined,
         residentDescription: editForm.residentDescription || undefined,
@@ -669,6 +693,7 @@ function ConnectionsTab() {
       defaultModel: "",
       isDefault: false,
       maxImageSizeMb: "",
+      numCtx: "",
       residentName: "",
       residentRole: "",
       residentDescription: "",
@@ -697,12 +722,14 @@ function ConnectionsTab() {
     if (!newConnection.endpoint) return;
     const detected = detectProvider(newConnection.endpoint);
     const maxMb = newConnection.maxImageSizeMb !== "" ? parseInt(newConnection.maxImageSizeMb, 10) : undefined;
+    const numCtxNew = newConnection.numCtx !== "" ? parseInt(newConnection.numCtx, 10) : undefined;
     createMutation.mutate({
       ...newConnection,
       name: newConnection.name || detected.name,
       defaultModel: newConnection.defaultModel || detected.model,
       isDefault: connections.length === 0,
       maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
+      numCtx: numCtxNew && numCtxNew > 0 ? numCtxNew : undefined,
     });
   };
 
@@ -750,7 +777,7 @@ function ConnectionsTab() {
         ) : connections.length === 0 && !isAdding ? (
           <DiscoveryPanel
             onUse={(name, provider, endpoint, defaultModel) => {
-              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined, residentName: "", residentRole: "", residentDescription: "", residentEmoji: "", isVisualResident: false });
+              createMutation.mutate({ name, provider, endpoint, apiKey: "", defaultModel, isDefault: true, maxImageSizeMb: undefined, numCtx: undefined, residentName: "", residentRole: "", residentDescription: "", residentEmoji: "", isVisualResident: false });
             }}
             onManual={() => setIsAdding(true)}
           />
@@ -885,6 +912,24 @@ function ConnectionsTab() {
                       Leave blank to use the provider default. Raise this for high-VRAM setups or lower it to protect constrained hardware.
                     </p>
                   </div>
+                  {newConnection.provider === "ollama" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="numCtx">Context window (tokens)</Label>
+                      <Input
+                        id="numCtx"
+                        type="number"
+                        min="512"
+                        step="512"
+                        value={newConnection.numCtx}
+                        onChange={(e) => setNewConnection({ ...newConnection, numCtx: e.target.value })}
+                        placeholder="Default: 4096"
+                        data-testid="input-connection-num-ctx"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Sets <code>num_ctx</code> in Ollama's options block. Leave blank for the model default (4096). Use 32768 or higher for large-context models like OLMo 3.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </details>
 

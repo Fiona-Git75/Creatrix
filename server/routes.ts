@@ -1448,7 +1448,7 @@ export async function registerRoutes(
               if (chunk.type === "content" && chunk.content) {
                 lunaObservation += chunk.content;
               }
-            });
+            }, undefined, visualResident.numCtx ?? undefined);
             const lunaDurationMs = Date.now() - lunaStart;
             if (lunaObservation.trim()) {
               const observation = lunaObservation.trim();
@@ -1600,7 +1600,7 @@ export async function registerRoutes(
             } else if (chunk.type === "error") {
               streamError = chunk.error || "Unknown stream error";
             }
-          }, apiTools.length > 0 ? apiTools : undefined);
+          }, apiTools.length > 0 ? apiTools : undefined, connection.numCtx ?? undefined);
 
           if (streamError) {
             res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError) })}\n\n`);
@@ -1700,7 +1700,7 @@ export async function registerRoutes(
               summaryBuffered += chunk.content;
               res.write(`data: ${JSON.stringify({ type: "content", content: chunk.content })}\n\n`);
             }
-          });
+          }, undefined, connection.numCtx ?? undefined);
           fullContent = summaryBuffered.trim();
         }
 

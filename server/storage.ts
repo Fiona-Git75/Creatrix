@@ -896,6 +896,7 @@ export class DatabaseStorage implements IStorage {
       residentDescription: c.residentDescription ?? undefined,
       residentEmoji: c.residentEmoji ?? undefined,
       isVisualResident: c.isVisualResident ?? false,
+      numCtx: c.numCtx ?? undefined,
     };
   }
   async getConnections(): Promise<Connection[]> {
@@ -933,6 +934,7 @@ export class DatabaseStorage implements IStorage {
       residentRole: insertConnection.residentRole ?? null,
       residentDescription: insertConnection.residentDescription ?? null,
       residentEmoji: insertConnection.residentEmoji ?? null,
+      numCtx: insertConnection.numCtx ?? null,
     };
     console.log("Inserting connection:", JSON.stringify(connection));
     await this.db.insert(connections).values(connection);

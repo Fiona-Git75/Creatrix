@@ -27,6 +27,8 @@ export const connections = sqliteTable("connections", {
   residentEmoji: text("resident_emoji"),
   // Visual resident: designated to observe images on behalf of text-only primary models
   isVisualResident: integer("is_visual_resident", { mode: "boolean" }).default(false),
+  // Ollama context window override — maps to num_ctx in the options block
+  numCtx: integer("num_ctx"),
 });
 
 // Projects table
@@ -176,6 +178,8 @@ export const connectionSchema = z.object({
   residentEmoji: z.string().optional(),
   // Visual resident: designated to observe images on behalf of text-only primary models
   isVisualResident: z.boolean().default(false).optional(),
+  // Ollama context window override (num_ctx); null/undefined → model default
+  numCtx: z.number().int().positive().nullable().optional(),
 });
 export type Connection = z.infer<typeof connectionSchema>;
 export const insertConnectionSchema = connectionSchema.omit({ id: true });
