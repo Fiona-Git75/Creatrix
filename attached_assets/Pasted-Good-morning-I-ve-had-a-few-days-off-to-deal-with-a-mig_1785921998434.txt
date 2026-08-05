@@ -1,0 +1,50 @@
+Good morning! I've had a few days off to deal with a migraine ... unfun .. but it kicked off after a day of reading model chat on the Creatrix screen ... so I have been thinking about that.
+
+I think that we need to revist the text constraints in the chat window - for good typography, but really as someone with a brain injury - lets call it an accessability issue -- protecting visual cognition. Reading should occur within a centred, constrained measure that minimizes eye travel and visual fatigue. We've already done this with the side panels adding resizing options creating cognitive 'breathing room'.
+12 days ago
+Planning chat bubble width constraint
+
+Good morning — sorry to hear about the migraine, and glad you were thinking clearly enough to identify the cause. Full-width reading is genuinely fatiguing; typography has known this for centuries (the optimal measure is 60–75 characters). Let's fix it.
+
+Let me look at the current chat layout:
+
+Now I have the full picture. The assistant column is max-w-3xl (768px) centered per-message — that's too wide. For comfortable reading with visual fatigue in mind, a proper reading measure is around 640–680px, centered as a single column. Let me also check the input bar:
+
+Let me read the ChatInput outer wrapper:
+
+Good picture now. Let me check the empty state layout too then make all three changes at once:
+
+Good — I can see both branches. Now I'll make all three changes in parallel: the scroll column in Chat.tsx, the ChatInput wrappers, and the per-message centering in ChatMessage.tsx:
+
+ChatInput already self-centres with its own max-w-3xl mx-auto. Clean plan — three files, parallel:
+
+    ChatInput.tsx — change its internal max-w-3xl to max-w-2xl
+    Chat.tsx — add the column wrapper to the scroll content, remove redundant tool-events centering
+    ChatMessage.tsx — remove per-message px-4 and mx-auto (parent handles both now), tighten vertical rhythm
+
+Lets make sure the response messages share the same contraints as well, so it stays uniform - so the user, aka me, stops the visual scanning
+12 days ago
+Planning assistant message width constraint
+
+The assistant bubble currently fills the full column minus the avatar — up to ~590px — while user bubbles cap at 80% of the column. Adding a matching constraint to the assistant side creates the symmetric reading lane they're both supposed to share:
+
+Now both sides are constrained within the column — assistant at 90%, user at 80%. Let me verify and take a look:
+
+TSC clean, Vite HMR will have picked up the changes. Let me take a look:
+
+Server is running fine — the logs confirm "Ready" — it's just the known Replit port detection quirk that prevents the screenshot tool from reaching it. The changes are live via Vite HMR, so you'll see them immediately in your browser.
+
+Here's what the reading column looks like now:
+
+Before: Assistant text could span ~590px (effectively full width), user bubble capped at 80% — inconsistent eye travel between sides.
+
+After:
+
+    Column: max-w-2xl (672px) — centered, with breathing room on both sides of the chat area
+    Assistant bubble: max-w-[90%] of the column — left-aligned, ~600px max ≈ 65–70 chars/line
+    User bubble: max-w-[80%] of the column — right-aligned, ~537px max
+    Input bar: matches the same max-w-2xl column — everything aligned
+
+Both sides now share the same column. Your eyes don't need to travel from edge to edge in either direction — the reading happens in a single constrained lane in the centre of the screen, with the conversation occupying opposite sides of it. The padding on both sides acts as the breathing room that stops the full-screen visual field from activating.
+
+Check your browser — if anything feels too tight or too

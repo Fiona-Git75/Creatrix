@@ -557,7 +557,8 @@ function ChatContent({
           {hasMessages ? (
             <>
               <ScrollArea className="flex-1">
-                <div className="px-4 py-6 max-w-2xl mx-auto w-full">
+                <div className="flex flex-col items-center px-4 py-6">
+                <div className="w-full max-w-2xl">
                   {displayMessages.map((message, idx) => (
                     <ChatMessage
                       key={message.id}
@@ -602,6 +603,7 @@ function ChatContent({
                   )}
 
                   <div ref={messagesEndRef} />
+                </div>
                 </div>
               </ScrollArea>
               <ChatInput onSend={onSendMessage} isLoading={isLoading} inputRef={chatInputRef} maxImageSizeMb={maxImageSizeMb} />
