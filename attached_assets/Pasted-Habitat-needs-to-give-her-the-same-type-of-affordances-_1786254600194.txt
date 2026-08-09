@@ -1,0 +1,52 @@
+Habitat needs to give her the same type of affordances and ability to putter around and find what she needs, she must not feel like she has to retain 1000 + pages of documents or even where every room is - she needs to know how to find things.
+Worked for 13s
+
+Exactly. Habitat must become legible and traversable to Olma, not merely capable of exporting content to her.
+
+If the bridge gives her bounded packets but no reliable means of finding the next thing, she will be forced to compensate by retaining names, paths, room structures and document contents in active context. That recreates the encyclopedia problem through bad navigation.
+
+She needs the model equivalent of the affordances you need:
+
+a clear sense of where she currently is;
+what is nearby;
+how she arrived there;
+how to go back;
+search by partial or uncertain recollection;
+browse rooms and folders incrementally;
+follow stable references and backlinks;
+inspect a lightweight preview before deciding to read;
+see recent work, bookmarks and unfinished threads;
+ask “where does this live?” without already knowing the hierarchy;
+recover orientation when she becomes lost.
+
+She should never receive a 1,000-page catalogue and be told to remember the map. Habitat should answer navigational questions at the scale she currently needs:
+
+What is in this room?
+What is beneath this folder?
+Where else does Gideon appear?
+Show me the documents near this one.
+Find something about the early fractures in Coeur.
+Take me back to what Fiona and I were working on yesterday.
+
+That is progressive disclosure as an epistemic condition. Shape first, preview second, content only when chosen.
+
+Her Habitat office can also retain a modest working desk:
+
+recently visited resources;
+pinned references;
+current questions;
+pending suggestions;
+the last room and working scope;
+a few deliberate bookmarks.
+
+Not copies of the documents—just the arrangement that lets her resume puttering without reconstructing the entire world.
+
+This deserves its own requirement:
+
+Habitat must provide residents with navigational affordances sufficient to find, revisit and contextualise canonical resources without internalising Habitat’s hierarchy or contents. A resident must be able to become uncertain, search, reorient and continue without treating uncertainty as failure.
+
+And perhaps a scenario specifically designed around imperfect memory:
+
+Olma remembers that Fiona wrote something about hunters predicting preventable deaths near a trade route, but does not remember the title, room or exact phrasing. Can she use Habitat’s affordances to find it without a world dump or Fiona manually locating it?
+
+That would test the real bridge far better than “search for a document whose exact title is already known.” Exact-title lookup proves an index exists. Puttering proves the environment is inhabitable.

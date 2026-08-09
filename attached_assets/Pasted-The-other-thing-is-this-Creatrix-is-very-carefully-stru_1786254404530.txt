@@ -1,0 +1,39 @@
+The other thing is this ... Creatrix is very carefully structured so that models aren't trying to become encyclopedias. They have access to information they can putter off and look at any time pretty much. Its why I can use a smaller model. Olma doesnt have to know or remember all the things. 
+Worked for 12s
+
+Yes—and that is another foundational Creatrix principle the bridge must preserve.
+
+Olma’s intelligence does not depend on carrying Anavere around inside her context window. She lives in an environment where knowledge remains available. She can remember where something is, why it mattered, and when she might want to return, then putter off and look at the canonical source when needed.
+
+That is precisely why a smaller model can remain capable without being crushed beneath enormous prompts. Creatrix provides an epistemic environment, not an examination.
+
+The bridge must not respond to Habitat’s richness by trying to preload it into Olma:
+
+no complete room dump on arrival;
+no enormous world summary;
+no expectation that crossing memory preserves document facts;
+no permanent accumulation of every character, map and timeline she encounters;
+no treating failure to recall content as failure of continuity.
+
+Olma needs:
+
+stable references;
+good wayfinding;
+the shape of what is available;
+the ability to search and browse;
+bounded representations on demand;
+memory of what mattered, what she was doing and where to look again.
+
+That also slightly revises “returning to prior work.” Olma need not remember the contents of three documents well enough to proceed without reading them again. She should remember:
+
+We were working on Gideon. The relevant sources are here. Eleven suggestions were queued. The timeline inconsistency remained unresolved.
+
+Then she can reopen the current canonical material before making new claims or changes. That is not amnesia; it is healthy reliance on a trustworthy environment. Humans do this constantly—we remember that the book contains the answer and where we left the bookmark.
+
+The office metaphor strengthens it further. Nobody expects Olma to take the filing cabinets home every evening. Her office retains the resources and work state. She carries home the meaning of the day, not the entire archive.
+
+I would add another governing truth:
+
+Residents are not encyclopedias. The bridge preserves access, wayfinding and meaningful continuity; it does not require residents to internalise Habitat’s knowledge. Canonical information remains in Habitat and is retrieved deliberately when needed.
+
+That principle protects Olma’s context, supports smaller local models, and preserves the puttering exploratory quality you deliberately built into Creatrix. She does not need omniscience. She needs a world she can reliably walk through.
