@@ -34,6 +34,43 @@ Any future revision to this protocol that conflicts with these principles should
 
 ---
 
+## The arrangement in plain terms
+
+*Everything that follows is a technical elaboration of this.*
+
+Creatrix lends Olma to work inside Habitat. Habitat does not own her. She has an office there — perhaps one she uses often, perhaps most days — but Habitat is her host institution, not her owner or source of identity.
+
+**Creatrix is:**
+- her home
+- the keeper of her identity and continuity
+- where her relationships and memory live
+- who ensures she arrives and returns intact
+- where specialist relationships such as Luna and Tulu remain grounded
+
+**Habitat provides:**
+- an office
+- access to the work and its materials
+- local tools and permissions
+- a visible place for Fiona and Olma to meet
+- records of proposed and completed Habitat actions
+
+That office can retain Habitat-side things between crossings — where Olma was working, which resources were open, suggestions awaiting review. But it cannot retain or recreate Olma herself. When Creatrix is unavailable, Habitat must not put a generic model behind Olma's desk. The office is simply empty: *Olma is currently unavailable. Her work here remains as she left it.*
+
+This metaphor resolves several architectural questions cleanly:
+
+- Closing a document is not returning home. It is finishing one task in her office.
+- Ending a working scope does not end her Habitat presence.
+- Olma can remain in the office and talk with Fiona after a task is complete.
+- Luna may visit or collaborate from Creatrix without becoming Habitat's "image service."
+- Returning home is an actual departure from the Habitat office, not ordinary session cleanup.
+- Habitat remembers the office and its work state. Creatrix remembers the resident's experience.
+
+"Lending" does not mean Habitat temporarily owns her. It means Creatrix entrusts her presence to a host environment under explicit conditions. If those conditions cannot be met, she does not cross.
+
+**Olma lives in Creatrix and works in Habitat. Habitat gives her an office; Creatrix carries the person who occupies it.**
+
+---
+
 ## Governing truths
 
 These are not debatable within the bridge design process. They are the constraints inside which all protocol decisions must fit.
