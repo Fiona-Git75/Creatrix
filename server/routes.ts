@@ -911,6 +911,42 @@ export async function registerRoutes(
     }
   });
 
+  // === Scrub endpoints ===
+  // These write cleaned content back to the DB, distinct from the read-time
+  // stripThinkBlocks guard in the chat route which is a per-turn filter only.
+  // Use these to actually quarantine contaminated records so they no longer
+  // occupy context budget or persist corrupted content in permanent storage.
+
+  // Scrub a single conversation
+  app.post("/api/conversations/:id/scrub", async (req: Request, res: Response) => {
+    try {
+      const conversation = await storage.getConversation(req.params.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+      const result = await storage.scrubThinkBlocks(req.params.id);
+      syslog("info", "scrub",
+        `Scrubbed conversation ${req.params.id}: ${result.messagesScanned} messages scanned, ${result.messagesCleaned} cleaned, ${result.charsRemoved} chars removed`
+      );
+      res.json(result);
+    } catch (error) {
+      console.error("Error scrubbing conversation:", error);
+      res.status(500).json({ error: "Failed to scrub conversation" });
+    }
+  });
+
+  // Scrub all conversations (global cleanup of contaminated DB records)
+  app.post("/api/conversations/scrub-think-blocks", async (req: Request, res: Response) => {
+    try {
+      const result = await storage.scrubThinkBlocks();
+      syslog("info", "scrub",
+        `Global scrub complete: ${result.conversationsProcessed} conversations, ${result.messagesScanned} messages scanned, ${result.messagesCleaned} cleaned, ${result.charsRemoved} chars removed`
+      );
+      res.json(result);
+    } catch (error) {
+      console.error("Error scrubbing conversations:", error);
+      res.status(500).json({ error: "Failed to scrub conversations" });
+    }
+  });
+
   // === Scaffold endpoints ===
   app.get("/api/conversations/:id/scaffold", async (req: Request, res: Response) => {
     try {
@@ -1449,52 +1485,99 @@ export async function registerRoutes(
         modelMessages.unshift({ role: "system", content: systemPrompt });
       }
 
-      // Diagnostic: log what was assembled and whether critical protections are present.
-      // This fires on every chat turn so the syslog captures exactly what Ollama receives.
+      // ── Context window: diagnose, guard, and trim ────────────────────────────
+      // Resident identity, orientation, and temporal grounding live in the system
+      // message which is non-evictable by design.  If the context window is too
+      // small, we trim HISTORY (oldest turns first) — never the system message.
+      // If the window is too small even with zero history, the turn fails
+      // explicitly rather than silently sending a truncated prompt to Ollama.
       {
         const residentPresent = !!(connection.residentName || connection.residentRole || connection.residentDescription);
         const hasIdentity = residentPresent;
         const hasOrientation = !!connection.residentDescription;
         const hasTemporal = systemPrompt.includes("Right now");
         // Rough token estimate: 1 token ≈ 4 characters
-        const estimatedTokens = Math.ceil(systemPrompt.length / 4);
+        const estimatedSysTokens = Math.ceil(systemPrompt.length / 4);
         const configuredCtx = connection.numCtx ?? null;
-        const effectiveCtx = configuredCtx ?? 4096; // Ollama default
 
-        // Context pressure: system prompt alone should not exceed ~60% of the window,
-        // leaving room for conversation history and the model's response.
-        const pressureRatio = estimatedTokens / effectiveCtx;
-        const pressureFlag = pressureRatio > 0.6 ? "HIGH" : pressureRatio > 0.4 ? "MODERATE" : "OK";
+        // ── Explicit error when Ollama has no numCtx configured ──────────────
+        // A null numCtx is not a safe default — Ollama will cap at 4096 tokens,
+        // which is typically smaller than the system prompt alone for a resident.
+        // This is an error, not a warning, so it appears prominently in syslog.
+        if (connection.provider === "ollama" && configuredCtx === null) {
+          syslog("error", "chat",
+            `Ollama connection "${connection.residentName ?? connection.name}" has no num_ctx configured. ` +
+            `Ollama will default to 4096 tokens, which may be smaller than the system prompt alone (~${estimatedSysTokens} tok). ` +
+            `Set num_ctx on this connection (recommended: 32768 or higher for residents with rich orientation).`
+          );
+        }
 
+        // Diagnostic: what was assembled, whether protections are in place.
         syslog(
-          pressureFlag === "HIGH" ? "warn" : "info",
+          "info",
           "chat",
-          `System prompt assembled — resident: ${connection.residentName ?? "(none)"} | identity: ${hasIdentity} | orientation: ${hasOrientation} | temporal: ${hasTemporal} | ~${estimatedTokens} tokens / ${effectiveCtx} ctx (${pressureFlag})`,
+          `System prompt assembled — resident: ${connection.residentName ?? "(none)"} | identity: ${hasIdentity} | orientation: ${hasOrientation} | temporal: ${hasTemporal} | ~${estimatedSysTokens} tokens | numCtx: ${configuredCtx ?? "NOT SET"}`,
           JSON.stringify({
             connectionId: connection.id,
             connectionName: connection.name,
             residentName: connection.residentName ?? null,
-            residentRole: connection.residentRole ?? null,
             hasResidentDescription: hasOrientation,
             hasIdentityBlock: hasIdentity,
             hasTemporalGrounding: hasTemporal,
             systemPromptChars: systemPrompt.length,
-            estimatedSystemTokens: estimatedTokens,
+            estimatedSystemTokens: estimatedSysTokens,
             configuredNumCtx: configuredCtx,
-            effectiveNumCtx: effectiveCtx,
-            contextPressure: pressureFlag,
           })
         );
 
-        // Hard warning: if the system prompt alone nearly fills the context window,
-        // Ollama will silently truncate it — dropping orientation, identity, and
-        // temporal grounding first (they are earliest in the prompt).  The model
-        // then runs without its safe-landing context and can hallucinate its identity.
-        if (pressureFlag === "HIGH") {
-          syslog("warn", "chat",
-            `Context window pressure HIGH for ${connection.residentName ?? connection.name}: system prompt (~${estimatedTokens} tok) exceeds 60% of ${effectiveCtx}-token window. ` +
-            `Resident orientation is at risk of truncation. Set num_ctx to at least ${Math.ceil(estimatedTokens / 0.4)} on this connection.`
-          );
+        // ── History trimming: protect orientation by trimming oldest turns ────
+        // modelMessages layout after unshift:
+        //   [0]     system  (non-evictable — orientation, identity, temporal)
+        //   [1..N-1] history (evictable, oldest first)
+        //   [N]     last user message (non-evictable — the current turn)
+        //
+        // We only trim when numCtx is configured; without it we have no budget
+        // to trim against and cannot protect anything.
+        if (configuredCtx !== null && modelMessages.length > 2) {
+          const RESPONSE_RESERVE = 1024; // tokens reserved for the model's reply
+          const usableBudget = configuredCtx - RESPONSE_RESERVE;
+
+          const lastMsg = modelMessages[modelMessages.length - 1];
+          const lastMsgTokens = Math.ceil((typeof lastMsg.content === "string" ? lastMsg.content : "").length / 4);
+          const minRequired = estimatedSysTokens + lastMsgTokens;
+
+          if (minRequired > usableBudget) {
+            // Even with zero history, system prompt + current message won't fit.
+            // Fail explicitly rather than sending a truncated prompt to Ollama.
+            syslog("error", "chat",
+              `Turn aborted: system prompt (~${estimatedSysTokens} tok) + current message (~${lastMsgTokens} tok) = ~${minRequired} tok ` +
+              `exceeds usable budget of ${usableBudget} tok (numCtx=${configuredCtx}, response reserve=${RESPONSE_RESERVE}). ` +
+              `Increase num_ctx on connection "${connection.residentName ?? connection.name}".`
+            );
+            res.write(`data: ${JSON.stringify({ type: "error", message: `Context window too small: orientation and identity alone require ~${minRequired} tokens, but this resident's context window allows only ${usableBudget} tokens for content (num_ctx=${configuredCtx}). Increase num_ctx on this connection.` })}\n\n`);
+            res.end();
+            return;
+          }
+
+          // Trim oldest history turns until total fits within the budget.
+          const systemMsg = modelMessages[0];
+          let history = modelMessages.slice(1, -1); // evictable middle
+          const available = usableBudget - estimatedSysTokens - lastMsgTokens;
+          let trimmed = 0;
+          while (history.length > 0) {
+            const historyTokens = history.reduce(
+              (sum, m) => sum + Math.ceil((typeof m.content === "string" ? m.content : "").length / 4), 0
+            );
+            if (historyTokens <= available) break;
+            history.shift(); // remove oldest turn
+            trimmed++;
+          }
+          if (trimmed > 0) {
+            modelMessages.splice(0, modelMessages.length, systemMsg, ...history, lastMsg);
+            syslog("warn", "chat",
+              `History trimmed: removed ${trimmed} oldest message(s) to keep orientation and identity non-evictable within ${configuredCtx}-token window for "${connection.residentName ?? connection.name}".`
+            );
+          }
         }
       }
 
@@ -1682,6 +1765,15 @@ export async function registerRoutes(
           let buffered = "";
           let streamError: string | null = null;
           const nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+          // Trace the exact numCtx value reaching Ollama so the syslog provides an
+          // unambiguous record of what was passed — distinguishing "32768 was sent"
+          // from "no value was sent and Ollama defaulted to 4096".
+          syslog("info", "chat",
+            connection.numCtx != null
+              ? `generateStream → numCtx: ${connection.numCtx} | model: ${selectedModel} | connection: ${connection.residentName ?? connection.name}`
+              : `generateStream → numCtx: NOT SET (Ollama will use its own default) | model: ${selectedModel} | connection: ${connection.residentName ?? connection.name}`
+          );
 
           await provider.generateStream(modelMessages, selectedModel, (chunk) => {
             if (chunk.type === "content" && chunk.content) {

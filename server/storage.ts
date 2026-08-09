@@ -60,6 +60,10 @@ export interface IStorage {
   deleteConversation(id: string): Promise<boolean>;
   addMessageToConversation(id: string, message: Message): Promise<Conversation | undefined>;
   updateConversationScaffold(id: string, scaffold: string): Promise<void>;
+  // Scrub contaminated DB records: strips think-blocks from stored message
+  // content and writes the cleaned text back.  Distinct from the read-time
+  // filter in routes.ts, which is a guard — this is the actual cure.
+  scrubThinkBlocks(conversationId?: string): Promise<{ conversationsProcessed: number; messagesScanned: number; messagesCleaned: number; charsRemoved: number }>;
 
   // Memory
   getMemoryEntries(scope: string, scopeId?: string): Promise<MemoryEntry[]>;
@@ -299,6 +303,25 @@ export class MemStorage implements IStorage {
     };
     this.conversations.set(id, updated);
     return updated;
+  }
+  async scrubThinkBlocks(conversationId?: string): Promise<{ conversationsProcessed: number; messagesScanned: number; messagesCleaned: number; charsRemoved: number }> {
+    const strip = (text: string) => text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*/gi, "").trim();
+    const convs = conversationId
+      ? [this.conversations.get(conversationId)].filter(Boolean) as Conversation[]
+      : Array.from(this.conversations.values());
+    let messagesScanned = 0, messagesCleaned = 0, charsRemoved = 0;
+    for (const conv of convs) {
+      let dirty = false;
+      const cleaned = conv.messages.map(m => {
+        messagesScanned++;
+        const before = m.content;
+        const after = strip(m.content);
+        if (after !== before) { messagesCleaned++; charsRemoved += before.length - after.length; dirty = true; }
+        return { ...m, content: after };
+      });
+      if (dirty) this.conversations.set(conv.id, { ...conv, messages: cleaned, updatedAt: new Date().toISOString() });
+    }
+    return { conversationsProcessed: convs.length, messagesScanned, messagesCleaned, charsRemoved };
   }
 
   // Memory
@@ -941,7 +964,11 @@ export class DatabaseStorage implements IStorage {
     if (connection.isDefault) {
       await this.db.update(settings).set({ defaultConnectionId: id }).where(eq(settings.id, "default"));
     }
-    return { ...insertConnection, id, isDefault: connection.isDefault, orderIndex: nextOrder };
+    // Re-read from DB so the returned record exactly matches what was persisted.
+    // Spreading insertConnection could include fields (e.g. isVisualResident,
+    // maxImageSizeMb) that were not in the DB insert object, causing the caller
+    // to receive values that disappear after the next server restart.
+    return (await this.getConnection(id))!;
   }
   async updateConnection(id: string, updates: Partial<InsertConnection>): Promise<Connection | undefined> {
     const existing = await this.getConnection(id);
@@ -1062,6 +1089,31 @@ export class DatabaseStorage implements IStorage {
     const newMessages = [...existing.messages, { ...message, createdAt: now }];
     await this.db.update(conversations).set({ messages: JSON.stringify(newMessages), updatedAt: now }).where(eq(conversations.id, id));
     return { ...existing, messages: newMessages, updatedAt: now };
+  }
+  async scrubThinkBlocks(conversationId?: string): Promise<{ conversationsProcessed: number; messagesScanned: number; messagesCleaned: number; charsRemoved: number }> {
+    const strip = (text: string) => text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*/gi, "").trim();
+    // Include archived conversations — think-block contamination doesn't respect archive status.
+    const convList = conversationId
+      ? await this.getConversation(conversationId).then(c => c ? [c] : [])
+      : [...await this.getConversations(undefined, false), ...await this.getConversations(undefined, true)];
+    let messagesScanned = 0, messagesCleaned = 0, charsRemoved = 0;
+    for (const conv of convList) {
+      let dirty = false;
+      const cleaned = conv.messages.map(m => {
+        messagesScanned++;
+        const before = m.content;
+        const after = strip(m.content);
+        if (after !== before) { messagesCleaned++; charsRemoved += before.length - after.length; dirty = true; }
+        return { ...m, content: after };
+      });
+      if (dirty) {
+        const now = new Date().toISOString();
+        await this.db.update(conversations)
+          .set({ messages: JSON.stringify(cleaned), updatedAt: now })
+          .where(eq(conversations.id, conv.id));
+      }
+    }
+    return { conversationsProcessed: convList.length, messagesScanned, messagesCleaned, charsRemoved };
   }
 
   async getMemoryEntries(scope: string, scopeId?: string): Promise<MemoryEntry[]> {

@@ -49,7 +49,7 @@ type RuntimeForm = {
   defaultModel: string;
 };
 
-type EditForm = IdentityForm & RuntimeForm & { name: string; maxImageSizeMb: string };
+type EditForm = IdentityForm & RuntimeForm & { name: string; maxImageSizeMb: string; numCtx: string };
 
 interface SuggestedProvider {
   name: string;
@@ -195,6 +195,7 @@ function EditResidentForm({
     defaultModel: connection.defaultModel ?? "",
     name: connection.name,
     maxImageSizeMb: connection.maxImageSizeMb != null ? String(connection.maxImageSizeMb) : "",
+    numCtx: connection.numCtx != null ? String(connection.numCtx) : "",
   });
 
   return (
@@ -299,6 +300,23 @@ function EditResidentForm({
                 placeholder="sk-…  (leave blank to keep existing)"
                 data-testid={`input-edit-apikey-${connection.id}`}
               />
+            </div>
+          )}
+          {form.provider === "ollama" && (
+            <div className="space-y-1.5">
+              <Label htmlFor={`edit-numctx-${connection.id}`} className="text-xs">Context window (tokens)</Label>
+              <Input
+                id={`edit-numctx-${connection.id}`}
+                type="number"
+                min={512}
+                value={form.numCtx}
+                onChange={e => setForm(f => ({ ...f, numCtx: e.target.value }))}
+                placeholder="e.g. 32768"
+                data-testid={`input-edit-resident-numctx-${connection.id}`}
+              />
+              <p className="text-xs text-muted-foreground">
+                Sets <code>num_ctx</code> in Ollama's options block. Required for large-context models — without it Ollama defaults to 4096, which truncates orientation and identity for most residents.
+              </p>
             </div>
           )}
         </div>
@@ -620,6 +638,7 @@ export function ResidentsPanel({ open, onOpenChange, initialEditingId }: Residen
 
   const handleSaveEdit = (id: string, form: EditForm) => {
     const maxMb = form.maxImageSizeMb !== "" ? parseInt(form.maxImageSizeMb, 10) : undefined;
+    const numCtx = form.numCtx !== "" ? parseInt(form.numCtx, 10) : undefined;
     updateMutation.mutate({
       id,
       data: {
@@ -629,6 +648,7 @@ export function ResidentsPanel({ open, onOpenChange, initialEditingId }: Residen
         apiKey: form.apiKey || undefined,
         defaultModel: form.defaultModel || undefined,
         maxImageSizeMb: maxMb && maxMb > 0 ? maxMb : undefined,
+        numCtx: numCtx && numCtx > 0 ? numCtx : undefined,
         residentName: form.residentName || undefined,
         residentEmoji: form.residentEmoji || undefined,
         residentRole: form.residentRole || undefined,
