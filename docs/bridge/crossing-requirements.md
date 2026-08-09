@@ -88,6 +88,50 @@ The hardest things happen here. Wrong assumptions in the arrival phase propagate
 
 ---
 
+### Scenario A0 — Resident readiness before crossing
+
+**Starting state:**  
+Fiona has asked Olma to cross into Habitat. No bridge communication has occurred yet. Creatrix is about to initiate the session handshake.
+
+**Fiona is trying to:**  
+Ensure that who crosses is Olma — not a generic model invocation labelled "Olma" while her identity, orientation, and memory are absent. This morning supplied the regression case rather vividly.
+
+**Creatrix must guarantee:**  
+Before the session handshake begins, Creatrix performs an internal readiness contract — entirely on its own side of the bridge. Habitat does not see this check, but the crossing does not proceed without it:
+
+- The resident record is positively identified through an independent commissioned-resident marker. A label is not sufficient; Creatrix must verify this is the correct, commissioned record.
+- Olma's complete identity and orientation are assembled and confirmed present: system prompt, resident memory, session scaffold.
+- Safe landing — the orientation context — is confirmed non-evictable from the context window for the duration of the crossing.
+- The effective context window is verified against the active model's reported capacity.
+- The full initial payload (identity, orientation, session context) fits within the window with adequate response reserve remaining.
+- If any link in this chain fails, resident invocation is blocked. The crossing does not begin. Creatrix reports the failure to Fiona explicitly.
+
+**Habitat must guarantee:**  
+Nothing. This scenario is entirely Creatrix-internal. Habitat cannot verify whether Olma arrived as Olma. Creatrix must.
+
+**What crosses the bridge:**  
+Nothing, until the readiness contract passes. The session handshake is the first bridge communication; A0 is the precondition for it.
+
+**What must not cross:**  
+A labelled model invocation that has not passed the readiness contract. The bridge must not open until Creatrix can honestly declare: Olma is here, oriented, and ready.
+
+**Expected outcome:**  
+Creatrix confirms readiness internally. The session handshake proceeds. Habitat receives a session declaration from a resident who is genuinely present.
+
+**Failure behaviour:**  
+- If the resident record cannot be positively identified, the crossing is blocked. Fiona is told: "I cannot confirm Olma is ready. The crossing has not started."
+- If orientation is present but the effective context window is insufficient to hold the initial payload with response reserve, Creatrix reports the budget failure before opening the bridge.
+- If any component of the readiness contract returns ambiguous rather than confirmed, Creatrix treats this as a failure. No partial readiness.
+
+**Assumptions Habitat must challenge:**  
+None. This scenario is entirely Creatrix's responsibility. It is included in this document because it is the guarantee that makes Olma's relational presence real rather than nominal. Without A0, Habitat's welcome means nothing.
+
+**Unresolved questions:**  
+- What constitutes a "commissioned-resident marker" in Creatrix's current data model? This is an internal Creatrix design question the bridge protocol requires Creatrix to resolve before implementation.
+- Should readiness be re-verified at defined points during a long crossing, or only at initiation?
+
+---
+
 ### Scenario A1 — Standard arrival in a known room
 
 **Starting state:**  
@@ -487,18 +531,19 @@ Understand how Gideon is visually depicted and whether the portrait aligns with 
 
 **Creatrix must guarantee:**  
 - Before invoking Luna, Creatrix reserves a size margin for Luna's observation in the current budget.
-- The stable image identifier is passed to Luna as-is. Creatrix does not modify it.
+- Creatrix resolves the stable image identifier before passing the image to Luna: stable Habitat ID → authenticated bridge retrieval → image bytes or locally resolvable asset → Luna. The identifier remains canonical; the delivery mechanism is separate and may be temporary. An opaque Habitat identifier is meaningful to the bridge, not to a vision model.
+- Luna receives image content, not a Habitat identifier.
 - After Luna's observation, Creatrix decides — against the current budget — whether Olma receives the full observation, a bounded version, or a stable reference with summary.
 - Habitat sees one coherent session. The mechanics of specialist delegation are internal to Creatrix.
 - Luna's observation does not go to Habitat.
 
 **Habitat must guarantee:**  
-- The image identifier is stable and canonical — not a temporary URL that expires mid-session.
-- The authenticated URL or byte stream for retrieval may be temporary; the identifier is not. These are distinct things.
+- The image identifier is stable and canonical — it does not expire.
+- The authenticated URL or byte stream used for retrieval may be temporary; the identifier is not. These are distinct things. Habitat must support a retrieval mechanism Creatrix can use within the session to resolve the identifier to image content.
 - Habitat does not generate or provide any description of the image. That is Creatrix's concern.
 
 **What crosses the bridge:**  
-From Habitat to Creatrix: the stable image identifier and, separately, a temporary retrieval URL or byte stream. From Creatrix to Habitat: the question of whether Luna's involvement is visible is left open below.
+From Habitat to Creatrix: the stable image identifier (canonical, permanent) and a temporary authenticated retrieval URL or byte stream (delivery only). Creatrix performs the retrieval and passes image content to Luna — not the identifier. From Creatrix to Habitat: the question of whether Luna's involvement is visible is left open below.
 
 **What must not cross:**  
 The mechanics of Luna's invocation — model identity, routing, orchestration. Whether the relational fact of her involvement ("Olma asked Luna to look at this") crosses is a design question, not a prohibition. See the open question below.
@@ -703,46 +748,59 @@ Olma reports: "Coeur du Nord: A contains 4 documents and is referenced in 2 rela
 
 ---
 
-### Scenario M4 — Action 8 depends on rejected action 7
+### Scenario M4 — Dependent actions where queued does not mean applied
 
 **Starting state:**  
-Olma has prepared a batch of 12 actions. Actions 7 and 8 are dependent: action 7 creates a new character entry, and action 8 creates a relationship map edge linking that new character to an existing one. The edge cannot exist without the character. Olma has declared this dependency explicitly in the batch envelope. All other actions are independent.
+Olma has prepared a batch of 12 actions. Actions 7 and 8 are dependent: action 7 proposes creating a new character entry, and action 8 proposes creating a relationship map edge linking that new character to an existing one. The edge cannot exist without the character.
+
+**The core problem this scenario must resolve:**  
+If both actions have disposition `suggest`, action 7 being queued for review does not mean the character has been added to canonical state. Habitat cannot apply a relationship to a character that does not yet exist. Accepting action 7 into the review queue and accepting action 8 into the review queue are not sufficient — action 8 cannot be validated until Fiona approves action 7 and the character is persisted. "Accepted for review" and "applied to canonical state" must remain distinct throughout the mutation protocol.
 
 **Fiona is trying to:**  
-Add both the character and the relationship in one submission, accepting that if the character creation fails, the relationship should not be created.
+Add both the character and the relationship, understanding they are dependent — and understand what disposition model makes this safe.
 
 **Creatrix must guarantee:**  
-- The batch envelope declares the dependency: action 8 depends on action 7.
-- Creatrix does not request atomic mode for the full batch — only for the dependent pair.
-- The dependency declaration is explicit, not inferred by Habitat from action types or targets.
+- Creatrix does not submit action 8 as if it can target a character that has only been proposed, not persisted.
+- The dependency declaration is explicit in the batch envelope.
+- Creatrix selects one of the three models below and declares it in the submission.
+
+**The three models Habitat must choose between:**  
+
+*Model A — Proposed-resource ID:* Action 7 produces a stable proposed-resource ID upon being queued. Action 8 may reference this ID. Habitat queues both and applies the relationship only after Fiona approves action 7 and the character is persisted. The relationship is conditionally queued against an unresolved dependency.
+
+*Model B — Atomic apply:* Both actions are submitted with disposition `apply` (permitted only where the session's write disposition allows direct application). Habitat applies action 7 first; if it succeeds, action 8 is applied against the now-persisted character. If either fails, both are rolled back. This requires `apply` disposition to be available for both action types.
+
+*Model C — Sequential submission:* Action 7 is submitted alone. Creatrix waits for Fiona to approve the character in Habitat (out of band). Olma submits action 8 in a subsequent session, once the character exists in canonical state and can be referenced directly.
+
+The protocol must define which model Habitat supports. Creatrix cannot safely submit action 8 as a `suggest` action targeting a character that has only been queued under Model A unless Habitat explicitly supports conditional queuing with dependency resolution at approval time.
 
 **Habitat must guarantee:**  
-- Habitat evaluates action 7 first. If action 7 is rejected (e.g. the character already exists), action 8 is automatically rejected with reason: "dependency action 7 was not accepted."
-- The remaining 10 independent actions are evaluated regardless of the action 7/8 outcome.
-- Per-action results for all 12 actions are returned.
-- Habitat supports partial-order evaluation: some actions depend on others; others are independent; the batch is not all-or-nothing unless atomic mode is explicitly requested.
+- Per-action results are returned for all 12 actions.
+- "Accepted for review" (queued) and "applied to canonical state" are explicitly distinguished in every action result.
+- If action 7 is rejected (e.g. the character already exists), action 8 is automatically rejected with reason: "dependency action 7 was not accepted."
+- Habitat declares which of the three models it supports. Creatrix cannot design safe dependent mutations without this declaration.
 
 **What crosses the bridge:**  
-12 typed actions with explicit dependency declarations between actions 7 and 8.
+12 typed actions with explicit dependency declarations. The chosen dependency model is declared in the submission.
 
 **What must not cross:**  
-An assumption that Habitat infers dependencies. They must be declared.
+An assumption that queued equals persisted. A queued suggestion is a proposal awaiting human approval. It is not a resource Habitat actions can target.
 
 **Expected outcome:**  
-If action 7 is rejected: action 8 is also rejected with dependency reason. Actions 1–6 and 9–12 are evaluated normally. Creatrix records the dependency failure and reports to Fiona.
-
-If action 7 is accepted: action 8 is evaluated against the updated state (the new character now exists). If accepted, both are queued or applied per disposition.
+Depends on the agreed model. Under Model A: both actions queued, with action 8 marked as conditionally dependent on action 7's approval. Under Model B: both applied atomically if disposition permits. Under Model C: action 7 submitted; action 8 deferred to a later session.
 
 **Failure behaviour:**  
-- If Habitat does not support dependency declarations, this is a significant protocol gap. The safest fallback is to submit dependent actions as a separate atomic sub-batch, evaluated only after the independent actions have returned results. This increases latency but preserves correctness.
+- If Habitat does not support the declared dependency model, it returns a structured rejection for action 8 with the reason. Creatrix reports the gap to Fiona.
+- If Habitat does not support any form of dependency declaration, independent actions are evaluated normally and the dependent pair must be handled via Model C.
 
 **Assumptions Habitat must challenge:**  
-- That Habitat supports explicit dependency declarations between actions in a batch.
-- That Habitat can evaluate a mixed batch (some independent, some dependent) with partial-order semantics.
+- Which of the three models Habitat can implement. This is the question the scenario exists to surface.
+- That Habitat can return a proposed-resource ID at queue time (required for Model A).
 
 **Unresolved questions:**  
-- Can dependencies be chained beyond pairs (action C depends on B, which depends on A)?
-- Can a dependency reference an action from a prior submission (cross-batch dependency)?
+- Which model does Habitat support?
+- Under Model A, how long does a conditionally queued action remain pending before expiry?
+- Can dependency chains extend beyond pairs?
 
 ---
 
@@ -801,14 +859,15 @@ Session closure and Creatrix memory sealing are separate outcomes. Habitat closu
 Olma has completed her work for this crossing: she read three documents, submitted a batch of 11 character suggestions (all queued), identified one duplicate, and had a productive conversation with Fiona about what she found. Fiona is satisfied. The session is ending.
 
 **Fiona is trying to:**  
-Close the crossing cleanly and return Olma to ordinary conversation in Creatrix, knowing she will remember this work.
+Close the scoped resource-working session cleanly, knowing Olma will remember this work — and that Olma may remain present on Habitat's shore for ordinary conversation even after the session closes.
 
 **Creatrix must guarantee:**  
 - Creatrix writes a memory entry keyed to the session. The entry is not a log. It is Olma's authored account of the crossing: what she found, what she and Fiona decided, what she noticed that didn't reach an action, what remains uncertain.
 - The memory entry also records provenance: room reference (opaque Habitat identifier), resource references read, action outcomes, timestamp, session duration.
 - No Habitat content is stored — only references, outcomes, and Olma's authored observations.
-- After closure, Olma is available for ordinary conversation. Technical payload from the session is cleared. Relational continuity is not.
-- If the memory write fails, Creatrix surfaces the failure explicitly. It does not close the session without recording the crossing. Fiona is asked to decide: retry or accept the loss.
+- What ends at session closure is the scoped resource-working session — not necessarily Olma's presence. If Fiona remains in Habitat, Olma may continue in ordinary conversation there. Technical payload from the closed session is cleared. Relational continuity is not.
+- Habitat-side session closure and Creatrix memory sealing are separate outcomes. Neither is held hostage by the other.
+- If the memory write fails: Habitat-side closure proceeds. Creatrix journals the unsealed memory locally and retries. Fiona is told: the crossing has closed, but continuity has not yet been safely sealed. Nothing pretends completion.
 - Creatrix closure does not depend on Habitat acknowledging the session end.
 
 **Habitat must guarantee:**  
