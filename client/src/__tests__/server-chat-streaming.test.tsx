@@ -531,3 +531,164 @@ describe("/api/chat SSE streaming — provider resolution is wired end-to-end", 
     expect(accumulated).toBe("openai-response");
   });
 });
+
+// ── Contract gate regression tests ───────────────────────────────────────────
+// These tests exercise the four-link invocation contract gate that runs before
+// every generateStream call.  They exist to catch regressions where a safety
+// link is accidentally softened or removed — failures that would not surface
+// in provider-unit tests because those tests bypass the route entirely.
+
+describe("/api/chat contract gate — identity, orientation, and window enforcement", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStorageMocks();
+  });
+
+  it("blocks a commissioned resident that has no residentDescription (orientationAssembled hard fail)", async () => {
+    // A connection with residentName is a commissioned resident.  The contract
+    // requires residentDescription (orientation) as a hard link for commissioned
+    // residents — without it the model hallucinates identity from training data.
+    mockStorage.getConnection.mockResolvedValueOnce({
+      id: TEST_CONN_ID,
+      name: "Olma",
+      provider: "ollama",
+      endpoint: "http://localhost:11434",
+      apiKey: null,
+      defaultModel: TEST_MODEL,
+      numCtx: 32768,
+      residentName: "Olma",
+      residentDescription: null, // orientation absent — must block
+      isDefault: true,
+      orderIndex: 0,
+    });
+
+    const { body } = await postChat(CHAT_BODY);
+    const events = parseSseEvents(body);
+
+    // The route must emit an error event naming orientation as the problem.
+    const errorEvent = events.find((e) => e.type === "error") as { type: string; message: string } | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent?.message).toMatch(/orientation/i);
+
+    // generateStream must never be called — the gate must prevent the invocation.
+    expect(mockGenerateStream).not.toHaveBeenCalled();
+  });
+
+  it("blocks a commissioned resident whose residentName is present but residentDescription is an empty string", async () => {
+    // Empty string is falsy in the !!residentDescription check — same as null.
+    mockStorage.getConnection.mockResolvedValueOnce({
+      id: TEST_CONN_ID,
+      name: "Olma",
+      provider: "ollama",
+      endpoint: "http://localhost:11434",
+      apiKey: null,
+      defaultModel: TEST_MODEL,
+      numCtx: 32768,
+      residentName: "Olma",
+      residentDescription: "",   // empty string — also absent
+      isDefault: true,
+      orderIndex: 0,
+    });
+
+    const { body } = await postChat(CHAT_BODY);
+    const events = parseSseEvents(body);
+
+    const errorEvent = events.find((e) => e.type === "error") as { type: string; message: string } | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent?.message).toMatch(/orientation/i);
+    expect(mockGenerateStream).not.toHaveBeenCalled();
+  });
+
+  it("allows a plain (non-commissioned) connection with no residentDescription through with a warning", async () => {
+    // A connection without residentName is NOT a commissioned resident.
+    // Missing orientation is a soft warning, not a hard block.
+    mockStorage.getConnection.mockResolvedValueOnce({
+      id: TEST_CONN_ID,
+      name: "Bare Ollama",
+      provider: "ollama",
+      endpoint: "http://localhost:11434",
+      apiKey: null,
+      defaultModel: TEST_MODEL,
+      numCtx: 32768,
+      // residentName absent — plain connection
+      isDefault: true,
+      orderIndex: 0,
+    });
+
+    mockGenerateStream.mockImplementationOnce(async (_msgs: unknown, _model: unknown, onChunk: (c: StreamChunk) => void) => {
+      onChunk({ type: "content", content: "ok" });
+    });
+
+    const { body } = await postChat(CHAT_BODY);
+    const events = parseSseEvents(body);
+
+    // Must NOT block — warning only.
+    expect(mockGenerateStream).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "content")).toBe(true);
+  });
+
+  it("trims oversized history and preserves the system prompt as the first message passed to generateStream", async () => {
+    // Context budget breakdown (numCtx=4096, RESPONSE_RESERVE=1024):
+    //   usable budget = 3072 tokens
+    //   system prompt ≈ 800 tokens (CREATRIX_ORIENTATION ~729 tok + temporal + assembly overhead)
+    //   6 history messages × 1600 chars each ≈ 400 tok each → 2400 tok total history
+    //   current message ≈ 2 tok
+    //   total ≈ 3202 tok  >  3072 tok  → trimming must fire
+    //
+    // After trimming the oldest turn(s) the payload must fit.
+    // The system prompt (modelMessages[0], role="system") must survive — it is
+    // non-evictable by contract.
+    const largeHistory = Array.from({ length: 6 }, (_, i) => ({
+      id: `msg-${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: "context".repeat(228), // ≈ 1596 chars ≈ 399 tokens each
+    }));
+
+    const convWithHistory = {
+      id: "conv-trim-test",
+      title: "trim-test",
+      model: TEST_MODEL,
+      projectId: null,
+      connectionId: TEST_CONN_ID,
+      messages: largeHistory,
+      createdAt: new Date(),
+    };
+    mockStorage.getConversation.mockResolvedValueOnce(convWithHistory);
+    mockStorage.addMessageToConversation.mockResolvedValueOnce(convWithHistory);
+    mockStorage.updateConversation.mockResolvedValueOnce(convWithHistory);
+
+    mockStorage.getConnection.mockResolvedValueOnce({
+      id: TEST_CONN_ID,
+      name: "Test",
+      provider: "ollama",
+      endpoint: "http://localhost:11434",
+      apiKey: null,
+      defaultModel: TEST_MODEL,
+      numCtx: 4096, // usable = 3072 tok; forces trimming with 6 large history turns
+      isDefault: true,
+      orderIndex: 0,
+    });
+
+    let capturedMessages: Array<{ role: string; content: unknown }> | null = null;
+    mockGenerateStream.mockImplementationOnce(async (msgs: unknown, _model: unknown, onChunk: (c: StreamChunk) => void) => {
+      capturedMessages = msgs as Array<{ role: string; content: unknown }>;
+      onChunk({ type: "content", content: "trimmed-ok" });
+    });
+
+    const { body } = await postChat(CHAT_BODY);
+    const events = parseSseEvents(body);
+
+    // The call must succeed after trimming (not be blocked by windowSufficient).
+    expect(mockGenerateStream).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "content")).toBe(true);
+
+    // The system prompt must be the first message — orientation is non-evictable.
+    expect(capturedMessages).not.toBeNull();
+    expect(capturedMessages![0].role).toBe("system");
+
+    // Trimming must have reduced the history: the total messages passed to
+    // generateStream must be fewer than system + all 6 history turns + current.
+    // (6 history + 1 system + 1 current = 8 maximum; trimming removes ≥ 1)
+    expect(capturedMessages!.length).toBeLessThan(8);
+  });
+});

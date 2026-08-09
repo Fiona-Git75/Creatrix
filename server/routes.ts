@@ -1492,16 +1492,24 @@ export async function registerRoutes(
       // All link states are recorded in one "contract" syslog entry so the full
       // pre-flight is visible at a glance.
       //
-      // Link 1 — residentIdentified   (soft: warn, call proceeds)
-      // Link 2 — orientationAssembled (soft: warn, call proceeds)
-      // Link 3 — numCtxConfigured     (hard for Ollama: block without it)
-      // Link 4 — windowSufficient     (hard: block when payload cannot fit)
+      // Link 1 — residentIdentified   (hard for commissioned residents; soft otherwise)
+      // Link 2 — orientationAssembled (hard for commissioned residents; soft otherwise)
+      // Link 3 — numCtxConfigured     (hard for Ollama — block without it)
+      // Link 4 — windowSufficient     (hard — block when complete payload cannot fit)
       //
-      // History trimming runs inside this block so link 4 sees the trimmed
-      // payload.  Rough token estimate throughout: 1 token ≈ 4 characters.
+      // "Commissioned resident" = connection.residentName is set.  Once a
+      // connection has an identity, both that identity and its orientation
+      // (residentDescription) are required for a safe invocation.
+      //
+      // History trimming runs inside this block so link 4 measures the trimmed
+      // payload.  Window measurement uses the complete modelMessages array —
+      // system prompt, all retained history, current message, and any injected
+      // document or tool context — not just system + current in isolation.
+      // Rough token estimate throughout: 1 token ≈ 4 characters.
       {
         type Link = { name: string; pass: boolean | null; detail: string; hard: boolean };
 
+        const isCommissioned   = !!(connection.residentName);
         const residentPresent  = !!(connection.residentName || connection.residentRole || connection.residentDescription);
         const hasOrientation   = !!connection.residentDescription;
         const hasTemporal      = systemPrompt.includes("Right now");
@@ -1511,24 +1519,35 @@ export async function registerRoutes(
         const RESPONSE_RESERVE = 1024; // tokens reserved for the model's reply
         const usableBudget     = configuredCtx != null ? configuredCtx - RESPONSE_RESERVE : null;
 
+        // Token count for a single message (handles string or array content)
+        const msgTok = (m: { content: unknown }): number =>
+          Math.ceil(
+            (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")).length / 4
+          );
+
         // Link 1 — resident identified
+        // Hard for commissioned residents: a named resident without verifiable
+        // identity is a misconfigured invocation.
         const link1: Link = {
           name: "residentIdentified",
           pass: residentPresent,
           detail: residentPresent
             ? `name="${connection.residentName ?? connection.name}"`
             : "no residentName, residentRole, or residentDescription set",
-          hard: false,
+          hard: isCommissioned,
         };
 
         // Link 2 — orientation assembled
+        // Hard for commissioned residents: the model cannot be safely invoked
+        // without its grounding narrative — it will hallucinate identity from
+        // training data instead.
         const link2: Link = {
           name: "orientationAssembled",
           pass: hasOrientation,
           detail: hasOrientation
             ? `~${estimatedSysTok} tokens | temporal=${hasTemporal}`
             : "residentDescription absent — model has no orientation in system prompt",
-          hard: false,
+          hard: isCommissioned,
         };
 
         // Link 3 — numCtx configured (hard gate for Ollama)
@@ -1551,45 +1570,51 @@ export async function registerRoutes(
         //
         // Trimming only runs when numCtx is configured — without a budget we
         // have no bound to trim against.
+        //
+        // The window check measures the COMPLETE assembled payload after each
+        // trim: sum of all modelMessages tokens, including any injected document
+        // or tool context that lives inside individual messages.  This is more
+        // accurate than estimating components separately.
         let trimmed      = 0;
-        let lastMsgTok   = 0;
-        let minRequired  = estimatedSysTok;
         let windowOk: boolean | null = null;
         let windowDetail = "numCtx not configured — window check skipped";
+        let finalPayloadTok = 0;
+        let sysAndCurrentTok = 0;
 
         if (configuredCtx !== null && modelMessages.length > 0) {
-          const lastMsg = modelMessages[modelMessages.length - 1];
-          lastMsgTok  = Math.ceil(
-            (typeof lastMsg.content === "string" ? lastMsg.content : "").length / 4
-          );
-          minRequired = estimatedSysTok + lastMsgTok;
+          const systemMsg = modelMessages[0];
+          const lastMsg   = modelMessages[modelMessages.length - 1];
+          sysAndCurrentTok = msgTok(systemMsg) + msgTok(lastMsg);
 
-          if (minRequired > usableBudget!) {
-            // System prompt + current message alone exceed the budget — hard fail.
+          if (sysAndCurrentTok > usableBudget!) {
+            // System prompt + current message alone exceed the budget.
+            // No amount of history trimming can fix this — hard fail.
             windowOk     = false;
-            windowDetail = `system (~${estimatedSysTok} tok) + current (~${lastMsgTok} tok) = ~${minRequired} tok > budget ${usableBudget} tok`;
-          } else if (modelMessages.length > 2) {
-            const systemMsg = modelMessages[0];
-            let history     = modelMessages.slice(1, -1);
-            const available = usableBudget! - estimatedSysTok - lastMsgTok;
-            while (history.length > 0) {
-              const histTok = history.reduce(
-                (sum, m) => sum + Math.ceil((typeof m.content === "string" ? m.content : "").length / 4), 0
-              );
-              if (histTok <= available) break;
-              history.shift();
-              trimmed++;
-            }
-            if (trimmed > 0) {
-              modelMessages.splice(0, modelMessages.length, systemMsg, ...history, lastMsg);
-            }
-            windowOk     = true;
-            windowDetail = trimmed > 0
-              ? `trimmed ${trimmed} oldest turn(s); fits within ${configuredCtx}-token window`
-              : `no trimming needed; fits within ${configuredCtx}-token window`;
+            windowDetail =
+              `system (~${msgTok(systemMsg)} tok) + current (~${msgTok(lastMsg)} tok) = ` +
+              `~${sysAndCurrentTok} tok exceeds ${usableBudget} tok budget — ` +
+              `cannot fit even with empty history`;
           } else {
-            windowOk     = true;
-            windowDetail = `fits within ${configuredCtx}-token window (no history to trim)`;
+            // Trim oldest history turns until the complete payload fits.
+            // Re-measure the full array after each eviction so injected
+            // document/tool context in history entries is counted correctly.
+            if (modelMessages.length > 2) {
+              let history = modelMessages.slice(1, -1);
+              while (history.length > 0) {
+                const total = modelMessages.reduce((s, m) => s + msgTok(m), 0);
+                if (total <= usableBudget!) break;
+                history.shift();
+                trimmed++;
+                modelMessages.splice(0, modelMessages.length, systemMsg, ...history, lastMsg);
+              }
+            }
+            finalPayloadTok = modelMessages.reduce((s, m) => s + msgTok(m), 0);
+            windowOk        = finalPayloadTok <= usableBudget!;
+            windowDetail    = windowOk
+              ? (trimmed > 0
+                  ? `trimmed ${trimmed} oldest turn(s); complete payload ~${finalPayloadTok} tok fits within ${usableBudget} tok`
+                  : `complete payload ~${finalPayloadTok} tok fits within ${usableBudget} tok (no trimming needed)`)
+              : `complete payload ~${finalPayloadTok} tok still exceeds ${usableBudget} tok after removing all history`;
           }
         }
 
@@ -1615,6 +1640,7 @@ export async function registerRoutes(
           JSON.stringify({
             connectionId:   connection.id,
             connectionName: connection.name,
+            isCommissioned,
             links: links.map(l => ({ name: l.name, pass: l.pass, detail: l.detail, hard: l.hard })),
           })
         );
@@ -1638,14 +1664,24 @@ export async function registerRoutes(
         if (anyHardFail) {
           const failedLink = links.find(l => l.pass === false && l.hard)!;
           let userMessage: string;
-          if (failedLink.name === "numCtxConfigured") {
+          if (failedLink.name === "residentIdentified") {
+            userMessage =
+              `Cannot send to ${connection.name}: this connection is commissioned as a resident ` +
+              `but has no identity configured (residentName, residentRole, or residentDescription). ` +
+              `Open Settings → Connections and complete the resident configuration.`;
+          } else if (failedLink.name === "orientationAssembled") {
+            userMessage =
+              `Cannot send to ${connection.residentName ?? connection.name}: this resident has no orientation ` +
+              `(residentDescription is empty). Without it the model cannot locate itself and will hallucinate identity. ` +
+              `Open Settings → Connections or the Residents panel and add a description.`;
+          } else if (failedLink.name === "numCtxConfigured") {
             userMessage =
               `Cannot send to ${connection.residentName ?? connection.name}: num_ctx is not configured on this Ollama connection. ` +
               `Without it, Ollama silently defaults to 4096 tokens — almost certainly smaller than the orientation alone (~${estimatedSysTok} tok). ` +
               `Set num_ctx on this connection (Settings → Connections; recommended: 32768 or higher).`;
           } else if (failedLink.name === "windowSufficient") {
             userMessage =
-              `Context window too small: orientation and current message require ~${minRequired} tokens, ` +
+              `Context window too small: the complete payload requires ~${finalPayloadTok || sysAndCurrentTok} tokens, ` +
               `but this connection allows only ${usableBudget} tokens after response reserve ` +
               `(num_ctx=${configuredCtx}, reserve=${RESPONSE_RESERVE}). Increase num_ctx on this connection.`;
           } else {
