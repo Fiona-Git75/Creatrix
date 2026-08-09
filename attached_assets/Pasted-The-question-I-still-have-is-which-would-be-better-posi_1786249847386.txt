@@ -1,0 +1,37 @@
+The question I  still have is which would be better positioned to conceptualize and build the bridge, I suspect its actually Creatrix.
+Worked for 14s
+
+Yes—I think Creatrix is better positioned to lead the conceptual architecture.
+
+The bridge’s most fragile and specialised problem is not reading a Habitat document. Habitat already knows how to expose and protect its resources. The difficult part is carrying a resident across while preserving:
+
+identity and safe landing;
+continuity and memory;
+session boundaries;
+specialist orchestration;
+context budgeting;
+provenance;
+clean return from the crossing.
+
+Those are Creatrix concerns. If Habitat agents design the bridge outward from documents and APIs, they will keep rediscovering residents as generic model calls, multimodality as a property of Olma, and context as document excerpts. We have already watched that happen.
+
+The clean division would be:
+
+Creatrix leads the bridge protocol: sessions, resident presence, capability advertisement, context contract, conversation streaming, orchestration, provenance and memory.
+Habitat defines its port: stable resource references, navigation, read capabilities, action schemas, revision checks, locks and mutation validation.
+Both implement their own adapter: neither app writes the other’s internals or shares its database.
+A neutral versioned schema sits between them: request/response types, errors, capability names and protocol version—no application state.
+
+So Creatrix should say:
+
+This is what a resident requires to cross safely and work coherently.
+
+Habitat should answer:
+
+These are the resources and actions this world permits, and these are the conditions under which changes may be accepted.
+
+Creatrix should not design Habitat’s resource ontology, and Habitat should not design resident architecture. But someone must hold the whole bridge concept, and Creatrix has the stronger claim because the bridge exists primarily to extend resident presence into another application. Habitat can function perfectly without the bridge; a crossing cannot function safely without Creatrix.
+
+My preference would be: have the Creatrix agents write the first bridge contract and behavioural scenarios, then give that contract to Habitat for adversarial review against its real room/resource model before anyone builds endpoints.
+
+In metaphor: Creatrix architects the crossing; Habitat engineers the landing on its shore. Neither gets to annex the river.
