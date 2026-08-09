@@ -1486,98 +1486,174 @@ export async function registerRoutes(
       }
 
       // ── Context window: diagnose, guard, and trim ────────────────────────────
-      // Resident identity, orientation, and temporal grounding live in the system
-      // message which is non-evictable by design.  If the context window is too
-      // small, we trim HISTORY (oldest turns first) — never the system message.
-      // If the window is too small even with zero history, the turn fails
-      // explicitly rather than silently sending a truncated prompt to Ollama.
+      // ── Invocation contract gate ───────────────────────────────────────────
+      // All links are evaluated before generateStream is called.  A hard-failing
+      // link aborts the turn with an explicit SSE error — no silent degradation.
+      // All link states are recorded in one "contract" syslog entry so the full
+      // pre-flight is visible at a glance.
+      //
+      // Link 1 — residentIdentified   (soft: warn, call proceeds)
+      // Link 2 — orientationAssembled (soft: warn, call proceeds)
+      // Link 3 — numCtxConfigured     (hard for Ollama: block without it)
+      // Link 4 — windowSufficient     (hard: block when payload cannot fit)
+      //
+      // History trimming runs inside this block so link 4 sees the trimmed
+      // payload.  Rough token estimate throughout: 1 token ≈ 4 characters.
       {
-        const residentPresent = !!(connection.residentName || connection.residentRole || connection.residentDescription);
-        const hasIdentity = residentPresent;
-        const hasOrientation = !!connection.residentDescription;
-        const hasTemporal = systemPrompt.includes("Right now");
-        // Rough token estimate: 1 token ≈ 4 characters
-        const estimatedSysTokens = Math.ceil(systemPrompt.length / 4);
-        const configuredCtx = connection.numCtx ?? null;
+        type Link = { name: string; pass: boolean | null; detail: string; hard: boolean };
 
-        // ── Explicit error when Ollama has no numCtx configured ──────────────
-        // A null numCtx is not a safe default — Ollama will cap at 4096 tokens,
-        // which is typically smaller than the system prompt alone for a resident.
-        // This is an error, not a warning, so it appears prominently in syslog.
-        if (connection.provider === "ollama" && configuredCtx === null) {
-          syslog("error", "chat",
-            `Ollama connection "${connection.residentName ?? connection.name}" has no num_ctx configured. ` +
-            `Ollama will default to 4096 tokens, which may be smaller than the system prompt alone (~${estimatedSysTokens} tok). ` +
-            `Set num_ctx on this connection (recommended: 32768 or higher for residents with rich orientation).`
+        const residentPresent  = !!(connection.residentName || connection.residentRole || connection.residentDescription);
+        const hasOrientation   = !!connection.residentDescription;
+        const hasTemporal      = systemPrompt.includes("Right now");
+        const estimatedSysTok  = Math.ceil(systemPrompt.length / 4);
+        const configuredCtx    = connection.numCtx ?? null;
+        const isOllama         = connection.provider === "ollama";
+        const RESPONSE_RESERVE = 1024; // tokens reserved for the model's reply
+        const usableBudget     = configuredCtx != null ? configuredCtx - RESPONSE_RESERVE : null;
+
+        // Link 1 — resident identified
+        const link1: Link = {
+          name: "residentIdentified",
+          pass: residentPresent,
+          detail: residentPresent
+            ? `name="${connection.residentName ?? connection.name}"`
+            : "no residentName, residentRole, or residentDescription set",
+          hard: false,
+        };
+
+        // Link 2 — orientation assembled
+        const link2: Link = {
+          name: "orientationAssembled",
+          pass: hasOrientation,
+          detail: hasOrientation
+            ? `~${estimatedSysTok} tokens | temporal=${hasTemporal}`
+            : "residentDescription absent — model has no orientation in system prompt",
+          hard: false,
+        };
+
+        // Link 3 — numCtx configured (hard gate for Ollama)
+        const link3: Link = {
+          name: "numCtxConfigured",
+          pass: isOllama ? configuredCtx !== null : null,
+          detail: configuredCtx !== null
+            ? `numCtx=${configuredCtx}`
+            : isOllama
+              ? `num_ctx not set — Ollama would silently default to 4096 (system prompt alone ~${estimatedSysTok} tok)`
+              : "non-Ollama provider — numCtx not required",
+          hard: isOllama,
+        };
+
+        // ── History trimming ─────────────────────────────────────────────────
+        // modelMessages layout:
+        //   [0]       system  (non-evictable — orientation, identity, temporal)
+        //   [1..N-1]  history (evictable, oldest first)
+        //   [N]       current user message (non-evictable)
+        //
+        // Trimming only runs when numCtx is configured — without a budget we
+        // have no bound to trim against.
+        let trimmed      = 0;
+        let lastMsgTok   = 0;
+        let minRequired  = estimatedSysTok;
+        let windowOk: boolean | null = null;
+        let windowDetail = "numCtx not configured — window check skipped";
+
+        if (configuredCtx !== null && modelMessages.length > 0) {
+          const lastMsg = modelMessages[modelMessages.length - 1];
+          lastMsgTok  = Math.ceil(
+            (typeof lastMsg.content === "string" ? lastMsg.content : "").length / 4
           );
+          minRequired = estimatedSysTok + lastMsgTok;
+
+          if (minRequired > usableBudget!) {
+            // System prompt + current message alone exceed the budget — hard fail.
+            windowOk     = false;
+            windowDetail = `system (~${estimatedSysTok} tok) + current (~${lastMsgTok} tok) = ~${minRequired} tok > budget ${usableBudget} tok`;
+          } else if (modelMessages.length > 2) {
+            const systemMsg = modelMessages[0];
+            let history     = modelMessages.slice(1, -1);
+            const available = usableBudget! - estimatedSysTok - lastMsgTok;
+            while (history.length > 0) {
+              const histTok = history.reduce(
+                (sum, m) => sum + Math.ceil((typeof m.content === "string" ? m.content : "").length / 4), 0
+              );
+              if (histTok <= available) break;
+              history.shift();
+              trimmed++;
+            }
+            if (trimmed > 0) {
+              modelMessages.splice(0, modelMessages.length, systemMsg, ...history, lastMsg);
+            }
+            windowOk     = true;
+            windowDetail = trimmed > 0
+              ? `trimmed ${trimmed} oldest turn(s); fits within ${configuredCtx}-token window`
+              : `no trimming needed; fits within ${configuredCtx}-token window`;
+          } else {
+            windowOk     = true;
+            windowDetail = `fits within ${configuredCtx}-token window (no history to trim)`;
+          }
         }
 
-        // Diagnostic: what was assembled, whether protections are in place.
+        // Link 4 — window sufficient (hard only when it actively fails)
+        const link4: Link = {
+          name: "windowSufficient",
+          pass: windowOk,
+          detail: windowDetail,
+          hard: windowOk === false,
+        };
+
+        const links       = [link1, link2, link3, link4];
+        const anyHardFail = links.some(l => l.pass === false && l.hard);
+        const anySoftFail = links.some(l => l.pass === false && !l.hard);
+        const allPass     = !anyHardFail && !anySoftFail;
+
+        // One structured syslog entry — full pre-flight visible at a glance
         syslog(
-          "info",
-          "chat",
-          `System prompt assembled — resident: ${connection.residentName ?? "(none)"} | identity: ${hasIdentity} | orientation: ${hasOrientation} | temporal: ${hasTemporal} | ~${estimatedSysTokens} tokens | numCtx: ${configuredCtx ?? "NOT SET"}`,
+          anyHardFail ? "error" : anySoftFail ? "warn" : "info",
+          "contract",
+          `Invocation contract — ${anyHardFail ? "BLOCKED" : allPass ? "PASS" : "WARN"} | ` +
+            links.map(l => `${l.name}:${l.pass === null ? "N/A" : l.pass ? "✓" : "✗"}`).join(" | "),
           JSON.stringify({
-            connectionId: connection.id,
+            connectionId:   connection.id,
             connectionName: connection.name,
-            residentName: connection.residentName ?? null,
-            hasResidentDescription: hasOrientation,
-            hasIdentityBlock: hasIdentity,
-            hasTemporalGrounding: hasTemporal,
-            systemPromptChars: systemPrompt.length,
-            estimatedSystemTokens: estimatedSysTokens,
-            configuredNumCtx: configuredCtx,
+            links: links.map(l => ({ name: l.name, pass: l.pass, detail: l.detail, hard: l.hard })),
           })
         );
 
-        // ── History trimming: protect orientation by trimming oldest turns ────
-        // modelMessages layout after unshift:
-        //   [0]     system  (non-evictable — orientation, identity, temporal)
-        //   [1..N-1] history (evictable, oldest first)
-        //   [N]     last user message (non-evictable — the current turn)
-        //
-        // We only trim when numCtx is configured; without it we have no budget
-        // to trim against and cannot protect anything.
-        if (configuredCtx !== null && modelMessages.length > 2) {
-          const RESPONSE_RESERVE = 1024; // tokens reserved for the model's reply
-          const usableBudget = configuredCtx - RESPONSE_RESERVE;
-
-          const lastMsg = modelMessages[modelMessages.length - 1];
-          const lastMsgTokens = Math.ceil((typeof lastMsg.content === "string" ? lastMsg.content : "").length / 4);
-          const minRequired = estimatedSysTokens + lastMsgTokens;
-
-          if (minRequired > usableBudget) {
-            // Even with zero history, system prompt + current message won't fit.
-            // Fail explicitly rather than sending a truncated prompt to Ollama.
-            syslog("error", "chat",
-              `Turn aborted: system prompt (~${estimatedSysTokens} tok) + current message (~${lastMsgTokens} tok) = ~${minRequired} tok ` +
-              `exceeds usable budget of ${usableBudget} tok (numCtx=${configuredCtx}, response reserve=${RESPONSE_RESERVE}). ` +
-              `Increase num_ctx on connection "${connection.residentName ?? connection.name}".`
-            );
-            res.write(`data: ${JSON.stringify({ type: "error", message: `Context window too small: orientation and identity alone require ~${minRequired} tokens, but this resident's context window allows only ${usableBudget} tokens for content (num_ctx=${configuredCtx}). Increase num_ctx on this connection.` })}\n\n`);
-            res.end();
-            return;
+        // Individual warn entries for soft failures (easily grepped)
+        for (const l of links) {
+          if (l.pass === false && !l.hard) {
+            syslog("warn", "contract", `${l.name}: ${l.detail}`);
           }
+        }
 
-          // Trim oldest history turns until total fits within the budget.
-          const systemMsg = modelMessages[0];
-          let history = modelMessages.slice(1, -1); // evictable middle
-          const available = usableBudget - estimatedSysTokens - lastMsgTokens;
-          let trimmed = 0;
-          while (history.length > 0) {
-            const historyTokens = history.reduce(
-              (sum, m) => sum + Math.ceil((typeof m.content === "string" ? m.content : "").length / 4), 0
-            );
-            if (historyTokens <= available) break;
-            history.shift(); // remove oldest turn
-            trimmed++;
+        // Log trim separately (operators search for this in "chat" category)
+        if (trimmed > 0) {
+          syslog("warn", "chat",
+            `History trimmed: removed ${trimmed} oldest message(s) to keep orientation non-evictable within ` +
+            `${configuredCtx}-token window for "${connection.residentName ?? connection.name}".`
+          );
+        }
+
+        // Hard-failure gate — no generateStream call, explicit user-facing error
+        if (anyHardFail) {
+          const failedLink = links.find(l => l.pass === false && l.hard)!;
+          let userMessage: string;
+          if (failedLink.name === "numCtxConfigured") {
+            userMessage =
+              `Cannot send to ${connection.residentName ?? connection.name}: num_ctx is not configured on this Ollama connection. ` +
+              `Without it, Ollama silently defaults to 4096 tokens — almost certainly smaller than the orientation alone (~${estimatedSysTok} tok). ` +
+              `Set num_ctx on this connection (Settings → Connections; recommended: 32768 or higher).`;
+          } else if (failedLink.name === "windowSufficient") {
+            userMessage =
+              `Context window too small: orientation and current message require ~${minRequired} tokens, ` +
+              `but this connection allows only ${usableBudget} tokens after response reserve ` +
+              `(num_ctx=${configuredCtx}, reserve=${RESPONSE_RESERVE}). Increase num_ctx on this connection.`;
+          } else {
+            userMessage = `Invocation blocked: ${failedLink.name} — ${failedLink.detail}`;
           }
-          if (trimmed > 0) {
-            modelMessages.splice(0, modelMessages.length, systemMsg, ...history, lastMsg);
-            syslog("warn", "chat",
-              `History trimmed: removed ${trimmed} oldest message(s) to keep orientation and identity non-evictable within ${configuredCtx}-token window for "${connection.residentName ?? connection.name}".`
-            );
-          }
+          res.write(`data: ${JSON.stringify({ type: "error", message: userMessage })}\n\n`);
+          res.end();
+          return;
         }
       }
 
@@ -1766,15 +1842,6 @@ export async function registerRoutes(
           let streamError: string | null = null;
           const nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
-          // Trace the exact numCtx value reaching Ollama so the syslog provides an
-          // unambiguous record of what was passed — distinguishing "32768 was sent"
-          // from "no value was sent and Ollama defaulted to 4096".
-          syslog("info", "chat",
-            connection.numCtx != null
-              ? `generateStream → numCtx: ${connection.numCtx} | model: ${selectedModel} | connection: ${connection.residentName ?? connection.name}`
-              : `generateStream → numCtx: NOT SET (Ollama will use its own default) | model: ${selectedModel} | connection: ${connection.residentName ?? connection.name}`
-          );
-
           await provider.generateStream(modelMessages, selectedModel, (chunk) => {
             if (chunk.type === "content" && chunk.content) {
               buffered += chunk.content;
@@ -1790,6 +1857,21 @@ export async function registerRoutes(
             res.write(`data: ${JSON.stringify({ type: "error", message: humanizeError(streamError) })}\n\n`);
             res.end();
             return;
+          }
+
+          // ── Link 6: response contamination detection ─────────────────────────
+          // If the raw buffered response contains <think> blocks, the model leaked
+          // internal reasoning into its reply.  Strip before any downstream use,
+          // and record the contamination event in the contract category so it is
+          // findable alongside the pre-flight gate that should have prevented it.
+          const bufferedStripped = stripThinkBlocks(buffered);
+          if (bufferedStripped.length < buffered.length) {
+            syslog("error", "contract",
+              `RESPONSE CONTAMINATION: <think> blocks detected in model output before strip — ` +
+              `${buffered.length - bufferedStripped.length} chars removed | ` +
+              `model: ${selectedModel} | connection: ${connection.residentName ?? connection.name}`
+            );
+            buffered = bufferedStripped;
           }
 
           // ── Native Jinja tool call path ──────────────────────────────────────

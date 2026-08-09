@@ -58,6 +58,7 @@ const { mockGenerateStream, mockStorage } = vi.hoisted(() => {
       endpoint: "http://localhost:11434",
       apiKey: null,
       defaultModel: "test-model",
+      numCtx: 32768,
       isDefault: true,
       orderIndex: 0,
     }),
@@ -261,6 +262,7 @@ function resetStorageMocks() {
     endpoint: "http://localhost:11434",
     apiKey: null,
     defaultModel: TEST_MODEL,
+    numCtx: 32768,
     isDefault: true,
     orderIndex: 0,
   });
