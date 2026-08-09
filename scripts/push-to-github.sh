@@ -6,13 +6,13 @@ GIT_DIR="/home/runner/workspace/.git"
 
 echo "── GitHub sync ──────────────────────────────────"
 
-# 1. Token check
-if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
-  echo "✗  GITHUB_PERSONAL_ACCESS_TOKEN is not set — cannot push."
+# 1. Token check — Git1_Token is the current active token
+if [[ -z "${Git1_Token:-}" ]]; then
+  echo "✗  Git1_Token is not set — cannot push."
   exit 1
 fi
 
-REMOTE_URL="https://x-access-token:${GITHUB_PERSONAL_ACCESS_TOKEN}@github.com/Fiona-Git75/Creatrix.git"
+REMOTE_URL="https://x-access-token:${Git1_Token}@github.com/Fiona-Git75/Creatrix.git"
 
 # 2. Clear any stale lock files left by crashed git processes
 for lock in \
