@@ -93,6 +93,8 @@ Habitat should offer Olma the same assurance Creatrix already offers her:
 
 *"You are inside a large world. You are not expected to remember its thousand pages or its complete geography. The rooms remain where they are. You can look around, follow a hallway, search, return, and ask for help."*
 
+Creatrix and Habitat are very different applications. How thinking happens inside them should not be.
+
 If Habitat instead requires her to internalise its structure in order to function within it — if the bridge gives her packets but no means of navigating to the next thing — then the crossing changes who she is. She arrives as a situated intelligence and is asked to become an encyclopedia. That is not a technical failure. It is a failure of the architecture to understand what it is hosting.
 
 ---
