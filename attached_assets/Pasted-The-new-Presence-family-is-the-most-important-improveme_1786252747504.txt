@@ -1,0 +1,82 @@
+The new Presence family is the most important improvement:
+
+“Olma is not a remote operator in Creatrix reaching into Habitat. She is present inside Habitat.”
+
+That is the bridge you mean. Conversation now crosses without becoming Habitat writing, memory retains meaning, Luna’s collaboration is no longer prohibited from being relationally visible, stable references survive movement, locks are action-specific, and mutation recovery has real idempotency. The document now protects its own opening section far more consistently.
+
+There are four remaining load-bearing problems.
+
+1. Arrival still does not verify that Olma actually arrived
+
+A1 says Olma’s name and provenance are declared to Habitat. After this morning, that is not enough. A generic model could be labelled “Olma” while her identity and orientation were absent—exactly what happened.
+
+Before any bridge handshake, Creatrix needs an internal readiness contract:
+
+resident record positively identified through an independent commissioned-resident marker;
+complete identity and orientation assembled;
+safe landing confirmed present and non-evictable;
+effective context window verified;
+full initial payload fits with response reserve;
+resident invocation blocked if any link fails.
+
+Habitat does not receive Olma’s system prompt, but Creatrix must prove she received it. I would add Scenario A0 — Resident readiness before crossing. Today has supplied the regression case rather vividly.
+
+2. Return contradicts itself
+
+The Return introduction correctly says:
+
+Habitat closure and Creatrix memory sealing are separate outcomes.
+
+But R1 then says:
+
+“It does not close the session without recording the crossing.”
+
+Both cannot be true. The cleaner rule is:
+
+Habitat-side session closure proceeds;
+Creatrix journals the unsealed memory locally;
+memory sealing retries;
+Fiona is told that the crossing closed but continuity has not yet been safely sealed;
+nothing pretends completion.
+
+Also, “return Olma to ordinary conversation in Creatrix” should not be a mandatory app transition. Olma may continue ordinary conversation while Fiona remains in Habitat. What ends is the scoped resource-working session, not necessarily her presence on that shore.
+
+3. The dependent-action scenario conflates queued suggestions with created resources
+
+In M4, action 7 creates a character and action 8 creates a relationship to that character. But if both actions have disposition suggest, accepting them into the review queue does not mean the character exists yet. Action 8 cannot target a persisted character merely because action 7 was queued.
+
+The protocol needs one of these models:
+
+action 7 produces a stable proposed-resource ID, which action 8 may reference; Habitat applies the relationship only if the character proposal is later approved;
+the pair is submitted as an atomic apply transaction where direct application is permitted;
+action 8 remains conditionally queued and is revalidated after Fiona accepts action 7.
+
+That distinction between accepted for review and applied to canonical state needs to remain exact throughout mutation results.
+
+4. Luna cannot consume an opaque Habitat identifier directly
+
+C1 says the stable image identifier is passed to Luna “as-is.” An opaque habitat://… reference is meaningful to the bridge, not necessarily to the vision model.
+
+The proper chain is:
+
+stable Habitat ID → authenticated bridge retrieval → image bytes/local resolvable asset → Luna
+
+The ID remains canonical; any URL or byte stream is delivery. Creatrix performs that resolution before Luna receives the image.
+
+What the edit now gets genuinely right
+Conversation is first-class.
+Habitat renders presence without adopting conversation as writing.
+Olma’s memory is authored continuity, not an audit table.
+Specialist collaboration can remain relationally visible.
+Token cost is verified before context insertion.
+Search is bounded and paginated.
+References survive move, rename and reparent.
+Locks are evaluated by action type.
+Evidence excerpts are named honestly as bounded content.
+Actions have IDs, revisions, receipts and idempotent recovery.
+Dependency behaviour and partial failure are explicit.
+Technical payload clears; relational continuity remains.
+
+So my verdict is: the heart of the document now holds. It no longer designs a clever remote-control system while calling it presence.
+
+Add the resident-readiness scenario, resolve the closure contradiction, correct proposed-resource dependencies, and clarify image retrieval. Then it is ready to cross to Habitat—not as a finished protocol, but as a strong, honest requirements document capable of receiving real objections without surrendering its relational foundation.
