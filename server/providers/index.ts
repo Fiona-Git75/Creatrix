@@ -279,6 +279,12 @@ export class OllamaProvider implements ModelProvider {
               }
             }
 
+            // message.thinking — newer Ollama native thinking field (0.7+).
+            // Never emit this; it is internal reasoning, not the response.
+            // <think>…</think> tag filtering is applied by the caller on the
+            // complete buffered response, which correctly handles tags that
+            // are split across NDJSON chunk boundaries.
+
             if (parsed.message?.content) {
               onChunk({ type: "content", content: parsed.message.content });
             }

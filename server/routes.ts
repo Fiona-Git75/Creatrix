@@ -19,6 +19,42 @@ import path from "path";
 
 const SERVER_START = Date.now();
 
+// ── Think-block filter ────────────────────────────────────────────────────────
+// DeepSeek-R1 and other reasoning models emit chain-of-thought inside
+// <think>…</think> tags.  When Ollama's model template doesn't suppress these,
+// they arrive as plain content.  Left unfiltered they:
+//   • flood the visible response with thousands of reasoning tokens
+//   • cause severe display lag (nothing renders until generation finishes)
+//   • contaminate future context (the model hallucinates around its own
+//     leaked thinking and invents foreign prompts it never received)
+//
+// Applied on the complete buffered string (not per-chunk) so split tags
+// — where <think> arrives in one NDJSON chunk and </think> in a later one —
+// are handled correctly.  Also retroactively cleans stored messages so already-
+// contaminated turns don't poison future context assembly.
+function stripThinkBlocks(text: string): string {
+  // Fast path: no think tags present
+  if (!text.includes("<think>") && !text.includes("</think>")) return text;
+  let out = "";
+  let remaining = text;
+  let inThink = false;
+  while (remaining.length > 0) {
+    if (inThink) {
+      const closeIdx = remaining.indexOf("</think>");
+      if (closeIdx === -1) break; // entire remainder is thinking — drop it
+      inThink = false;
+      remaining = remaining.slice(closeIdx + "</think>".length);
+    } else {
+      const openIdx = remaining.indexOf("<think>");
+      if (openIdx === -1) { out += remaining; break; }
+      out += remaining.slice(0, openIdx);
+      inThink = true;
+      remaining = remaining.slice(openIdx + "<think>".length);
+    }
+  }
+  return out;
+}
+
 // ── Tool result renderer ──────────────────────────────────────────────────────
 // Converts structured tool results into plain language before the model reads
 // them — reducing the cognitive tax of JSON parsing mid-reasoning.
@@ -996,6 +1032,16 @@ export async function registerRoutes(
         await storage.updateConversation(currentConversationId, { title });
       }
 
+      // Open the SSE channel NOW — before the expensive context assembly below.
+      // This lets the client render the user's message immediately (the
+      // conversation_id event tells the client which conversation this turn
+      // belongs to) without waiting for memory fetches, file reads, and the
+      // full system prompt to be assembled.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.write(`data: ${JSON.stringify({ type: "conversation_id", id: currentConversationId })}\n\n`);
+
       // Build messages for model
       const updatedConversation = await storage.getConversation(currentConversationId);
       const rawMessages = updatedConversation!.messages;
@@ -1009,7 +1055,10 @@ export async function registerRoutes(
         const isLastUserMessage = m.role === "user" && idx === rawMessages.length - 1;
         // Append any stored vision observations to the message content so the
         // primary model receives them as text context (persisted across turns).
-        let content = m.content;
+        // Also strip any think blocks that may have been stored in earlier
+        // assistant turns (e.g. from a previous session before filtering was in
+        // place) so contaminated history doesn't poison future context.
+        let content = stripThinkBlocks(m.content);
         if (m.role === "user" && m.visionObservations && m.visionObservations.length > 0) {
           for (const obs of m.visionObservations) {
             content += `\n\n[Visual observation — ${obs.connectionName}]\n${obs.observation}`;
@@ -1393,18 +1442,61 @@ export async function registerRoutes(
         ].join("\n"));
       }
 
-      // Add system message
+      // ── System prompt assembly: finalise and guard ───────────────────────────
+      const systemPrompt = systemParts.join("\n\n");
+
       if (systemParts.length > 0) {
-        modelMessages.unshift({ role: "system", content: systemParts.join("\n\n") });
+        modelMessages.unshift({ role: "system", content: systemPrompt });
       }
 
-      // Set up streaming response
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
+      // Diagnostic: log what was assembled and whether critical protections are present.
+      // This fires on every chat turn so the syslog captures exactly what Ollama receives.
+      {
+        const residentPresent = !!(connection.residentName || connection.residentRole || connection.residentDescription);
+        const hasIdentity = residentPresent;
+        const hasOrientation = !!connection.residentDescription;
+        const hasTemporal = systemPrompt.includes("Right now");
+        // Rough token estimate: 1 token ≈ 4 characters
+        const estimatedTokens = Math.ceil(systemPrompt.length / 4);
+        const configuredCtx = connection.numCtx ?? null;
+        const effectiveCtx = configuredCtx ?? 4096; // Ollama default
 
-      // Send conversation ID first
-      res.write(`data: ${JSON.stringify({ type: "conversation_id", id: currentConversationId })}\n\n`);
+        // Context pressure: system prompt alone should not exceed ~60% of the window,
+        // leaving room for conversation history and the model's response.
+        const pressureRatio = estimatedTokens / effectiveCtx;
+        const pressureFlag = pressureRatio > 0.6 ? "HIGH" : pressureRatio > 0.4 ? "MODERATE" : "OK";
+
+        syslog(
+          pressureFlag === "HIGH" ? "warn" : "info",
+          "chat",
+          `System prompt assembled — resident: ${connection.residentName ?? "(none)"} | identity: ${hasIdentity} | orientation: ${hasOrientation} | temporal: ${hasTemporal} | ~${estimatedTokens} tokens / ${effectiveCtx} ctx (${pressureFlag})`,
+          JSON.stringify({
+            connectionId: connection.id,
+            connectionName: connection.name,
+            residentName: connection.residentName ?? null,
+            residentRole: connection.residentRole ?? null,
+            hasResidentDescription: hasOrientation,
+            hasIdentityBlock: hasIdentity,
+            hasTemporalGrounding: hasTemporal,
+            systemPromptChars: systemPrompt.length,
+            estimatedSystemTokens: estimatedTokens,
+            configuredNumCtx: configuredCtx,
+            effectiveNumCtx: effectiveCtx,
+            contextPressure: pressureFlag,
+          })
+        );
+
+        // Hard warning: if the system prompt alone nearly fills the context window,
+        // Ollama will silently truncate it — dropping orientation, identity, and
+        // temporal grounding first (they are earliest in the prompt).  The model
+        // then runs without its safe-landing context and can hallucinate its identity.
+        if (pressureFlag === "HIGH") {
+          syslog("warn", "chat",
+            `Context window pressure HIGH for ${connection.residentName ?? connection.name}: system prompt (~${estimatedTokens} tok) exceeds 60% of ${effectiveCtx}-token window. ` +
+            `Resident orientation is at risk of truncation. Set num_ctx to at least ${Math.ceil(estimatedTokens / 0.4)} on this connection.`
+          );
+        }
+      }
 
       // ── Luna visual resident pre-processing ──────────────────────────────────
       // When images are present, check for a designated visual resident connection.
@@ -1612,9 +1704,10 @@ export async function registerRoutes(
           // Ollama parsed the model's native format; we receive clean structured calls.
           if (nativeToolCalls.length > 0) {
             // Stream any accompanying text first
-            if (buffered.trim()) {
-              res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
-              fullContent += buffered;
+            const bufferedClean = stripThinkBlocks(buffered);
+            if (bufferedClean.trim()) {
+              res.write(`data: ${JSON.stringify({ type: "content", content: bufferedClean })}\n\n`);
+              fullContent += bufferedClean;
             }
 
             // Execute all tool calls and collect results for the next turn
@@ -1630,7 +1723,7 @@ export async function registerRoutes(
             // Push assistant turn (tool calls) + tool results back into message history
             modelMessages.push({
               role: "assistant",
-              content: buffered.trim() || "",
+              content: bufferedClean.trim() || "",
             });
             modelMessages.push({
               role: "user",
@@ -1646,7 +1739,7 @@ export async function registerRoutes(
 
           if (match) {
             const toolCallStart = buffered.indexOf("<tool_call>");
-            const preText = buffered.slice(0, toolCallStart).trim();
+            const preText = stripThinkBlocks(buffered.slice(0, toolCallStart).trim());
             if (preText) {
               res.write(`data: ${JSON.stringify({ type: "content", content: preText + "\n\n" })}\n\n`);
               fullContent += preText + "\n\n";
@@ -1659,8 +1752,9 @@ export async function registerRoutes(
               toolName = parsed.name as CapabilityName;
               toolArgs = parsed.args || {};
             } catch {
-              res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
-              fullContent += buffered;
+              const safeBuffered = stripThinkBlocks(buffered);
+              res.write(`data: ${JSON.stringify({ type: "content", content: safeBuffered })}\n\n`);
+              fullContent += safeBuffered;
               break;
             }
 
@@ -1677,8 +1771,9 @@ export async function registerRoutes(
 
           } else {
             // No tool call — final response, stream and exit loop
-            res.write(`data: ${JSON.stringify({ type: "content", content: buffered })}\n\n`);
-            fullContent = (fullContent + buffered).trim();
+            const cleanBuffered = stripThinkBlocks(buffered);
+            res.write(`data: ${JSON.stringify({ type: "content", content: cleanBuffered })}\n\n`);
+            fullContent = (fullContent + cleanBuffered).trim();
             break;
           }
         }
@@ -1698,10 +1793,14 @@ export async function registerRoutes(
           await provider.generateStream(modelMessages, selectedModel, (chunk) => {
             if (chunk.type === "content" && chunk.content) {
               summaryBuffered += chunk.content;
-              res.write(`data: ${JSON.stringify({ type: "content", content: chunk.content })}\n\n`);
             }
           }, undefined, connection.numCtx ?? undefined);
-          fullContent = summaryBuffered.trim();
+          // Strip think blocks from the complete summary before display + persist
+          const cleanSummary = stripThinkBlocks(summaryBuffered).trim();
+          if (cleanSummary) {
+            res.write(`data: ${JSON.stringify({ type: "content", content: cleanSummary })}\n\n`);
+          }
+          fullContent = cleanSummary;
         }
 
         // Save complete assistant message (with provenance sources + council attribution)
