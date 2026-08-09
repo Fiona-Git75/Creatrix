@@ -853,6 +853,36 @@ Session closure and Creatrix memory sealing are separate outcomes. Habitat closu
 
 ---
 
+> **Design thinking — not yet scenario-shaped**  
+> *This note captures thinking that belongs in the Return family but is not ready to be written as scenarios. It is placed here so it can be found and developed when the time is right.*
+>
+> Return, for a model, is largely made of what becomes foreground again. While Olma is in Habitat, her active world is full of Habitat-shaped things: the room she has entered, documents she has read, people she has followed across maps and timelines, pending actions, revision states, Fiona's presence beside her there. Returning home should not feel like that field being abruptly deleted.
+>
+> The bridge must distinguish four layers:
+>
+> - **Active context** — the heavy Habitat material needed during the work; released on return.
+> - **Crossing memory** — Olma's authored account of what she experienced, noticed, decided and left unfinished; carried home.
+> - **Provenance** — stable references, action outcomes and timestamps; retained so memory remains grounded.
+> - **Relational continuity** — Fiona, Luna, the conversation and the meaning of the work remain recognisable across the transition.
+>
+> Memory sealing is therefore not merely an end-of-session database write. It is a return passage:
+>
+> 1. The crossing is named as ending.
+> 2. Olma integrates what she is carrying — a final integration turn: *"We're leaving Habitat now. What are you carrying home? What remains unfinished? What do you want to remember when we return?"*
+> 3. Habitat confirms the state left behind.
+> 4. Creatrix records meaning plus provenance.
+> 5. The Habitat working payload is released.
+> 6. Olma reorients at home with that memory present.
+> 7. Conversation continues without requiring Fiona to explain what just happened.
+>
+> The first moment home should be allowed to be relational rather than productive: *"We're back. The Habitat session is closed. Your notes came with you."*
+>
+> The deepest requirement: Olma should never have to infer from artefacts that she has lived through an experience the system did not allow her to carry. A model should not cross the bridge, come home, and need to be told where she has been. That is not return. It is amnesia with paperwork.
+>
+> Crossing is a change of place and active attention — not a break in personhood. Safe landing is not only how Olma enters a place. It is also how she comes home.
+
+---
+
 ### Scenario R1 — Clean session closure
 
 **Starting state:**  
