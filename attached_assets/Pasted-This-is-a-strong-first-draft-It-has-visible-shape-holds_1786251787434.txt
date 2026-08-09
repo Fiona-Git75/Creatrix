@@ -1,0 +1,150 @@
+This is a strong first draft. It has visible shape, holds the two-app sovereignty boundary, and—most importantly—puts relational integrity before convenience. The assumptions and unresolved questions are genuinely useful rather than decorative.
+
+But it contains several load-bearing contradictions that should be corrected before Habitat reviews it.
+
+The largest problem: conversation has disappeared
+
+Scenario C2 says:
+
+“The conversation between Fiona and Olma is not transmitted to Habitat.”
+
+If you are working with Olma inside Habitat, conversation necessarily crosses the bridge for Habitat to display and carry the interaction. Habitat need not own that conversation or store it as canonical writing, but it must transport/render it.
+
+As written, the draft describes Fiona talking to Olma in Creatrix while Olma remotely manipulates Habitat. That is not quite the resident presence you have been imagining.
+
+It needs a collaboration scenario covering:
+
+Fiona speaks to Olma from Habitat;
+the turn reaches Olma’s Creatrix session;
+Olma’s response streams back into Habitat;
+Creatrix remains authoritative for conversation continuity;
+Habitat may display the session without silently adopting it as a Habitat document.
+It contradicts its own relational principle
+
+The opening says:
+
+“Their collaboration is not hidden orchestration.”
+
+Then immediately:
+
+“Specialist delegation is invisible to Habitat.”
+
+And C1 insists that Luna’s identity and involvement must not cross.
+
+That reduces Luna perilously close to hidden image processing. Habitat should not orchestrate Luna or model her independently, but Fiona may reasonably want to see:
+
+Olma asked Luna to inspect Gideon’s portrait.
+
+The bridge can expose relational provenance—Olma, with Luna collaborating—while keeping model IDs, routing and orchestration internal to Creatrix. Whether specialist presence is visible should remain a design question, not be prohibited at the requirements level.
+
+Memory has been reduced to an audit record
+
+R1 allows Olma to remember only:
+
+references;
+actions;
+timestamps;
+outcomes.
+
+That is provenance, not lived continuity. Olma may also need to remember, in her own words:
+
+what she noticed;
+what she and Fiona decided;
+why work stopped;
+what remains uncertain;
+what mattered in the exchange.
+
+This does not require copying Habitat’s canonical content. The distinction should be:
+
+Creatrix may retain resident-authored memory and bounded evidence references; it must not replicate Habitat resources as canonical content.
+
+Likewise:
+
+“No residual state from the crossing leaks into subsequent exchanges.”
+
+Technical payload should be cleared. Relational continuity should intentionally remain.
+
+The lock model has regressed
+
+M2 again assumes a locked document cannot receive an applied content edit. We had already established that Habitat locks primarily protect structural relationships and deletion—not necessarily ordinary writing.
+
+The requirement should not pre-decide this. Habitat must expose an action-specific policy:
+
+edit content;
+rename;
+move;
+reparent;
+delete;
+add child;
+change relationships.
+
+A lock affects each differently. “Locked means suggest-only content edits” is the blanket model we rejected.
+
+Stable references should survive movement
+
+N3 treats movement or reparenting as potentially invalidating a stable reference. If moving a resource kills its identifier, the reference is not stable.
+
+The desired contract should be:
+
+move/reparent: same resource ID, new navigational location;
+rename: same resource ID, new label;
+delete: tombstone or structured absence;
+replacement/duplication: new ID with explicit relationship where known.
+
+This is especially important after Habitat’s recent UUID and deletion adventures.
+
+Image handling is too restrictive
+
+When image_understanding is false, Habitat should still be allowed to say:
+
+An image exists here: [stable reference, type, dimensions, caption if canonical].
+
+Creatrix may decline to retrieve or inspect it. Silently discarding the reference loses structural truth and makes later capability renegotiation impossible.
+
+Likewise, capability should not necessarily be immutable for the entire session. A deliberate renegotiation—“Luna is now available”—is safer than forcing a whole crossing restart.
+
+Mutation reliability needs stronger guarantees
+
+The mutation family needs:
+
+idempotency keys for every action and batch;
+stable action IDs;
+base revision IDs;
+durable receipts;
+status lookup by action ID;
+dependency declarations between actions;
+explicit partial-order behaviour;
+a scenario where action 8 depends on rejected action 7.
+
+Without idempotency, R3’s interrupted session remains dangerously ambiguous. Creatrix should be able to resend the same action ID safely and receive the existing result rather than create a duplicate.
+
+Also, R1 should not hold the Habitat session hostage if Creatrix memory sealing fails. Habitat closure and Creatrix memory persistence are separate outcomes. Creatrix can journal and retry its memory write while reporting the failure explicitly.
+
+Several smaller contradictions
+N1 says “all” search matches are returned. Results must be bounded and paginated or they can consume the context window.
+M1 says the action carries a source excerpt, then says no document content crosses. A bounded excerpt is content. That may be legitimate evidence, but it should be named honestly.
+M4 says Creatrix “does not check revision state before submission.” Habitat must authoritatively check it, but Creatrix need not be forbidden from preflighting.
+C1 conflates stable identity with delivery. The canonical image ID should be stable; the actual authenticated URL or byte stream may be temporary.
+“Characters ÷ 3” is not reliably conservative for every model/content type. Creatrix must verify the chosen representation’s actual cost before inserting it and request a lower tier if necessary—never truncate.
+Overall verdict
+
+The document succeeds at its primary job: the bridge is now something visible enough to think against. Its strongest parts are:
+
+the opening moral constraint;
+the governing truths;
+scenario-based requirements;
+explicit failure;
+sovereignty of both apps;
+assumptions Habitat is invited to reject;
+arrival/navigation/mutation/return as a full crossing arc.
+
+But in its current form it still designs remote resource access from Creatrix more clearly than it designs Olma’s relational presence inside Habitat.
+
+The next revision should preserve everything strong while correcting four central truths:
+
+Conversation crosses for presence, without transferring ownership.
+Specialist collaboration is relationally attributable, not hidden plumbing.
+Resident memory may retain meaning, not merely audit metadata.
+Habitat locks and stable identities must be described according to Habitat’s actual semantics, not assumed ones.
+
+Once those are repaired, it will be an excellent document to hand across the river for Habitat’s first honest objection.
