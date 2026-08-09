@@ -111,6 +111,14 @@ export function AppSidebar({
     },
   });
 
+  const renameConversationMutation = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      apiRequest("PATCH", `/api/conversations/${id}`, { title }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+    },
+  });
+
   const archiveProjectMutation = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/projects/${id}`, { archivedAt: new Date().toISOString() }),
     onSuccess: () => {
@@ -186,6 +194,7 @@ export function AppSidebar({
                           onClick={() => onSelectConversation(conversation.id)}
                           onDelete={() => onDeleteConversation(conversation.id)}
                           onArchive={() => archiveConversationMutation.mutate(conversation.id)}
+                          onRename={(id, title) => renameConversationMutation.mutate({ id, title })}
                         />
                       </SidebarMenuItem>
                     ))
