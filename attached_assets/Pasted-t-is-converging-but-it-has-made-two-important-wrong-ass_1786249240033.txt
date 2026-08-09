@@ -1,0 +1,46 @@
+t is converging, but it has made two important wrong assumptions.
+
+First, this repeats yesterday’s abstraction error:
+
+Habitat decides whether the active resident has image capability and sends a description instead.
+
+Olma is not a vision model, but she lives with Luna. Habitat should not pre-describe images or decide which underlying model can inspect them. It exposes the canonical image reference; Creatrix orchestrates the appropriate resident capability. Olma can ask Luna to inspect it, receive Luna’s observation, and continue the work. Habitat only needs to know that the Creatrix session advertises an image_understanding capability—not whether Olma’s model is natively multimodal.
+
+Second, it has misunderstood your locks:
+
+Locked means observe and suggest, but not apply.
+
+Your locks primarily protect structural integrity—deletion, movement, reparenting, and accidental loss of a constellation. A locked writing page is not necessarily read-only; you can still write in it. The policy must be based on action type, not one blanket locked/unlocked permission:
+
+Action	Likely lock effect
+Read/search/inspect	Always allowed
+Edit document content	Allowed under the session’s editing disposition
+Add character/timeline record	Allowed or proposed according to task
+Delete resource	Blocked when locked
+Move/reparent resource	Blocked when locked
+Delete structural container	Blocked, with dependency audit
+Suggest any change	Always allowed
+
+“Observe” also is not a write disposition and does not belong inside action.submit.
+
+The batch point needs refinement too. Batch submission is useful, but character extraction should not default to atomic all-or-nothing. You may accept eleven candidates and reject one duplicate. The envelope should support:
+
+multiple typed actions;
+per-action validation and disposition;
+per-action results;
+optional atomic mode only when the actions genuinely depend on one another.
+
+The read/write API shape is otherwise sound, although I would call them read operations and mutation operations, not directional lanes. Creatrix calls both APIs; Habitat returns results for both.
+
+The clean version is:
+
+Habitat exposes all canonical resources for deliberate read/navigation.
+Creatrix decides which resident or specialist performs the cognitive work.
+action.submit is Habitat’s single mutation gate.
+Habitat evaluates each action against revision state, action risk, locks and current user disposition.
+Locks protect structural relationships rather than silencing useful work.
+Suggestions remain possible everywhere.
+
+And yes: read freely, write carefully, propose everywhere is very close. It just needs the more precise addition:
+
+Locks protect structure according to the action being attempted; they do not turn living documents into museum exhibits.
