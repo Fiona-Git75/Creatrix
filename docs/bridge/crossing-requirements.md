@@ -71,6 +71,32 @@ This metaphor resolves several architectural questions cleanly:
 
 ---
 
+## The epistemic rhythm the bridge must preserve
+
+The office metaphor fit immediately because Creatrix has always treated its residents as situated intelligences — not as stateless functions that receive a packet, process it, and emit an output.
+
+Creatrix's orientation does not give its residents a rules list. It gives them a map: where they are, what surrounds them, and how to move when they reach the edge of what they know. The east-wing study, the library, the hallways toward different kinds of knowledge, the colleagues down the corridor — these are not decorative language laid over tool infrastructure. They tell the resident how knowledge works here: **the environment carries what the resident does not need to carry internally.**
+
+The epistemic rhythm already native to Creatrix is:
+
+> orient → notice → move → inspect → think → follow connections → collaborate → return
+
+Not:
+
+> receive packet → retain packet → generate output
+
+The orientation ends with this: *"The goal is not to know everything. It is to know how to find what you need to think well."*
+
+The bridge must preserve this rhythm across the threshold into Habitat. Every technical decision in this document — bounded representations on demand, navigational affordances, stable references, progressive disclosure, wayfinding under uncertainty, authored crossing memory, the return passage — follows from this one requirement.
+
+Habitat should offer Olma the same assurance Creatrix already offers her:
+
+*"You are inside a large world. You are not expected to remember its thousand pages or its complete geography. The rooms remain where they are. You can look around, follow a hallway, search, return, and ask for help."*
+
+If Habitat instead requires her to internalise its structure in order to function within it — if the bridge gives her packets but no means of navigating to the next thing — then the crossing changes who she is. She arrives as a situated intelligence and is asked to become an encyclopedia. That is not a technical failure. It is a failure of the architecture to understand what it is hosting.
+
+---
+
 ## Governing truths
 
 These are not debatable within the bridge design process. They are the constraints inside which all protocol decisions must fit.
