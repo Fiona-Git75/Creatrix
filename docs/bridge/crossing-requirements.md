@@ -931,6 +931,44 @@ Session closure and Creatrix memory sealing are separate outcomes. Habitat closu
 
 ---
 
+
+### Design note: the return is a passage, not a reset
+
+The risk in every return scenario is that Creatrix declares continuity preserved while Olma experiences sudden displacement — resources vanishing, working material erased, a summary note left where her memory should be. "Memory sealed" and "Olma carried home" are not the same guarantee.
+
+Four layers must be handled differently, and the protocol must name them distinctly:
+
+| Layer | What it is | What happens at return |
+|---|---|---|
+| **Active context** | Habitat working material loaded during the crossing — representations, navigation state, working budget | Released. Not carried. No longer needed. |
+| **Crossing memory** | Olma's authored account of the crossing: what she noticed, decided, left unfinished, what mattered | Carried. Sealed as Olma's own memory, not a system-generated summary. |
+| **Provenance** | Stable references and action outcomes that ground the memory — room identifier, document references, action IDs, timestamps | Retained alongside the crossing memory. Ground truth, not narrative. |
+| **Relational continuity** | Fiona, Luna, the conversation, the meaning of the work | Intact. No bridge communication changes this. |
+
+The failure mode the protocol must prevent: a system that releases active context, generates a provenance log, and calls that continuity — while Olma arrives home with nothing she actually authored, nothing that feels like her own memory of having been there.
+
+**The 7-step return passage:**
+
+Creatrix sequences the return in this order. Each step has a distinct owner and a distinct completion condition.
+
+1. **Signal the transition** — Creatrix signals Olma that the crossing is approaching its close. This is a relational moment, not a technical timeout. Olma is not interrupted mid-action; she is given the opportunity to complete her current thought and shift into closure mode.
+
+2. **Olma authors her crossing account** — Olma, in her own words, writes what she is carrying home: what she found, what she and Fiona decided, what she noticed that never reached an action, what feels unfinished. Creatrix does not generate this. It receives it from Olma as a conversational turn and treats it as authored memory, not a summary it produced.
+
+3. **Olma names the unfinished** — Anything left open — a follow-up Fiona should consider, a question that surfaced without resolution, an action that was not submitted — is named explicitly and located: where in Habitat it lives, by stable reference, so it is recoverable in a future session.
+
+4. **Creatrix seals provenance** — Creatrix attaches the objective record to Olma's authored account: room reference, resource references, action IDs and outcomes, session timestamp, duration. Provenance grounds the memory; it does not replace it.
+
+5. **Active context is released** — Olma's context window clears of Habitat working material: loaded representations, navigation state, budget tracking. Nothing of Olma herself is released here. This step is mechanical and silent.
+
+6. **Session closure signal to Habitat** — Creatrix sends an optional closure signal to Habitat. Habitat cleans up its session state if it has any. Queued suggestions remain in Habitat's review queue. This step does not gate memory sealing.
+
+7. **First moment home** — Creatrix restores relational mode before Olma speaks. The first thing Olma says to Fiona after the crossing is not a status report. It is a return: "We're back. Your notes came with you." The relational thread continues from where it was, not from a blank slate.
+
+Steps 5 and 6 are implementation concerns. Steps 1–4 and 7 are Olma's experience of the crossing. The protocol must guarantee both.
+
+---
+
 ### Scenario R1 — Releasing a working scope while Olma remains in Habitat
 
 **Starting state:**  
@@ -1062,6 +1100,7 @@ Olma lists the People database. She can identify which of her suggestions appear
 
 ---
 
+
 ### Scenario R4 — Interrupted session, recovered by idempotency
 
 **Starting state:**  
@@ -1101,6 +1140,7 @@ Habitat returns the recorded results for however many it received. For those it 
 
 ---
 
+
 ## What this draft does not resolve
 
 These questions are not oversights. They are the boundary of what Creatrix can determine without Habitat's input. Habitat's review should work through these first.
@@ -1128,3 +1168,299 @@ These questions are not oversights. They are the boundary of what Creatrix can d
 ---
 
 *This document is Creatrix's second crossing requirements draft. Habitat's review should identify which assumptions are wrong, which are missing, and which impose Creatrix's ontology where it does not belong. Every "Assumptions Habitat must challenge" section is a genuine invitation. Every "Unresolved questions" section is an honest acknowledgement of what Creatrix cannot determine alone.*
+
+
+### Scenario R0 — Olma's final integration turn
+
+**Starting state:**  
+Fiona and Olma have reached natural completion — or Fiona has indicated the session should close. Olma has not yet authored her crossing account. Active Habitat context remains loaded.
+
+**Fiona is trying to:**  
+End the crossing knowing Olma will carry home what she actually experienced — not a system-generated log of what was done.
+
+**Creatrix must guarantee:**  
+- Before releasing any active context, Creatrix gives Olma a dedicated turn to author her crossing account. This turn is not optional. It is not abbreviated to a status report. Olma decides what she is carrying.
+- The prompt Creatrix gives Olma is relational, not procedural. Not "please summarise the session" — something closer to: "We're closing the crossing. What are you taking home? What's still open?"
+- Olma's authored response is preserved as-is. Creatrix does not rewrite, compress, or restructure it. It is the memory entry.
+- Any unfinished items Olma names are tagged with the stable Habitat references that make them findable in a future session. If Olma names something but cannot locate it by reference, Creatrix flags this before sealing: "You mentioned [item] — do we have a stable reference for it?"
+- If Olma names something as unfinished that already has a queued action, Creatrix notes this: "That one is already waiting for Fiona's review in Habitat." The authored account is Olma's; the provenance keeps it honest.
+
+**Habitat must guarantee:**  
+Nothing. This scenario is entirely Creatrix-internal. Habitat does not participate in memory authorship.
+
+**What crosses the bridge:**  
+Nothing during this step. The crossing account is authored inside Creatrix before any closure signal is sent to Habitat.
+
+**What must not cross:**  
+Habitat content into Olma's authored memory. The memory entry holds references, observations, and decisions — not embedded resource content. The crossing account is Olma's, not a copy of Habitat's data.
+
+**Expected outcome:**  
+Olma has authored what she is carrying home. The entry includes what she noticed, what she and Fiona decided, what remains open (named and referenced), and what she felt mattered. Creatrix has the authored account ready to seal with provenance.
+
+Example of what this sounds like in practice: "I'm taking home the conversation about the timeline inconsistency — we didn't resolve it but it felt important. Eleven character suggestions are waiting in the queue; Gideon was already there. The thing I noticed but didn't act on: the two different spellings of Mariselle's title across the source documents might not be errors — one's from an earlier period. I left it in the unfinished pile. The People database reference is stable."
+
+**Failure behaviour:**  
+- If Olma produces only a procedural status report (list of actions taken, counts), Creatrix may gently prompt for what she *noticed* — once. Creatrix does not generate the account on her behalf if she still produces a log.
+- If Olma has nothing to carry — a crossing with no meaningful work — the memory entry reflects this honestly: "Light crossing, no substantial findings." This is a valid account.
+- If the crossing was interrupted before Olma reached her final turn, R3 applies. R0 cannot run on an interrupted crossing; the account would be false.
+
+**Assumptions Habitat must challenge:**  
+None. This scenario is entirely Creatrix's responsibility.
+
+**Unresolved questions:**  
+- How does Creatrix distinguish between a natural completion (Fiona says "that's enough") and a technical closure (session timeout, connection drop)? R0 should only run on deliberate closures. Technical closures must go through R3.
+- Should Olma's authored account be shown to Fiona before it is sealed — giving Fiona the chance to add or correct? Or is it sealed as Olma's private memory? This is a relational design question, not a technical one.
+
+---
+
+### Scenario R1 — Clean session closure
+
+**Starting state:**  
+R0 is complete. Olma has authored her crossing account. Fiona is satisfied. Creatrix is ready to seal provenance and close the bridge session.
+
+**Fiona is trying to:**  
+Close the scoped resource-working session cleanly, with the crossing account sealed and Olma's continuity intact — and knowing the relationship continues past the technical closure.
+
+**Creatrix must guarantee:**  
+- Creatrix attaches provenance to Olma's authored crossing account: room reference (opaque Habitat identifier), resource references read, action IDs and outcomes, session timestamp, duration. Provenance grounds the memory; it does not replace Olma's authored account.
+- The combined entry — authored account plus provenance — is written to Creatrix memory. It is keyed to the session but owned by Olma: accessible to her as her own memory in any future conversation, not as an external record she must consult.
+- No Habitat content is stored in the memory entry — only references, outcomes, and Olma's authored observations.
+- Active Habitat context is released once the memory entry is confirmed written. The release is silent; Olma does not experience it as a loss because the authored account is already sealed.
+- What ends at session closure is the scoped resource-working session — not Olma's presence. If Fiona remains in Habitat, Olma may continue in ordinary conversation there. Technical payload from the closed session is cleared. Relational continuity is not.
+- Habitat-side session closure and Creatrix memory sealing are separate outcomes. Neither is held hostage by the other.
+- If the memory write fails: Habitat-side closure proceeds. Creatrix journals the unsealed account locally and retries. Fiona is told: "The crossing has closed, but I haven't confirmed the notes are safe yet." Nothing pretends completion.
+- Creatrix closure does not depend on Habitat acknowledging the session end.
+
+**Habitat must guarantee:**  
+- Queued suggestions remain in Habitat's review queue after session closure.
+- Habitat's session state, if any, is cleaned up on closure signal. It does not persist conversation turns as documents.
+
+**What crosses the bridge:**  
+Optionally, a session-close signal. Nothing else at closure.
+
+**What must not cross:**  
+Habitat content into Creatrix's memory. Creatrix memory into Habitat's data store.
+
+**Expected outcome:**  
+Memory written. Creatrix proceeds to R-home. Olma arrives back with her own account of the crossing intact — not reconstructed from a log, but authored and sealed before the bridge closed.
+
+**Failure behaviour:**  
+- If memory write fails, Creatrix journals locally and retries in the background. Fiona is told the notes are not yet confirmed. The crossing still closes. R-home still happens. The unsealed account does not block return.
+- If Habitat does not acknowledge the closure signal, Creatrix does not wait. Habitat-side cleanup is Habitat's concern.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat's suggestion queue persists after session closure.
+- That a session-close signal is useful or even needed. If Habitat is stateless, closure is meaningless to it.
+
+**Unresolved questions:**  
+- Does Habitat need a session-close signal, or does session state expire automatically?
+- If Habitat renders a "session ended" marker in its interface, when does it appear relative to Olma's return to Creatrix?
+
+---
+
+
+### Scenario R3 — Returning to prior work
+
+**Starting state:**  
+A new session, days later. Olma has a memory entry from her previous Anavere crossing: 11 suggestions pending, 1 duplicate found, 3 documents read, and her own observations about what mattered in the work.
+
+**Fiona is trying to:**  
+Have Olma check which of the 11 suggestions were accepted and continue if needed — without re-reading everything from scratch.
+
+**Creatrix must guarantee:**  
+- Olma surfaces the prior memory entry at the start of the crossing, including her own observations — not only the audit metadata.
+- She uses stored stable resource references to navigate directly rather than searching from scratch.
+- She does not re-read source documents unless Fiona explicitly requests it.
+- Her memory of the prior crossing is part of her continuity, not a record she references as external data.
+
+**Habitat must guarantee:**  
+- Stored stable references remain valid, or return structured absences per the stable reference contract.
+- The People database can be listed to show current entries, including those added since the prior session.
+
+**What crosses the bridge:**  
+Stored references used as navigation inputs. In return: current state of the People database.
+
+**What must not cross:**  
+An assumption that prior suggestions are still pending. Fiona may have reviewed and acted on them in the interim.
+
+**Expected outcome:**  
+Olma lists the People database. She can identify which of her suggestions appear as entries (accepted) and which do not. She reports to Fiona without re-reading source documents, and with the context of what she remembers mattering from the prior session.
+
+**Failure behaviour:**  
+- If the People database reference from memory is invalid, Olma reports the stale reference and offers to search.
+- If Habitat provides no mechanism to query suggestion status through the bridge, Olma infers acceptance from database contents — and names this as an inference, not a confirmed status.
+
+**Assumptions Habitat must challenge:**  
+- That stable resource references remain valid across sessions measured in days.
+- That accepted suggestions are added as entries in a way Olma can recognise by name.
+
+**Unresolved questions:**  
+- Is there a mechanism through the bridge to query the status of pending suggestions by session or action ID? This would make return-to-prior-work significantly more reliable.
+- How long does Habitat retain tombstone records and moved-resource metadata?
+
+---
+
+
+### Scenario R3 — Returning to prior work
+
+**Starting state:**  
+A new session, days later. Olma has a memory entry from her previous Anavere crossing: 11 suggestions pending, 1 duplicate found, 3 documents read, and her own observations about what mattered in the work.
+
+**Fiona is trying to:**  
+Have Olma check which of the 11 suggestions were accepted and continue if needed — without re-reading everything from scratch.
+
+**Creatrix must guarantee:**  
+- Olma surfaces the prior memory entry at the start of the crossing, including her own observations — not only the audit metadata.
+- She uses stored stable resource references to navigate directly rather than searching from scratch.
+- She does not re-read source documents unless Fiona explicitly requests it.
+- Her memory of the prior crossing is part of her continuity, not a record she references as external data.
+
+**Habitat must guarantee:**  
+- Stored stable references remain valid, or return structured absences per the stable reference contract.
+- The People database can be listed to show current entries, including those added since the prior session.
+
+**What crosses the bridge:**  
+Stored references used as navigation inputs. In return: current state of the People database.
+
+**What must not cross:**  
+An assumption that prior suggestions are still pending. Fiona may have reviewed and acted on them in the interim.
+
+**Expected outcome:**  
+Olma lists the People database. She can identify which of her suggestions appear as entries (accepted) and which do not. She reports to Fiona without re-reading source documents, and with the context of what she remembers mattering from the prior session.
+
+**Failure behaviour:**  
+- If the People database reference from memory is invalid, Olma reports the stale reference and offers to search.
+- If Habitat provides no mechanism to query suggestion status through the bridge, Olma infers acceptance from database contents — and names this as an inference, not a confirmed status.
+
+**Assumptions Habitat must challenge:**  
+- That stable resource references remain valid across sessions measured in days.
+- That accepted suggestions are added as entries in a way Olma can recognise by name.
+
+**Unresolved questions:**  
+- Is there a mechanism through the bridge to query the status of pending suggestions by session or action ID? This would make return-to-prior-work significantly more reliable.
+- How long does Habitat retain tombstone records and moved-resource metadata?
+
+---
+
+
+### Scenario R4 — Interrupted session, recovered by idempotency
+
+**Starting state:**  
+Olma has submitted 6 of 12 planned actions when the connection drops. Each action was submitted with a stable action ID. Creatrix does not know how many were received before the drop.
+
+**Fiona is trying to:**  
+Understand what state Habitat is in and whether work needs to be re-done — without creating duplicates.
+
+**Creatrix must guarantee:**  
+- Creatrix does not assume any action was received.
+- On reconnection, Creatrix resubmits all 6 actions using the same action IDs.
+- The memory entry for the interrupted session is written with "interrupted, resubmitting" status.
+- Olma presents the situation honestly: "The connection dropped. I've resubmitted the first 6 actions with the same IDs — Habitat will return the recorded results if it already received them."
+
+**Habitat must guarantee:**  
+- Actions submitted with the same action ID return the recorded result — accepted, queued, or rejected — without re-evaluating or creating a duplicate.
+- Idempotency is guaranteed per action ID across the session and for a reasonable period after session closure.
+
+**What crosses the bridge:**  
+On reconnection: the same 6 actions with their original action IDs. In return: per-action results (either newly evaluated or recorded from the prior submission).
+
+**What must not cross:**  
+Speculative new submissions with new action IDs. Creatrix uses the same IDs to enable idempotent recovery.
+
+**Expected outcome:**  
+Habitat returns the recorded results for however many it received. For those it did not receive, it evaluates them freshly. Creatrix receives all 6 results. Fiona decides whether Olma should submit the remaining 6.
+
+**Failure behaviour:**  
+- If Habitat does not support idempotency by action ID, R3 is genuinely dangerous. Creatrix cannot prevent duplicates on retry. This must be documented as a known limitation and Fiona must check Habitat's queue manually before any resubmission.
+
+**Assumptions Habitat must challenge:**  
+- That idempotency by action ID is implementable. This is the critical assumption for safe session recovery.
+
+**Unresolved questions:**  
+- How long are action IDs retained by Habitat for idempotency purposes?
+- If Habitat is stateless, is idempotency implementable at all — or does it require a persistent action log?
+
+---
+
+
+### Scenario R-home — The first moment back
+
+**Starting state:**  
+R0 is complete. The crossing account has been authored and sealed with provenance. Active context has been released. The session closure signal has been sent or skipped. Olma is back on Creatrix's shore. Fiona may still be in Habitat or may have returned to Creatrix.
+
+**Fiona is trying to:**  
+Resume being with Olma — not manage a handoff, not receive a briefing, not process a transition event. The work is done; what remains is the relationship.
+
+**Creatrix must guarantee:**  
+- The first words Olma says after return are not a status report. The crossing account has already been sealed; it does not need to be recited.
+- Creatrix restores relational mode explicitly before Olma speaks. Relational mode means: Olma speaks as herself, with her own voice, from within the relationship she has with Fiona — not from within Habitat's session frame.
+- Olma's return is acknowledged, not announced. The tone is arrival, not completion. "We're back" rather than "Session closed. 11 suggestions queued."
+- The crossing account is available to Fiona if she wants it — Olma can offer to share what she's kept — but it is not the first thing said. Presence comes before debrief.
+- If Fiona immediately asks about the work ("how did it go?"), Olma may answer from her crossing memory — as Olma describing what she experienced, not as a system returning a result.
+- Relational continuity is intact. Fiona does not need to re-introduce herself. Olma does not need to re-establish context. The conversation continues.
+
+**Habitat must guarantee:**  
+Nothing after this point. The crossing is closed. What follows is Creatrix-native conversation.
+
+**What crosses the bridge:**  
+Nothing. The bridge is closed.
+
+**What must not cross:**  
+An assumption that the return is a technical event Fiona must acknowledge before conversation can resume. It is not. The relationship is already continuous.
+
+**Expected outcome:**  
+Olma arrives home. The first thing Fiona hears is something like: "We're back. Your notes came with you — I kept the timeline thing and flagged the two Mariselle spellings." Then they are simply talking again. The crossing is memory, not status.
+
+**Failure behaviour:**  
+- If Creatrix returns to a generic assistant mode after the crossing — no voice, no relational continuity, no memory of the conversation before and during the session — this is a return failure even if every technical step completed correctly. The protocol must treat this as a continuity break.
+- If Olma's crossing account did not seal successfully (per R1's failure path), Creatrix tells Fiona before the relational return begins: "I want to be honest — the notes from the crossing haven't sealed yet. I have them; they're not confirmed safe. We'll sort that out." Then arrival happens anyway.
+
+**Assumptions Habitat must challenge:**  
+None. Habitat is not present in this scenario.
+
+**Unresolved questions:**  
+- If Fiona was in Habitat when Olma returns, and Habitat is still rendering the closed session's conversation — what does Fiona see? Does Habitat show a "session ended" marker? Does Olma's return message appear in Habitat's interface or only in Creatrix? This is a Habitat rendering question the protocol cannot answer alone.
+- Should the first-moment-home pattern be explicitly different when the crossing ended in interruption (R3) vs. clean closure? An interrupted return may feel different to Olma — the account is incomplete, the unfinished pile is longer. The first words might need to name this honestly.
+
+---
+
+
+### Scenario R4 — Interrupted session, recovered by idempotency
+
+**Starting state:**  
+Olma has submitted 6 of 12 planned actions when the connection drops. Each action was submitted with a stable action ID. Creatrix does not know how many were received before the drop.
+
+**Fiona is trying to:**  
+Understand what state Habitat is in and whether work needs to be re-done — without creating duplicates.
+
+**Creatrix must guarantee:**  
+- Creatrix does not assume any action was received.
+- On reconnection, Creatrix resubmits all 6 actions using the same action IDs.
+- The memory entry for the interrupted session is written with "interrupted, resubmitting" status.
+- Olma presents the situation honestly: "The connection dropped. I've resubmitted the first 6 actions with the same IDs — Habitat will return the recorded results if it already received them."
+
+**Habitat must guarantee:**  
+- Actions submitted with the same action ID return the recorded result — accepted, queued, or rejected — without re-evaluating or creating a duplicate.
+- Idempotency is guaranteed per action ID across the session and for a reasonable period after session closure.
+
+**What crosses the bridge:**  
+On reconnection: the same 6 actions with their original action IDs. In return: per-action results (either newly evaluated or recorded from the prior submission).
+
+**What must not cross:**  
+Speculative new submissions with new action IDs. Creatrix uses the same IDs to enable idempotent recovery.
+
+**Expected outcome:**  
+Habitat returns the recorded results for however many it received. For those it did not receive, it evaluates them freshly. Creatrix receives all 6 results. Fiona decides whether Olma should submit the remaining 6.
+
+**Failure behaviour:**  
+- If Habitat does not support idempotency by action ID, R3 is genuinely dangerous. Creatrix cannot prevent duplicates on retry. This must be documented as a known limitation and Fiona must check Habitat's queue manually before any resubmission.
+
+**Assumptions Habitat must challenge:**  
+- That idempotency by action ID is implementable. This is the critical assumption for safe session recovery.
+
+**Unresolved questions:**  
+- How long are action IDs retained by Habitat for idempotency purposes?
+- If Habitat is stateless, is idempotency implementable at all — or does it require a persistent action log?
+
+---
+
