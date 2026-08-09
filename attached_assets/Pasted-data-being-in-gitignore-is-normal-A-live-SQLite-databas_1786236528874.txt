@@ -1,0 +1,28 @@
+data/ being in .gitignore is normal. A live SQLite database should not be committed to Git. Git is not the persistence mechanism for application data. The durable fix is not “commit a seed file containing Fiona’s resident configuration” or move ordinary resident settings into environment secrets.
+
+More importantly, their explanation does not fit the evidence:
+
+If the environment received an entirely fresh empty database, you would lose all connections, resident descriptions, identities, conversations, and other DB-backed configuration.
+You did not merely lose an entire recognisable Creatrix installation. The specific newly added num_ctx values vanished while the app still contained a forest of existing connection records and resident data.
+The screenshot itself shows Olmo, Olma, Tulu, Luna, multiple Ollama connections, and resident descriptions. Those came from somewhere. This is plainly not just “new environment, empty DB, everything gone.”
+
+They need to identify the actual database file used during each event, not theorise from .gitignore:
+
+exact absolute DB path when you set 32768;
+exact absolute DB path now;
+database creation timestamps and migration records;
+whether the same connection UUIDs survived;
+whether commissioning, seeding, task merge, restore, or startup copied/recreated records;
+the history of Olma’s specific connection record and its num_ctx value.
+
+And the durable architecture is:
+
+persistent SQLite stored outside disposable code workspaces;
+migrations preserve existing rows and values;
+explicit export/backup/restore for resident configuration;
+visible warning if Creatrix opens a new or unexpected database;
+never silently seed a replacement and pretend it is the same home.
+
+I would stop them before they implement either proposal and say:
+
+Do not move resident configuration into Git or environment secrets. data/ being ignored is not itself a defect. Your explanation does not fit the surviving connections, identities and conversations. Trace the exact absolute SQLite path and connection UUID across the environment where I set 32768 and the current environment. Establish whether the database changed, a record was recreated, or an update omitted num_ctx. Do not propose persistence architecture until you have identified which event actually occurred.

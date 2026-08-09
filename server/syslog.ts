@@ -8,7 +8,7 @@
 //              they document what was validated at system construction time.
 //              Do not clear them with normal log rotation.
 export type LogLevel = "info" | "warn" | "error";
-export type LogCategory = "system" | "chat" | "tool" | "connection" | "notion" | "filesystem" | "web" | "bootstrap" | "scrub";
+export type LogCategory = "system" | "chat" | "tool" | "connection" | "notion" | "filesystem" | "web" | "bootstrap" | "scrub" | "contract";
 
 export interface LogEntry {
   id: string;
