@@ -1,312 +1,729 @@
 # Creatrix–Habitat Bridge: Crossing Requirements
 
-**Status:** First draft for Habitat adversarial review  
+**Status:** Working draft — questions outnumber answers; this is the point  
 **Authored by:** Creatrix  
-**Purpose:** To specify what a resident requires to cross safely and work coherently inside Habitat. This document makes no claims about Habitat's internal structure. It states Creatrix's requirements and assumptions so Habitat can identify where those assumptions are wrong.
+**Purpose:** To state what a resident requires to cross safely and work coherently inside Habitat. This document makes no claims about Habitat's internal structure. It states Creatrix's requirements and assumptions so Habitat can identify where those assumptions are wrong, incomplete, or impose the wrong ontology.
 
-No endpoint names appear here. Each requirement is expressed as a behavioural guarantee or a concrete scenario. Habitat's review should answer: *"That assumption does not hold on our shore."*
-
----
-
-## Governing principles
-
-**Creatrix authors resident-crossing requirements. Habitat authors resource-exposure conditions. The protocol is negotiated, not dictated.**
-
-- Habitat exposes all canonical resources for deliberate read and navigation.
-- Creatrix decides which resident or specialist performs the cognitive work.
-- All mutations flow through a single Habitat gate; Habitat evaluates each action against revision state, action risk, locks, and current user disposition.
-- Locks protect structural relationships according to action type; they do not silence useful work.
-- Suggestions remain possible everywhere.
-- Locks protect structure according to the action being attempted; they do not turn living documents into museum exhibits.
+Habitat's review question throughout: *"That assumption does not hold on our shore."*
 
 ---
 
-## The bridge contract at a glance
+## Governing truths
 
-```
-session.start          identity, provenance, capabilities, budget envelope
-                       Creatrix → Habitat, once per crossing
+These are not debatable within the bridge design process. They are the constraints inside which all protocol decisions must fit.
 
-read operations        room.open, resource.list, document.read, document.search,
-                       character.read, character.search, place.read,
-                       timeline.query, relationship.inspect,
-                       image.inspect, audit.dependencies
-                       always permitted; Creatrix decides which resident does the work
+1. Creatrix carries resident identity, continuity, memory, and orchestration.
+2. Habitat carries canonical resources, structure, revisions, and mutation authority.
+3. The bridge transfers bounded representations, conversation, and proposed actions — not ownership.
+4. Creatrix authors safe-crossing requirements.
+5. Habitat authors exposure and action conditions.
+6. Neither app shares or writes the other's database.
+7. Failure is explicit. No silent fallback, truncation, replication, or reclassification.
+8. This document contains no endpoint design.
 
-action.submit          Habitat's single mutation gate
-                       typed actions, per-action disposition, optional atomic mode
-                       per-action result: accepted | queued | rejected + reason
+---
 
-observation            Creatrix-internal memory work; never submitted to Habitat
-```
+## A note on token costs
+
+An earlier version of this draft assumed Habitat could advertise exact token costs per representation. That was wrong.
+
+Token counts are model-dependent. The same paragraph tokenises differently under GPT-4, Llama 3, Mistral, and OLMo. Habitat does not know which model is active, and tokeniser knowledge belongs in Creatrix.
+
+**The corrected position:** Habitat advertises representation sizes in bytes or characters, plus optionally a conservative rough estimate using a simple heuristic (e.g. characters ÷ 3). Creatrix receives these sizes and calculates the true token cost against the active resident's model and current tokeniser. Creatrix selects a representation based on its own calculation, not Habitat's estimate.
+
+An alternative is an explicit negotiated estimator — the session handshake names a shared tokeniser for estimation purposes — but this creates coupling between the bridge protocol and model infrastructure and would need careful versioning. We do not resolve this here. It is an open question that belongs in the protocol design.
+
+What is not negotiable: Habitat does not decide whether a representation fits in Olma's window. Creatrix does.
 
 ---
 
 ## Family 1 — Arrival
 
-*What must be true before any work begins.*
+*Identity is established. Capabilities are declared. Olma learns the shape of the territory before touching anything.*
 
-### Requirements
+The hardest things happen here. Wrong assumptions in the arrival phase propagate through everything that follows. These scenarios should be read as contract tests.
 
-**R-A1: Identity is established before any resource is touched.**  
-The session carries: the user identity (Fiona), the Creatrix instance, the named resident (e.g. Olma), and a provenance timestamp. Habitat must be able to record who crossed, from which system, as which resident, and when. This is not authentication in the web-app sense; it is provenance for Habitat's own audit trail.
+---
 
-**R-A2: Session capabilities are declared once, at session start.**  
-Creatrix declares what the session can do. At minimum: `image_understanding` (true/false), `specialist_delegation` (true/false), and the maximum context envelope in tokens. Habitat calibrates its representation offers against these capabilities. Habitat does not need to know which underlying model provides image understanding; it only needs to know the session can handle images.
+### Scenario A1 — Standard arrival in a known room
 
-**R-A3: A maximum budget envelope and reserved margins are established at session start.**  
-The maximum envelope is the upper bound on context tokens Creatrix can accept in total for resource representations during this session. Reserved margins cover: conversation history travelling with the resident, memory context, system prompt, and response space. These margins are opaque to Habitat; only the available token budget for representations is shared.
+**Starting state:**  
+Fiona is beginning a new session with Olma. No prior crossing memory exists for Anavere. Olma's context window is relatively clear — a short greeting exchange and her system prompt. Creatrix estimates approximately 18,000 tokens available for representations.
 
-**R-A4: The budget is dynamic throughout the session.**  
-The envelope established at session start is a ceiling, not a fixed allocation. As the session accumulates conversation, tool results, and specialist observations, the available window changes. Every substantive resource request must carry the current available budget, and Habitat must offer representations calibrated to that current figure.
+**Fiona is trying to:**  
+Open a working session in Anavere so Olma can begin exploring the People database and understand its current state before doing any extraction work.
 
-**R-A5: Orientation is returned as part of room.open, not session.start.**  
-`session.start` establishes identity and capability. The first resource call (`room.open` or equivalent) returns orientation: the shape of what is available in this context — resource types present, top-level navigational structure, and the write disposition map for this session. Creatrix needs this before Olma can reason about what to do.
+**Creatrix must guarantee:**  
+- Olma's identity and the Creatrix instance are declared before any resource is touched.
+- Session capabilities are stated once and accurately: `image_understanding: true` (Luna is available), `specialist_delegation: true`.
+- The available representation budget is communicated as a byte/character range Creatrix has calculated from its current token estimate. Habitat receives a size constraint; Creatrix retains budget authority.
+- Provenance is timestamped: who crossed, from which system, as which resident, when.
 
-**R-A6: The write disposition map is returned at orientation, not discovered through rejection.**  
-Olma must be able to say "this resource is locked for deletion" before she attempts a deletion — not learn it from a rejected action. The disposition map communicates, per resource type and per lock state, which action types are available at which disposition level (suggest / apply / blocked) for this session.
+**Habitat must guarantee:**  
+- The room's navigational shape is returned on first contact: resource types present, top-level sections, and — critically — the write disposition map for this session (what action types are permitted, suggested, or blocked, per resource type and lock state).
+- The write disposition map is returned before Olma does anything, not discovered through rejection.
+- Habitat does not return resource content during orientation. Shape only.
 
-### Scenarios
+**What crosses the bridge:**  
+Fiona's identity, Creatrix instance identifier, Olma's resident name, session capabilities, representation size budget. In return: the room's navigational shape and write disposition map.
 
-**Scenario A1 — Standard arrival**  
-Fiona opens a Creatrix session with Olma and instructs her to work in the Anavere room. Creatrix initiates a session, advertising `image_understanding: true`, `specialist_delegation: true`, maximum envelope 24,000 tokens, reserved margins 18,000, available for representations: 6,000. Olma calls `room.open` for Anavere and receives: the navigational shape (People, Places, Timelines, Flora, Fauna, Relationship Maps), the write disposition map for this session, and confirmation that the session is active. Olma reports orientation to Fiona and waits for direction.
+**What must not cross:**  
+Olma's internal context, memory contents, system prompt, or model identity. Habitat does not need to know what Olma knows or which model she runs on. Creatrix does not receive Habitat's internal data structures.
 
-*What Creatrix requires: the orientation is enough for Olma to describe the room's structure without reading any resource. No content has been fetched yet.*
+**Expected outcome:**  
+Olma can describe Anavere's structure to Fiona — People, Places, Timelines, Flora, Fauna, Relationship Maps — and knows which action types are available to her before reading a single resource. No content has been fetched.
 
-**Scenario A2 — Arrival with a constrained budget**  
-Fiona and Olma have had a long conversation before the crossing begins. Olma's context window is significantly occupied. Creatrix reports available for representations: 1,800 tokens. Habitat receives this figure and offers only metadata and summary representations until Olma's budget changes. Olma acknowledges the constraint and scopes her work accordingly.
+**Failure behaviour:**  
+- If the session handshake fails, the crossing does not begin. Creatrix reports the failure explicitly; no partial state is recorded in Olma's memory. No silent retry.
+- If Habitat returns an orientation response missing the write disposition map, Creatrix treats this as an incomplete handshake. The crossing pauses; Olma reports the gap to Fiona.
+- If Habitat returns content during orientation (a resource, not a shape), Creatrix does not pass it to Olma unprompted. This would be a protocol violation.
 
-*What Creatrix requires: Habitat does not refuse the session or silently send a full resource. It offers within the declared budget.*
+**Assumptions Habitat must challenge:**  
+- That Habitat can return a write disposition map at room level. It may be that lock state varies per resource and a room-level map is a coarse approximation or impossible.
+- That "navigational shape" is a concept Habitat can return efficiently — i.e. the top-level section names and their types — without traversing the full tree.
+- That a single `room.open` equivalent is the correct entry point, rather than a more granular resource reference that does not correspond to a room at all.
 
-**Scenario A3 — Arrival without image capability**  
-The session advertises `image_understanding: false`. Olma calls `room.open` for Anavere. When Olma later requests a document that contains an image, Habitat does not offer the image reference as a selectable representation. It offers metadata, summary, and text sections only. Olma notes the image exists but cannot inspect it in this session.
+**Unresolved questions:**  
+- What is the granularity of the write disposition map? Per resource type? Per individual resource? Per lock state? Habitat must answer this.
+- Can a session begin without a room — e.g., opening directly onto a cross-room resource like a relationship map that spans multiple rooms? If so, orientation needs a different shape.
+- We do not yet know what Habitat considers a "session." Does Habitat have a session concept, or is each request stateless from Habitat's perspective?
 
-*What Creatrix requires: Habitat's representation menu responds to capability advertisement, not to assumptions about the resident's model.*
+---
+
+### Scenario A2 — Arrival with a crowded context window
+
+**Starting state:**  
+Fiona and Olma have had a long and productive conversation before the crossing begins — a 45-minute session covering several topics. Olma's context window is significantly occupied. Creatrix calculates the available representation budget at approximately 2,100 characters (a rough estimate based on remaining tokens and the active model's tokeniser). This is materially less than a standard session.
+
+**Fiona is trying to:**  
+Move the conversation into Habitat to check the state of the People database before ending the session for the day. A light navigation task, not heavy extraction.
+
+**Creatrix must guarantee:**  
+- The size constraint communicated to Habitat reflects the current available budget accurately, not an aspirational figure.
+- If the budget is too small for any useful representation, Creatrix reports this to Fiona before initiating the crossing rather than entering a state where Habitat offers representations Creatrix cannot accept.
+- The budget figure is calculated by Creatrix, not estimated by Habitat.
+
+**Habitat must guarantee:**  
+- When the offered size constraint is small, Habitat offers representations within that constraint rather than refusing or defaulting to full content.
+- At minimum, a metadata-level representation is always available and always within a size that a constrained session can accommodate. If even metadata exceeds the constraint, Habitat says so explicitly.
+
+**What crosses the bridge:**  
+Same as A1, but with a materially smaller size constraint declared upfront.
+
+**What must not cross:**  
+The contents of Fiona and Olma's prior conversation. Habitat should not know what they discussed.
+
+**Expected outcome:**  
+Olma arrives in Anavere, receives a metadata-level orientation (section names and types only), confirms the People database is present, and reports to Fiona. The session is useful despite the tight budget.
+
+**Failure behaviour:**  
+- If the budget is insufficient for any orientation, the crossing does not begin. Creatrix reports to Fiona: the context window is too full for a crossing. Fiona may choose to start a new session.
+- If Habitat returns a representation that exceeds the declared size constraint, Creatrix does not silently truncate it to fit. It flags the mismatch and pauses. This is a protocol violation.
+
+**Assumptions Habitat must challenge:**  
+- That "metadata-level" is a universally available representation tier. For some resource types — relationship maps, images — metadata may not be meaningful at that level of sparseness.
+- That Habitat can serve size-constrained responses without significant performance cost. This may be an implementation concern Habitat needs to flag.
+
+**Unresolved questions:**  
+- Should there be a minimum viable budget below which a crossing is defined as non-startable? If so, what is it, and who decides: Creatrix, Habitat, or the protocol?
+- We have not defined what "metadata" means per resource type. Habitat must define this for each type it exposes.
+
+---
+
+### Scenario A3 — Arrival without image capability
+
+**Starting state:**  
+A session in which `specialist_delegation` is false — Luna is not available, perhaps Fiona is working with a different resident configuration, or Luna is not loaded. The session advertises `image_understanding: false`.
+
+**Fiona is trying to:**  
+Have a resident do text-based extraction work in Anavere. Images are not relevant to this task.
+
+**Creatrix must guarantee:**  
+- The capability declaration is accurate. Creatrix does not advertise a capability it cannot fulfil.
+- If `image_understanding` changes mid-session (e.g. Luna becomes available), this is not communicated to Habitat mid-session. Capability is fixed at session start.
+
+**Habitat must guarantee:**  
+- When `image_understanding: false`, Habitat does not include image references in any representation menu.
+- Habitat does not pre-describe or summarise images on Creatrix's behalf. It does not make assumptions about what alternative Creatrix will use.
+- If a resource contains only images and no text, Habitat returns a representation noting that no text content is available for this resource in this session configuration.
+
+**What crosses the bridge:**  
+Same as A1, with `image_understanding: false` in the capability declaration.
+
+**What must not cross:**  
+Any image data, image URL, or image description generated by Habitat. Habitat should not decide what the resident sees instead.
+
+**Expected outcome:**  
+Olma works entirely with text. If she encounters an image-only resource, Habitat tells her it exists and that no text content is available, and she reports this to Fiona rather than receiving a Habitat-generated description.
+
+**Failure behaviour:**  
+- If Habitat sends an image reference despite `image_understanding: false`, Creatrix discards it and logs the protocol violation. Olma does not receive it.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat knows which resources contain only images. It may not be possible to determine this without reading the resource.
+- That "no text content available" is a valid response shape Habitat can return. Is this the case for all resource types?
+
+**Unresolved questions:**  
+- If Luna becomes available mid-session, should there be a mechanism to renegotiate capabilities? Or is the session capability declaration truly immutable once set? We lean toward immutable, but this needs explicit agreement.
 
 ---
 
 ## Family 2 — Navigation
 
-*Moving through Habitat's world without imposing Creatrix's structure on it.*
+*Olma moves through Habitat's world without imposing Creatrix's structure on it.*
 
-### Requirements
+The scenarios here are where Habitat's actual resource model will surprise the protocol. Cross-resource traversal in particular — a character who appears in a document, a timeline, and a relationship map — will stress assumptions that seemed fine during arrival.
 
-**R-N1: Resource references are stable and opaque to Creatrix.**  
-Every Habitat resource has a stable identifier that Creatrix can hold, store in memory, and pass back without parsing or interpreting it. The path hierarchy visible in Habitat's UI is navigational context only; it is not the identifier. Creatrix treats the reference as an atomic token.
+---
 
-**R-N2: Navigation context travels with every resource reference.**  
-When Habitat returns a resource reference, it includes navigational context — enough for Olma to know where in the world this resource lives — without requiring Creatrix to traverse the hierarchy to discover it. Example: a document reference carries its parent path as a human-readable hint (not a traversable structure).
+### Scenario N1 — Finding a specific document
 
-**R-N3: `resource.list` returns type and navigational summary, not content.**  
-Listing a folder or section returns: resource identifiers, resource types, names, and navigational hints. No content. Olma can understand the shape of a section without reading it.
+**Starting state:**  
+Olma has arrived in Anavere. Write disposition map received. Fiona names a document: "Covenant of Hunters." Olma does not have a reference to it. She must search.
 
-**R-N4: Read operations are always permitted.**  
-No read operation requires negotiation of permission. The session has already established identity. Olma reads freely; Habitat's lock system governs mutations, not reads.
+**Fiona is trying to:**  
+Get Olma to the right document quickly, by name.
 
-**R-N5: Cross-resource traversal is supported.**  
-A character who appears in a document, a timeline entry, and a relationship map is the same entity. Creatrix must be able to follow a reference from one resource type to another without the session scope collapsing. The session is not bound to a single room; a crossing may touch resources across room boundaries.
+**Creatrix must guarantee:**  
+- Olma submits a search with the title as the query.
+- Creatrix states the current available size budget with the search request.
+- Creatrix does not assume the search will return one result. If multiple matches exist, Olma surfaces them to Fiona before picking one.
+- Creatrix does not fetch content from the search result; it fetches the reference and navigational context only.
 
-**R-N6: Representation negotiation applies to every substantive read.**  
-When Olma requests a resource, Creatrix states the current available token budget. Habitat returns a menu of available representations with their token costs. Creatrix selects. Habitat sends the selected representation. No representation is sent unsolicited.
+**Habitat must guarantee:**  
+- Search returns: stable resource identifiers, resource types, navigational context (where in the hierarchy this resource lives), and a size estimate per representation tier — not content.
+- If multiple matches exist, all are returned.
+- Search results do not include full content, summaries, or excerpts unless explicitly requested as a separate read.
+- Stable references in search results are the same identifiers that subsequent read requests accept.
 
-```
-Creatrix: I can accept 6,000 tokens for this resource.
+**What crosses the bridge:**  
+Search query (title string). In return: one or more references with navigational context and representation size estimates.
 
-Habitat offers:
-  metadata         —   180 tokens
-  summary          —   900 tokens
-  selected sections — 3,400 tokens
-  full resource    — 11,200 tokens
+**What must not cross:**  
+Document content in the search response. A search is navigation, not a read.
 
-Creatrix selects: selected sections
-Habitat sends: 3,400 tokens of content
-```
+**Expected outcome:**  
+Olma receives a reference to "Covenant of Hunters" with its location: Places / The Triadic Kingdom / Coeur du Nord. She reports this to Fiona and awaits instruction to read. No content has been fetched yet.
 
-**R-N7: A resource that no longer exists returns a structured absence.**  
-If Olma holds a reference to a resource that has been deleted or moved since the reference was created, Habitat returns a structured response identifying the reference as invalid and, where possible, indicating the cause (deleted / moved / access changed). Creatrix records this in session memory and reports to Olma. No silent failure.
+**Failure behaviour:**  
+- If no match is found, Habitat returns an explicit empty result. Olma reports to Fiona; they may try a different query.
+- If the search times out or returns an error, Creatrix surfaces the failure to Olma. No silent empty result.
+- If the search returns a reference that turns out to be invalid when Olma tries to read it, see Scenario N3.
 
-### Scenarios
+**Assumptions Habitat must challenge:**  
+- That title search is a supported operation. Habitat may use different search primitives (full-text, semantic, tag-based). We do not assume keyword title search is the primary mechanism.
+- That search results carry navigational context by default, rather than requiring a separate request to get the location.
+- That all resource types are searchable through the same mechanism. Character entries, timeline events, and documents may have separate search surfaces.
 
-**Scenario N1 — Directed navigation**  
-Fiona asks Olma to read "Covenant of Hunters." Olma does not know the reference. She calls `document.search` with the title. Habitat returns one match with a stable reference and navigational context ("Places / The Triadic Kingdom / Coeur du Nord"). Creatrix states available budget: 4,200 tokens. Habitat offers metadata (200), summary (800), selected sections (2,900), full resource (9,100). Olma selects summary first, reads it, then requests selected sections.
+**Unresolved questions:**  
+- Is there a single search operation across all resource types, or separate searches per type? Creatrix has written separate operations (document.search, character.search) but does not know if Habitat's model supports this distinction.
+- What does Habitat return when a search query matches a locked resource? The reference with lock state noted? An excluded result? We don't know.
 
-*What Creatrix requires: search returns stable references, not content. Content is fetched separately with budget negotiation.*
+---
 
-**Scenario N2 — Following a character across resource types**  
-While reading "Covenant of Hunters," Olma encounters Gideon Molineur. She calls `character.search` for Gideon. Habitat returns his People database entry reference. Olma reads the entry. The entry references a timeline position. Olma calls `timeline.query` for that position. The timeline entry references a relationship map edge. Olma calls `relationship.inspect` for that subgraph. The session has moved across three resource types without the scope collapsing.
+### Scenario N2 — Following a character across resource types
 
-*What Creatrix requires: references returned from one resource type can be used as inputs to a different read operation. The session remains valid across resource type boundaries.*
+**Starting state:**  
+Olma has read the summary of "Covenant of Hunters." The text names Gideon Molineur as "Hunter of Origin." Olma has a reference to the document. She does not yet have a reference to Gideon's People database entry.
 
-**Scenario N3 — Stale reference**  
-Olma holds a reference to a document from a previous session. In the current session she requests it. Habitat returns: reference invalid, resource moved. Creatrix records the invalidity in session memory keyed to the opaque reference. Olma reports to Fiona that the document has moved and suggests a search to relocate it.
+**Fiona is trying to:**  
+Understand who Gideon is across multiple Habitat resource types — his document presence, his database entry, his timeline positions, and his relationship map connections — before deciding whether to extract or update his record.
 
-*What Creatrix requires: structured absence, not a timeout or empty response.*
+**Creatrix must guarantee:**  
+- Olma requests a character search for Gideon, not a full document re-read.
+- Each subsequent read is budget-declared before content is fetched.
+- When Olma moves from a document reference to a character reference to a timeline reference to a relationship reference, the session scope does not collapse. Creatrix holds the sequence of references in session state.
+- The total budget consumed across the traversal is tracked and updated after each fetch.
+
+**Habitat must guarantee:**  
+- A character search by name returns a reference to the People database entry if one exists.
+- The character database entry, when read, can yield references to related resources in other types — timeline positions, relationship map nodes — without Creatrix needing to know Habitat's internal graph structure.
+- These cross-type references are stable identifiers, not navigational descriptions.
+- A session can hold references across resource types simultaneously. It is not scoped to one room or one resource type.
+
+**What crosses the bridge:**  
+Search queries, size budgets, references used as inputs to subsequent reads. In return: character entry content (selected representation), timeline entry content, relationship subgraph representation.
+
+**What must not cross:**  
+The internal link structure of Habitat's database. Creatrix receives references, not graph adjacency lists it would need to interpret.
+
+**Expected outcome:**  
+Olma has read: the document summary, Gideon's database entry, his relevant timeline position, and the relationship map subgraph showing his immediate connections. She can describe Gideon's presence in the world coherently to Fiona. Total budget consumed across four reads is tracked and reported.
+
+**Failure behaviour:**  
+- If a character search returns no result despite the name appearing in a document, Olma reports the gap: "He's named in the text but not in the database." This may be exactly what Fiona needs to know.
+- If a cross-type reference (e.g., timeline position referenced from the character entry) turns out to be invalid, Habitat returns a structured absence. Olma continues with the resources she successfully read.
+- If the budget runs out mid-traversal, Creatrix halts before the next fetch and reports to Fiona how far the traversal reached.
+
+**Assumptions Habitat must challenge:**  
+- That character entries in the People database carry references to other resource types (timeline, relationship map) by default. They may not. Cross-type linking may require separate Habitat searches rather than embedded references.
+- That "relationship map subgraph" can be scoped to a specific character's immediate connections rather than returning the full map. For a large relationship map this is essential, but we don't know whether Habitat supports it.
+- That a single session can traverse room boundaries if a character appears in documents across multiple rooms.
+
+**Unresolved questions:**  
+- How does Habitat handle a character who exists in the text but has no People database entry? Is there a way to search for textual mentions across documents, distinct from database records?
+- We do not know what a "relationship map representation" looks like at any fidelity tier — metadata, subgraph, full. Habitat must define this.
+- Can traversal be initiated from a document reference (document → character), or only from a character search? We don't know whether inbound references are surfaced.
+
+---
+
+### Scenario N3 — Arriving at a resource that no longer exists
+
+**Starting state:**  
+Olma carries a resource reference from a prior session's memory — a document she worked on previously, now referenced by its stable identifier. She returns to that reference in a new session.
+
+**Fiona is trying to:**  
+Resume work on a resource Olma previously read, using the memory entry from the last crossing.
+
+**Creatrix must guarantee:**  
+- Olma uses the stored opaque reference to request the resource without re-searching.
+- Creatrix does not assume the reference is still valid. It treats validity as unknown until Habitat responds.
+- If the resource is absent, Creatrix records the invalidity in session memory keyed to the original reference.
+
+**Habitat must guarantee:**  
+- If a reference is invalid (resource deleted, moved, or reparented), Habitat returns a structured absence response — not an error code, not a timeout, not an empty result.
+- The structured absence indicates the cause where possible: deleted / moved / access changed.
+- If the resource was moved, Habitat provides the new location or a search hint if available.
+
+**What crosses the bridge:**  
+The stored opaque reference. In return: structured absence or the current resource representation.
+
+**What must not cross:**  
+An assumption that the reference is valid. Creatrix does not retry silently.
+
+**Expected outcome:**  
+Habitat returns "resource moved." Creatrix records this against the original reference in session memory. Olma reports to Fiona: "The document has moved. I can search for it by title if you'd like." Fiona decides.
+
+**Failure behaviour:**  
+- If Habitat returns a timeout rather than a structured absence, Creatrix does not treat this as "the resource exists but is slow." It surfaces the ambiguity to Olma, who reports it to Fiona.
+- If Habitat returns no cause for the absence ("invalid reference" with no further detail), Creatrix records this and Olma tells Fiona she cannot determine why.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat tracks why a reference became invalid (deleted vs moved vs reparented). It may not. References may simply fail without explanation.
+- That a "new location" can be returned when a resource is moved. Habitat's internal move operations may not preserve this metadata.
+
+**Unresolved questions:**  
+- How long does Habitat retain reference validity history? Does a deleted resource ever return meaningful metadata, or does deletion erase all trace?
+- Are moved resources discoverable by their previous reference, or is the reference simply dead on move?
 
 ---
 
 ## Family 3 — Collaboration
 
-*Olma working with other residents and with Fiona during a crossing.*
+*Olma works with other residents and with Fiona during a crossing. Multiple intelligences, one coherent session.*
 
-### Requirements
+This is where the multi-resident nature of Creatrix becomes visible at the protocol boundary. Habitat sees one session. Creatrix may be running two residents internally. These scenarios must not leak that complexity to Habitat.
 
-**R-C1: Specialist delegation is Creatrix-internal.**  
-When Olma delegates to Luna (or any other resident), this happens inside Creatrix. Habitat sends a canonical resource reference (e.g. an image reference). Creatrix decides to invoke Luna. Luna's observation is returned to Olma. Habitat sees one session throughout. It does not need to know that two residents were involved.
+---
 
-**R-C2: Specialist invocation requires budget reservation before it occurs.**  
-Before Creatrix invokes a specialist, it reserves or renegotiates the margin for that specialist's response. The reservation is applied to the current available window. Only after reservation does the specialist receive its input.
+### Scenario C1 — Luna inspects an image
 
-**R-C3: Creatrix decides what Olma receives from a specialist observation.**  
-After Luna observes an image, Creatrix decides — against the current budget — whether Olma receives: the full observation, a bounded observation, or a stable reference with a summary. This is a Creatrix budget decision. Habitat is not involved.
+**Starting state:**  
+Olma is reading "Covenant of Hunters" at selected-sections fidelity. The document contains an image — Gideon's portrait. Habitat's representation menu included an image reference because the session advertised `image_understanding: true`. Olma has received the image reference as part of her selected-sections content.
 
-**R-C4: Fiona can converse with Olma during a crossing.**  
-A crossing is not a silent batch job. Fiona and Olma can exchange messages throughout. Olma may report what she has found, ask for direction, or flag ambiguity. These exchanges consume the conversation portion of the context window, which is tracked separately from the representation budget.
+**Fiona is trying to:**  
+Understand how Gideon is visually depicted — whether the portrait aligns with the character as Fiona imagines him, and whether there are visual details relevant to the narrative.
 
-**R-C5: The session must remain coherent across multiple exchanges.**  
-If Olma reads a document, reports to Fiona, Fiona redirects, and Olma reads a second document, the session state — budget, orientation, pending actions — must remain consistent throughout. No exchange resets the session.
+**Creatrix must guarantee:**  
+- Before invoking Luna, Creatrix reserves a size margin for Luna's observation in the current budget accounting.
+- The image reference received from Habitat is passed to Luna as-is. Creatrix does not modify it or attempt to fetch the image itself.
+- After Luna's observation, Creatrix decides — against the current remaining budget — whether Olma receives the full observation, a bounded version, or a stable reference with a brief summary.
+- Habitat sees one session throughout. The delegation to Luna is entirely internal to Creatrix.
+- Luna's observation is Creatrix-originated content. It does not go to Habitat.
 
-### Scenarios
+**Habitat must guarantee:**  
+- The image reference is stable and canonical — not a temporary URL that expires mid-session.
+- The image reference is sufficient for an image-capable client to retrieve the image. Habitat does not decide what format or fidelity to serve; it provides the reference.
+- Habitat does not generate or provide any description of the image. That is Creatrix's concern.
 
-**Scenario C1 — Image inspection via Luna**  
-Olma is reading "Covenant of Hunters." The document contains an image (Gideon's portrait). Habitat's representation menu includes `image reference` as an option (session advertised `image_understanding: true`). Olma selects it. Creatrix receives the canonical image reference. Creatrix reserves 1,200 tokens for Luna's observation before invoking her. Luna receives the image reference and observes: "Man in his 50s, hunter's attire, candlelit study, writing." Creatrix checks remaining budget: 1,200 tokens reserved is within margin. Olma receives the full observation. Olma incorporates it into her reading.
+**What crosses the bridge:**  
+From Habitat to Creatrix: the canonical image reference (a stable identifier or URL). From Creatrix to Habitat: nothing. Luna's observation stays inside Creatrix.
 
-*What Creatrix requires: the image reference is canonical and stable. Luna's invocation and the budget accounting are entirely Creatrix-internal.*
+**What must not cross:**  
+Luna's observation, Luna's identity, the fact that two residents were involved, any request to Habitat for image analysis.
 
-**Scenario C2 — Luna's observation exceeds remaining budget**  
-Olma is deep in a session. Available window after reservation attempt: 400 tokens. Luna's observation would be 900 tokens. Creatrix bounds the observation to 400 tokens before passing it to Olma. Alternatively, Creatrix passes a stable image reference and a 50-token summary: "Portrait of Gideon Molineur, full observation available on request." Olma notes the image and continues without the full observation.
+**Expected outcome:**  
+Olma receives Luna's observation and incorporates it into her reading of the document. She can tell Fiona: "Gideon is depicted in his 50s, in a candlelit study, writing. The visual matches the character's self-description." Habitat was not involved in the analysis.
 
-*What Creatrix requires: bounded or summarised specialist output is valid. Olma must know which she received.*
+**Failure behaviour:**  
+- If the image reference is expired or invalid when Luna attempts to retrieve it, Creatrix records the failure and Olma reports that the image was not accessible. No silent gap.
+- If Luna's observation would exceed the remaining budget even at minimum viable size, Creatrix records a reference to the image in session memory ("image present, not inspected due to budget") and Olma continues without the observation. Fiona is told.
 
-**Scenario C3 — Fiona redirects mid-crossing**  
-Olma has read the summary of "Covenant of Hunters" and reported her initial findings. Fiona asks her to look at the character database before extracting anything. Olma calls `resource.list` on People of Anavere, reviews the existing entries, then returns to her extraction work. The session budget accounts for both reads. No restart is required.
+**Assumptions Habitat must challenge:**  
+- That image references are stable across session duration. If images are served via signed or temporary URLs, the protocol needs a refresh mechanism or a direct stable identifier.
+- That the image reference Habitat includes in a selected-sections representation is sufficient for retrieval without additional context.
 
-*What Creatrix requires: mid-session redirection does not invalidate previous reads or reset the budget accounting.*
+**Unresolved questions:**  
+- We do not know whether Habitat's images are served at a URL Creatrix can retrieve directly, or whether they require an authenticated Habitat request. If the latter, the bridge protocol needs a mechanism for Creatrix to fetch the image through Habitat's session context.
+- If a document has multiple images, are all image references included in the selected-sections representation, or only the first? We do not know.
+
+---
+
+### Scenario C2 — Fiona redirects Olma mid-crossing
+
+**Starting state:**  
+Olma has read the summary of "Covenant of Hunters" and reported her initial findings to Fiona. She was preparing to begin character extraction.
+
+**Fiona is trying to:**  
+Change direction — she wants Olma to check the existing People database before extracting anything, to avoid proposing duplicates.
+
+**Creatrix must guarantee:**  
+- Mid-session redirection does not restart the crossing. The session remains open.
+- The budget accounting reflects all reads so far. The redirection does not reset it.
+- Any pending action drafts Olma had prepared (but not submitted) are preserved or explicitly discarded by Fiona's instruction.
+- The conversation between Fiona and Olma is not transmitted to Habitat.
+
+**Habitat must guarantee:**  
+- The session remains valid across the gap between the last resource request and the next one.
+- There is no assumption of sequentiality — i.e., Habitat does not expire the session because Olma paused to converse.
+
+**What crosses the bridge:**  
+The next resource request (resource.list on People of Anavere), with the current budget declared. The conversational exchange between Fiona and Olma did not cross.
+
+**What must not cross:**  
+Fiona's reasoning, Olma's internal preparation, the conversation content.
+
+**Expected outcome:**  
+Olma lists the People database, reviews existing entries, then returns to her extraction plan with duplicates already identified. The session has been more efficient because Fiona redirected before Olma submitted a batch.
+
+**Failure behaviour:**  
+- If the session has expired due to inactivity during the conversation, Habitat returns a session-invalid response. Creatrix reports this to Olma. The crossing must restart from session establishment. Creatrix preserves what was already read in session memory so Olma does not start entirely blind.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat sessions remain valid across conversational pauses. If Habitat has a timeout, we need to know what it is and whether it can be extended.
+
+**Unresolved questions:**  
+- Does Habitat have a session concept at all, or is each request independently authenticated? If stateless, "session expiry" is not a concern but "session context" needs a different mechanism.
 
 ---
 
 ## Family 4 — Mutation
 
-*Proposing and applying changes to Habitat resources.*
+*Proposing and applying changes. The bridge's single write gate. Where failure modes are most consequential.*
 
-### Requirements
+These scenarios exist because partial failure, revision conflicts, and lock interactions cannot be discovered from an endpoint diagram. They must be followed through as events in time.
 
-**R-M1: All mutations pass through a single gate.**  
-There is one mutation operation. It accepts: a session reference, an array of typed actions, and an optional atomic flag. Creatrix never writes to Habitat through any other path.
+---
 
-**R-M2: Each action carries its own type, target, payload, and disposition.**  
-Disposition is either `suggest` (Habitat queues for human review) or `apply` (Habitat applies directly, subject to lock policy). Creatrix selects disposition based on the write disposition map received at orientation and the nature of the action.
+### Scenario M1 — Character extraction: batch with partial rejection
 
-**R-M3: Lock policy governs by action type, not by blanket locked/unlocked state.**
+**Starting state:**  
+Olma has read "Covenant of Hunters" at full fidelity and identified 12 named characters. She has also reviewed the existing People database and knows it currently contains 47 entries. She has prepared 12 `character.propose_create` actions, each with disposition `suggest`.
 
-| Action type | Lock effect |
-|---|---|
-| Read / search / inspect | Always permitted |
-| Edit document content | Permitted under session editing disposition |
-| Add character / timeline / place record | Permitted or queued according to disposition |
-| Delete resource | Blocked when locked |
-| Move / reparent resource | Blocked when locked |
-| Delete structural container | Blocked; audit available |
-| Suggest any change | Always permitted |
+**Fiona is trying to:**  
+Populate the People database with characters found in this document, for human review before any entry is committed.
 
-**R-M4: Batch submissions are not atomic by default.**  
-A batch of actions is evaluated per action. Each action returns its own result. Eleven may be accepted and one rejected. Atomic mode is available but must be explicitly requested, and only when the actions genuinely depend on one another.
+**Creatrix must guarantee:**  
+- The batch is submitted as a single envelope containing all 12 actions.
+- Each action carries: a stable target reference (the People database), the action type, the payload (character name, role, source reference — a document ID and excerpt), and disposition `suggest`.
+- The source reference in each action's payload is the stable document reference Habitat provided, not a content copy. Creatrix does not embed document content in the action payload.
+- Creatrix waits for per-action results before recording outcomes in session memory.
+- Atomic mode is not requested. Actions are independent.
 
-**R-M5: Habitat returns per-action results.**  
-Each result carries: the action identifier, status (accepted / queued / rejected), and on rejection, a human-readable reason. Creatrix uses these results to update session memory and report to Olma and Fiona.
+**Habitat must guarantee:**  
+- Each action is evaluated independently against: the current state of the People database, any revision changes since the session began, and action risk.
+- A duplicate detection result is returned as a structured rejection with the reason and the ID of the matching existing entry.
+- Habitat applies no actions that have disposition `suggest`. It queues them for human review.
+- Per-action results are returned: accepted / queued / rejected, with reason on rejection.
 
-**R-M6: Revision state is checked at submission, not at action construction.**  
-Olma may construct an action based on a context packet that was generated earlier in the session. By the time she submits, the underlying resource may have changed. Habitat checks the current revision state at the moment of submission. If the resource has changed in a way that invalidates the action, Habitat returns a conflict result with the current revision state. Creatrix reports the conflict to Olma; Olma may revise and resubmit.
+**What crosses the bridge:**  
+12 typed actions with stable source references and disposition declarations. In return: 12 per-action results.
 
-**R-M7: `audit.dependencies` is a read operation, not an escalation path.**  
-Before submitting a deletion of a structural container, Olma may call `audit.dependencies` to understand what would be affected. This returns impact visibility only. The lock still prevents the deletion through the bridge. Audit informs Olma and Fiona so they can make a direct decision in Habitat if appropriate.
+**What must not cross:**  
+Document content. The source reference is an identifier, not a content copy. Habitat already owns the document.
 
-### Scenarios
+**Expected outcome:**  
+11 actions queued for review. 1 action rejected — "Gideon Molineur: matches existing entry [id]." Creatrix records in session memory: 11 suggestions pending in People database, 1 duplicate identified (Gideon Molineur, existing entry reference noted). Olma reports to Fiona.
 
-**Scenario M1 — Character extraction batch**  
-Olma has read "Covenant of Hunters" and identified 12 character references. She constructs 12 `character.propose_create` actions, each with disposition `suggest`. She submits the batch (atomic: false). Habitat evaluates each action. Results: 11 queued for review, 1 rejected — duplicate match against an existing People entry for "Gideon Molineur." Creatrix records: 11 suggestions pending, 1 rejected (duplicate), Gideon Molineur already exists. Olma reports to Fiona.
+**Failure behaviour:**  
+- If Habitat cannot evaluate one action (e.g. the database is temporarily locked for a separate operation), that action returns a structured error. Creatrix does not resubmit silently. Olma reports the partial failure.
+- If Habitat cannot process the batch at all (service error), the entire batch returns an error. No actions are assumed to have been received. Creatrix reports and Fiona decides whether to retry.
+- If Habitat returns fewer results than actions submitted, Creatrix surfaces a count mismatch. It does not assume the missing results succeeded.
 
-*What Creatrix requires: per-action results. The batch succeeds partially. No all-or-nothing failure.*
+**Assumptions Habitat must challenge:**  
+- That Habitat can evaluate duplicate detection per character name in real time. This may require exact-match logic, fuzzy matching, or may not be available at all for the People database specifically.
+- That the People database supports batched `propose_create` actions. It may require individual submissions.
+- That a stable document reference in the action payload is meaningful to Habitat as a source attribution. Habitat may not track source provenance per entry.
 
-**Scenario M2 — Edit proposal on locked content**  
-Olma identifies a factual inconsistency in a locked document. She constructs an `edit.document_content` action with disposition `suggest`. The document is locked. Habitat evaluates: lock does not block content edit suggestions. The action is queued. Habitat returns: queued, pending human review.
+**Unresolved questions:**  
+- What constitutes a duplicate in Habitat's People database? Exact name match? Partial match? Alias matching? This is Habitat's definition, not Creatrix's.
+- Does Habitat's queue for suggested actions have a capacity limit or review expiry? Do unreviewed suggestions expire?
 
-*What Creatrix requires: a suggestion is always accepted for review, even on locked resources. The lock does not silence Olma.*
+---
 
-**Scenario M3 — Attempted deletion of a locked resource**  
-Olma determines that a folder appears to be a duplicate. She constructs a `delete.resource` action. The folder is locked. Habitat returns: blocked, resource is locked. Creatrix reports the block to Olma. Olma calls `audit.dependencies` on the folder. Habitat returns the impact: 7 child documents, 2 relationship map references, 1 timeline entry would be affected. Olma reports the impact to Fiona. Fiona decides whether to act directly in Habitat.
+### Scenario M2 — Proposing an edit to a locked document
 
-*What Creatrix requires: the block is structured, not silent. The audit is informational; it does not override the lock.*
+**Starting state:**  
+Olma has read "The Vow of Flame" — a locked document. During her reading she identified what appears to be an internal inconsistency: a character's name is spelled two ways in the same passage. She wants to flag this.
 
-**Scenario M4 — Revision conflict**  
-Olma constructed a character edit action based on a context packet fetched 20 minutes ago. Another user has since updated the same entry. Olma submits the action. Habitat detects revision mismatch. Result: conflict, current revision returned. Creatrix passes the current revision to Olma. Olma reviews the difference and either revises her action or abandons it.
+**Fiona is trying to:**  
+Have Olma note the inconsistency and propose a correction, even though the document is locked.
 
-*What Creatrix requires: a structured conflict response with the current revision state. Not a silent rejection.*
+**Creatrix must guarantee:**  
+- The write disposition map received at orientation told Olma that `edit.document_content` on locked resources is available at disposition `suggest` but not `apply`.
+- Olma submits an `edit.document_content` action with disposition `suggest`.
+- The action payload includes: the target document reference, the specific passage (by position or stable anchor, not a line number), the current text, and the proposed correction.
+- Creatrix does not attempt `apply` disposition on a locked resource.
 
-**Scenario M5 — Dependent actions (atomic mode)**  
-Olma is creating a new character entry and a relationship map edge that links the new character to an existing one. The edge cannot exist without the character. She submits both actions with `atomic: true`. Habitat evaluates: if the character creation is rejected, the edge action is also rejected. Both are rolled back. Creatrix receives a single compound result.
+**Habitat must guarantee:**  
+- A `suggest` disposition on a locked resource is not blocked. Suggestions are possible everywhere.
+- The suggestion is queued for Fiona's review in Habitat.
+- Habitat returns: queued, with a reference Fiona can use to find the suggestion in Habitat's review interface.
 
-*What Creatrix requires: atomic mode guarantees all-or-nothing when explicitly requested. Non-atomic is the default.*
+**What crosses the bridge:**  
+One typed edit action targeting a specific passage, with disposition `suggest`.
+
+**What must not cross:**  
+An assumption that the lock silences Olma. It does not. A lock protects structural integrity and blocks `apply` — it does not prevent proposals.
+
+**Expected outcome:**  
+The suggestion is queued. Olma reports to Fiona: "I've flagged the name inconsistency in The Vow of Flame — it's in your review queue." The document is unchanged.
+
+**Failure behaviour:**  
+- If Habitat rejects a `suggest` disposition on a locked document (i.e. the lock is more restrictive than the write disposition map indicated), this is a protocol inconsistency. Creatrix surfaces it explicitly. This is a case where Habitat's adversarial review of this document matters most.
+- If the passage anchor Olma used is no longer valid (the document changed), Habitat returns a conflict. Olma re-reads and resubmits if appropriate.
+
+**Assumptions Habitat must challenge:**  
+- That locked documents accept `suggest` disposition without exception. This is an assumption from the governing principles — "suggestions remain possible everywhere" — but Habitat may have edge cases where this is not true.
+- That Habitat has a review queue concept that Fiona can access to see Olma's suggestions.
+- That passage anchors are a concept Habitat supports for edit targeting. Habitat may only support whole-document replacements, or may use different position semantics.
+
+**Unresolved questions:**  
+- How does Olma specify "where in the document" an edit applies? By character offset? By paragraph ID? By section heading? This is Habitat's domain and Creatrix has no answer.
+- Is there a difference between a lock applied by Fiona and a lock applied by the system? Do they have different suggestion policies?
+
+---
+
+### Scenario M3 — Attempted deletion of a locked structural container
+
+**Starting state:**  
+Olma has been listing resources in the Places hierarchy. She has found what appears to be a duplicate folder — "Coeur du Nord: A" exists alongside "Coeur du Nord." The folder contains 4 child documents. It is locked.
+
+**Fiona is trying to:**  
+Understand what the duplicate contains and whether it is safe to remove.
+
+**Creatrix must guarantee:**  
+- Before submitting a delete action, Olma calls `audit.dependencies` on the folder reference.
+- Creatrix treats the audit result as read-only information. It does not submit the delete action without Fiona's explicit direction.
+- If Fiona asks Olma to attempt the delete anyway (to confirm the block), Creatrix submits the action and reports the result accurately.
+- Creatrix does not suggest to Fiona that the lock can be worked around through the bridge.
+
+**Habitat must guarantee:**  
+- `audit.dependencies` is a read operation. It returns: the full impact of a hypothetical deletion — child resources, cross-references, relationship map edges, timeline entries — with counts and types. It does not modify any state.
+- A `delete.resource` action on a locked resource returns a structured block response. Not an error code. A statement: blocked, resource is locked, here is the lock reason if available.
+- The block does not cascade into partial execution. Nothing is deleted.
+
+**What crosses the bridge:**  
+Audit request (folder reference). In return: impact report. Subsequently, if Fiona instructs: delete action. In return: structured block response.
+
+**What must not cross:**  
+An implication that the audit result is an escalation path around the lock. It is not. The lock holds regardless of what the audit reveals. Only Fiona's direct action in Habitat can perform the deletion.
+
+**Expected outcome:**  
+Olma reports: "Coeur du Nord: A contains 4 documents and is referenced in 2 relationship map entries. It is locked. I cannot delete it through the bridge. If you want it gone, you'll need to do that directly in Habitat." Fiona decides.
+
+**Failure behaviour:**  
+- If `audit.dependencies` returns an incomplete impact (e.g. cross-references not tracked), Habitat must indicate this — not return a confident but incomplete result. Olma cannot give Fiona a false sense of safety.
+- If the structured block response is absent and the delete silently fails without indication, this is a protocol violation. Creatrix must not assume silence means success.
+
+**Assumptions Habitat must challenge:**  
+- That `audit.dependencies` is implementable in real time without significant performance cost.
+- That Habitat tracks cross-type references well enough to give a complete impact report.
+- That all deletions through the bridge are blockable at the protocol level. It should not be possible for the bridge to bypass a lock on deletion even through a sequence of actions.
+
+**Unresolved questions:**  
+- Does the lock apply to the container's contents recursively, or only to the container itself? Can Olma delete child resources of a locked container if the children are themselves unlocked?
+- Is there a lock reason Habitat can surface (who set it, when, why)? Or is the lock opaque from the bridge's perspective?
+
+---
+
+### Scenario M4 — Revision conflict on submission
+
+**Starting state:**  
+Olma read a character entry for "Mariselle" 18 minutes ago. Since then, Fiona has edited the entry directly in Habitat. The entry Olma read is no longer current. Olma has prepared an `edit.character_entry` action based on her reading of the now-stale version.
+
+**Fiona is trying to:**  
+Add additional information about Mariselle that Olma identified in a document.
+
+**Creatrix must guarantee:**  
+- Creatrix does not check revision state before submission. It submits and lets Habitat evaluate.
+- When a conflict is returned, Creatrix passes the current revision to Olma — not just the error.
+- Olma does not resubmit automatically. She presents the conflict to Fiona and waits for direction.
+
+**Habitat must guarantee:**  
+- At submission time, Habitat checks the revision state of the target resource.
+- If the resource has changed since the version Olma read (however Habitat determines this), the action returns: conflict, with the current revision state of the entry attached.
+- The current revision is returned in a representation Creatrix can pass to Olma — i.e. at a fidelity level Olma can reason about, not raw database state.
+
+**What crosses the bridge:**  
+The edit action, including an implicit or explicit revision reference from when Olma read the entry. In return: conflict status and the current revision.
+
+**What must not cross:**  
+An assumption that Habitat tracks revision at field level. It may only track at document level.
+
+**Expected outcome:**  
+Olma receives the current Mariselle entry alongside the conflict notice. She reviews what Fiona changed and identifies whether her planned addition is still valid, now redundant, or needs modification. She proposes a revised action or reports to Fiona that the change was already made.
+
+**Failure behaviour:**  
+- If Habitat does not track revision state and cannot detect conflicts, this is a gap in the bridge's safety guarantees. Creatrix cannot compensate. This must be surfaced as a known limitation in the protocol documentation.
+
+**Assumptions Habitat must challenge:**  
+- That revision tracking exists per resource and is accessible through the bridge.
+- That the current revision can be returned in a bounded representation, not just as a full document dump.
+
+**Unresolved questions:**  
+- Does Habitat track revision at document level, section level, or field level? The granularity determines how useful the conflict response is.
+- Is there a version identifier Olma can include in her action payload (a "I read this at version X" token) that Habitat can check against? Or does Habitat use timestamps? Or does it not track revisions at all?
 
 ---
 
 ## Family 5 — Return
 
-*Closing the crossing cleanly, preserving memory, leaving Habitat consistent.*
+*Closing the crossing cleanly, preserving memory, leaving Habitat consistent, and Olma available for what comes next.*
 
-### Requirements
-
-**R-R1: Session closure seals Creatrix memory.**  
-When a crossing ends, Creatrix writes a memory entry keyed to the session. The entry records: which room was visited (opaque Habitat reference), which resources were read (opaque references), which actions were submitted and their outcomes, any pending suggestions, and a timestamp. No Habitat content is stored in Creatrix memory — only provenance.
-
-**R-R2: Unresolved actions are explicitly noted at closure.**  
-If the session produced suggested actions that are still pending Habitat review, Creatrix records these as unresolved at session close. The count and nature of pending actions are noted — not their content. Example: "3 character suggestions pending review in Anavere People database."
-
-**R-R3: A resumed session can reference prior crossing memory.**  
-If Olma crosses into Habitat again in a later session, Creatrix can surface the prior memory entry. Olma knows she has previously worked in this room, which resources she visited (by opaque reference), and what was left unresolved. She does not re-read everything from scratch; she can navigate directly to relevant resources.
-
-**R-R4: An interrupted session leaves Habitat consistent.**  
-If a session ends unexpectedly (timeout, connection loss, user abandonment), actions already submitted and accepted by Habitat remain applied or queued as Habitat recorded them. Creatrix makes no assumption about what Habitat received after the last acknowledged response. On reconnection, Creatrix may query session state rather than resubmitting.
-
-**R-R5: The resident returns to her home context cleanly.**  
-After a crossing, Olma is available for ordinary conversation in Creatrix. Her context window reflects the session accurately. She can summarise what she did, reference what she found (by description, not by content), and act on Fiona's next instruction without residual state from the crossing.
-
-### Scenarios
-
-**Scenario R1 — Clean closure**  
-Olma has read three documents, submitted a batch of 11 character suggestions (all queued), and confirmed one character as already existing. Fiona indicates the work is done. Creatrix closes the session. Memory entry written: room Anavere, 3 documents read, 11 character suggestions pending, 1 duplicate identified. Session duration and timestamp recorded. Olma returns to ordinary conversation.
-
-*What Creatrix requires: the memory entry captures provenance, not content. Olma can describe her work from memory; she does not hold Habitat content in her context.*
-
-**Scenario R2 — Return to prior work**  
-In a new session, Fiona asks Olma to follow up on the character work from last time. Olma retrieves her memory entry for the prior Anavere crossing. She knows: 11 suggestions were pending, 1 was a duplicate. She calls `resource.list` on the People database to check current state. Habitat returns the current entries. Olma can identify which suggestions have been accepted and which remain pending. She continues from where she left off without re-reading the source documents.
-
-*What Creatrix requires: opaque references in memory are sufficient for Olma to re-navigate to the relevant resources. She does not need to remember content.*
-
-**Scenario R3 — Interrupted session**  
-Olma has submitted 6 of 12 planned actions when the connection drops. The 6 submitted actions have been received by Habitat (3 accepted, 3 queued). The remaining 6 were never sent. On reconnection, Creatrix does not resubmit the first 6. It may query session state to confirm what Habitat received, then offer to continue with the remaining 6 actions. Olma and Fiona decide whether to proceed.
-
-*What Creatrix requires: submitted actions are not resubmitted speculatively. Habitat's record of what it received is authoritative.*
+Return is the family most likely to be underspecified. Clean departure is less dramatic than arrival. But unresolved actions, interrupted sessions, and resumability are where the protocol either earns trust or quietly loses state.
 
 ---
 
-## Open questions for Habitat review
+### Scenario R1 — Clean session closure
 
-These are assumptions Habitat should challenge:
+**Starting state:**  
+Olma has completed her work for this crossing: she read three documents, submitted a batch of 11 character suggestions (all queued), and identified one duplicate. Fiona is satisfied. The session is ending.
 
-1. **Representation fidelity tiers** — the draft assumes Habitat can offer metadata, summary, selected sections, and full resource for most resource types. Does this hold for relationship maps, timelines, and image resources? What are the actual tiers?
+**Fiona is trying to:**  
+Close the crossing cleanly and return Olma to ordinary conversation.
 
-2. **Write disposition map granularity** — the draft assumes the disposition map can be returned per resource type and per lock state at orientation. Is per-resource granularity feasible, or is it per-section or per-room?
+**Creatrix must guarantee:**  
+- Before closure, Creatrix writes a memory entry keyed to the session. The entry records: opaque Habitat reference (Anavere), list of resource references read (stable identifiers, not content), action outcomes (11 queued, 1 rejected — duplicate), timestamp, and session duration.
+- The memory entry contains no Habitat content. Only provenance.
+- After closure, Olma is available for ordinary conversation. No residual state from the crossing leaks into subsequent exchanges.
+- The memory entry is retrievable in a future session by room reference or by date.
 
-3. **Cross-resource references** — the draft assumes a character in a document can yield a reference to the People database entry for that character. How are these cross-type references surfaced? Is this automatic, or does Olma need to search separately?
+**Habitat must guarantee:**  
+- A closure notification (if the protocol includes one) is acknowledged. Habitat does not need to do significant work at closure, but it should not be surprised by the session ending.
+- Queued suggestions remain in Habitat's review queue after session closure. They are not cleared on session end.
 
-4. **Session scope across rooms** — the draft assumes one session can navigate across room boundaries. Is there a Habitat concept of cross-room resources, or does Habitat's structure prevent this?
+**What crosses the bridge:**  
+Optionally, a session-close notification. Nothing else.
 
-5. **Revision state and conflict detection** — the draft assumes Habitat tracks revision state per resource and can detect conflicts at submission time. What granularity does Habitat track revisions at (document-level, field-level, something else)?
+**What must not cross:**  
+Document content into Creatrix's memory. The memory entry holds references and outcomes, not what Olma read.
 
-6. **Image references** — the draft assumes canonical image references are stable identifiers, not temporary URLs. Is that accurate?
+**Expected outcome:**  
+Memory written. Olma tells Fiona: "Done. I've suggested 11 new characters for the People database — they're waiting for your review. Gideon Molineur was already there." Creatrix returns to normal conversation mode.
 
-7. **Resumable sessions** — the draft assumes Habitat can return state for a previous session on reconnection. Does Habitat have a session concept, or is each connection stateless?
+**Failure behaviour:**  
+- If the memory write fails, Creatrix surfaces the failure explicitly. It does not close the session without recording the crossing — that would lose provenance. Fiona is asked to decide: retry the memory write or accept the loss.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat's suggestion queue persists after session closure. This seems likely but must be confirmed.
+- That a session-close notification is useful or even needed. If Habitat is stateless, closure is meaningless to it.
+
+**Unresolved questions:**  
+- Does Habitat need a session-close signal, or does session state simply expire? We do not know whether Habitat maintains any session-side state that requires cleanup.
 
 ---
 
-*This document is Creatrix's first crossing requirements draft. It makes claims about what a resident needs; it makes no claims about what Habitat should do internally. Habitat's review should identify which assumptions are wrong, which are missing, and which impose Creatrix's ontology where it does not belong.*
+### Scenario R2 — Returning to prior work
+
+**Starting state:**  
+A new session, days later. Olma has a memory entry from her previous Anavere crossing: 11 suggestions pending, 1 duplicate found (Gideon Molineur), 3 documents read (stable references stored).
+
+**Fiona is trying to:**  
+Have Olma check which of the 11 suggestions were accepted, and continue extraction work if needed.
+
+**Creatrix must guarantee:**  
+- Olma surfaces the prior memory entry at the start of the crossing without re-reading the source documents.
+- She uses the stored stable resource references to navigate directly to the People database rather than searching from scratch.
+- She does not re-read the source documents unless Fiona explicitly requests it.
+
+**Habitat must guarantee:**  
+- The stable resource references stored in Olma's memory remain valid (or return a structured absence if they do not).
+- The People database can be listed to show current entries, including those added since the prior session.
+
+**What crosses the bridge:**  
+Stored opaque references, used as navigation inputs. In return: current state of the People database.
+
+**What must not cross:**  
+An assumption that the prior session's pending suggestions are still pending. Fiona may have reviewed and accepted or rejected them in the interim.
+
+**Expected outcome:**  
+Olma lists the People database. She can identify, by name, which of her 11 suggestions appear as entries (accepted) and which do not (rejected or still pending). She reports to Fiona without re-reading source documents.
+
+**Failure behaviour:**  
+- If the People database reference from memory is invalid (the database was restructured), Olma reports the stale reference and offers to search for the database by name.
+- If Habitat's suggestion queue provides no way to query pending status from the bridge, Olma can only infer acceptance by checking whether entries now exist in the database. This is a known limitation she should name explicitly.
+
+**Assumptions Habitat must challenge:**  
+- That stable resource references remain valid across sessions measured in days. Habitat may restructure in ways that break previously stable references.
+- That Olma can infer suggestion status by checking database contents. If accepted suggestions are added under different names or merged with existing entries, this inference fails.
+
+**Unresolved questions:**  
+- Is there a mechanism through the bridge to query the status of pending suggestions by session or by action? Or is suggestion status only visible inside Habitat's own UI?
+- How long does Habitat retain references to moved or deleted resources? Days? Indefinitely?
+
+---
+
+### Scenario R3 — Interrupted session
+
+**Starting state:**  
+Olma has submitted 6 of 12 planned actions when the connection drops — network failure, session timeout, or unexpected termination. Creatrix has no confirmation of whether any actions were received by Habitat.
+
+**Fiona is trying to:**  
+Understand what state Habitat is in and whether work needs to be re-done or is already queued.
+
+**Creatrix must guarantee:**  
+- Creatrix does not assume any action was received by Habitat.
+- Creatrix does not resubmit the 6 actions speculatively on reconnection.
+- On reconnection, Creatrix may query session state to determine what Habitat received.
+- The memory entry for the interrupted session is written with "interrupted" status — not as if the session completed.
+- Olma presents the ambiguity to Fiona honestly: "I don't know what Habitat received before the connection dropped."
+
+**Habitat must guarantee:**  
+- If the protocol supports session state queries, Habitat returns what it received and recorded before the interruption — without re-executing anything.
+- Actions that Habitat received and recorded before the interruption remain in their recorded state (queued or accepted). They are not rolled back simply because the session ended unexpectedly.
+
+**What crosses the bridge:**  
+On reconnection: a session state query (if the protocol supports it). In return: what Habitat recorded.
+
+**What must not cross:**  
+Speculative resubmissions. Creatrix does not assume silence means failure and retry.
+
+**Expected outcome:**  
+Habitat confirms: 6 actions received and queued before the interruption. The remaining 6 were never submitted. Fiona decides whether Olma should submit the remaining 6 now, leave them, or abandon the batch.
+
+**Failure behaviour:**  
+- If session state query is not supported (Habitat is stateless), Creatrix cannot determine what was received. Fiona must check Habitat's review queue directly to understand the state before deciding whether to resubmit.
+- If Habitat returns an inconsistent state (e.g. 3 of 6 received), Creatrix presents the partial record without interpreting it. Fiona decides.
+
+**Assumptions Habitat must challenge:**  
+- That Habitat has a session state query mechanism at all. This is the most uncertain assumption in the return family. If Habitat is fully stateless, interrupted sessions cannot be recovered through the bridge.
+- That actions received before an interruption are durably recorded by Habitat and not held in volatile state.
+
+**Unresolved questions:**  
+- Does Habitat have any concept of a session that persists server-side, or is it entirely request-response? This is the most consequential open question for session recovery.
+- If Habitat is stateless, is there a Habitat-side audit log Fiona can query to see what was received? If so, can the bridge surface a link to it?
+
+---
+
+## What this draft does not resolve
+
+These questions are not oversights — they are the boundary of what Creatrix can determine without Habitat's input.
+
+1. **Habitat's session model.** Whether Habitat maintains server-side session state is the single most consequential unknown in this document. Almost every return scenario changes significantly depending on the answer.
+
+2. **Token cost negotiation.** Habitat can advertise byte or character sizes per representation tier. Creatrix calculates true token cost against the active model's tokeniser. Whether this is sufficient, or whether an explicit shared estimator is needed, is unresolved. It must be explicit either way.
+
+3. **Cross-type reference surfacing.** We have assumed that reading a character entry can yield references to their timeline and relationship map positions. This may not be how Habitat works.
+
+4. **Write disposition map granularity.** We have assumed Habitat can return a disposition map at room level or resource-type level. It may only be determinable per individual resource, which changes the arrival protocol significantly.
+
+5. **Suggestion queue queryability.** We have assumed Olma can infer suggestion status by reading current database state. A richer mechanism (querying pending suggestions by session or action ID) would make return-to-prior-work significantly more reliable.
+
+6. **Passage anchoring for edits.** We have not defined how Olma targets a specific location within a document for an edit. This is Habitat's domain and must be answered before mutation actions involving document edits can be designed.
+
+7. **Reference durability across structural changes.** How long stable references remain valid when Habitat's structure changes (reparenting, deletion, restructuring) is unknown.
+
+---
+
+*This document is Creatrix's first crossing requirements draft. Habitat's review should identify which assumptions are wrong, which are missing, and which impose Creatrix's ontology where it does not belong. Every "Assumptions Habitat must challenge" section is an honest invitation, not a formality.*
