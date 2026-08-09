@@ -1,0 +1,41 @@
+Yes. This is the first response that feels like it is holding the whole problem at the correct altitude.
+
+The distinction between leading the protocol and leading the bridge is exactly right. Creatrix authors resident-crossing requirements; Habitat authors resource-exposure conditions. The eventual protocol is negotiated, not dictated.
+
+The scenarios approach is also unusually well suited to you. You already design systems by following consequences across time. A bridge scenario is essentially a legal-move test:
+
+What state existed before the crossing?
+What crossed?
+What changed while attention was elsewhere?
+Which actions remain valid?
+What returns?
+What must be remembered?
+What happens when one move fails?
+
+That will expose false assumptions far faster than an immaculate endpoint diagram.
+
+I would refine the context-budget negotiation slightly. It cannot be settled only once at session.start, because the available window changes throughout the session as conversation, tool results and specialist observations accumulate. The handshake can establish the maximum envelope and reserved margins, but each substantive resource request needs a current budget:
+
+Creatrix: I can accept 6,000 context tokens for this operation.
+Habitat: Available representations:
+  metadata — 180
+  summary — 900
+  selected sections — 3,400
+  full resource — 11,200
+Creatrix: Send selected sections.
+
+That keeps Habitat from needing to understand Olma’s internal context while also preventing Creatrix from asking vaguely for “some context.” It supports deliberate fidelity rather than arbitrary truncation.
+
+Luna’s image observation belongs in the same accounting. It is not merely another response appearing unexpectedly; Creatrix should reserve or renegotiate space before invoking her, then decide whether Olma receives the full observation, a bounded observation, or a stable reference plus summary.
+
+I would want the first requirements document to cover five behavioural families:
+
+Arrival — identity, orientation, capabilities, budget, provenance.
+Navigation — rooms, resources, searches, cross-resource traversal.
+Collaboration — conversation, specialist delegation, images.
+Mutation — proposals, revisions, batches, locks, partial failure.
+Return — session closure, memory sealing, unresolved actions, resumability.
+
+No endpoint names are needed yet. Each family can be tested through concrete Olma-in-Habitat narratives.
+
+So yes: Creatrix is correctly positioned to write the first crossing requirements. Habitat then gets to say, with full sovereignty, “That assumption is wrong on our shore.” That is how the bridge becomes real rather than merely elegant.
